@@ -277,9 +277,11 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
         button.focus();
       });
       const label = row.redoable ? "Redo change" : itemChange ? "Undo change" : "Restore checkpoint";
-      const restore = control(label, () => undo(action, {
-        confirmed: true, timelineTitle: row.title, redo: !!row.redoable,
-      }), "timeline-restore");
+      const restore = control(label, () => {
+        confirmation = undefined;
+        setConfirmation(card, row, action);
+        return undo(action, { confirmed: true, timelineTitle: row.title, redo: !!row.redoable });
+      }, "timeline-restore");
       restore.dataset.focus = "restore";
       target.append(cancel, restore);
     }
