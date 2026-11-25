@@ -68,6 +68,7 @@ class MemorySync:
             if not self.app.memory_index.available(agent.config)["pinecone"]:
                 self.job = None
                 continue
+            previous_check = self.app.connections.checks.get("pinecone")
             if mode != "change":
                 self.refresh_box()
 
@@ -101,6 +102,11 @@ class MemorySync:
                 if stop:
                     return
             else:
+                if previous_check:
+                    with self.app.operation:
+                        same_target = self.app.memory_index.target(agent.config) == self.app.memory_index.target(self.app.agent.config)
+                        if same_target and self.app.connections.clear_pinecone_failure(previous_check):
+                            self.app.connection_state = self.app.connections.report()
                 self.retry_at, self.retry_delay = 0, 2
                 self.job = {**self.job, **result, "status": "complete",
                             "latency_ms": round((time.monotonic() - started) * 1_000)}

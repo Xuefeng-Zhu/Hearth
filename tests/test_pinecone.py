@@ -28,6 +28,7 @@ class PineconeHTTP:
         self.allow_records = True
         self.allow_rerank = True
         self.allow_box = False
+        self.index_list_error = None
         self.index = None
         self.records = {}
         self.requests = []
@@ -92,6 +93,8 @@ class PineconeHTTP:
                 self.index["embed"] = body["embed"]
             return self.response(self.index)
         if path == "indexes":
+            if self.index_list_error:
+                self.fail(request, self.index_list_error)
             return self.response({"indexes": [self.index] if self.index else []})
         if path == "indexes/hearth-memory":
             if not self.index:
@@ -242,6 +245,37 @@ class PineconeMemoryTest(unittest.TestCase):
         self.assertEqual(hit["backend"], "local")
         self.assertEqual(hit["path"], self.path)
         self.assertIsNone(self.app.memory_info()["pinecone"]["record_count"])
+
+    def test_home_and_connections_follow_pinecone_recovery_on_same_target(self):
+        self.http.allow_create = False
+        self.http.index_list_error = 403
+        app = self.start()
+        app.connections.test("pinecone")
+        app.connection_state = app.connections.report()
+        self.assertEqual(app.connection_info()["providers"]["pinecone"]["test_status"], "denied")
+        failed = app.home.snapshot()["builtin"]
+        self.assertEqual(failed["memory"]["pinecone"], "Unavailable")
+        self.assertFalse(next(row for row in failed["connections"]["items"] if row["id"] == "pinecone")["ok"])
+
+        self.http.allow_create = True
+        app.scan_connections(sync_memory=True)
+        self.assertEqual(self.wait()["status"], "complete")
+        current = app.home.snapshot()["builtin"]
+        memory = current["memory"]
+        self.assertEqual(memory["pinecone"], "Ready")
+        self.assertEqual(memory["record_count"], len(self.http.records["frank"]))
+        self.assertTrue(memory["last_sync"])
+        connection = next(row for row in current["connections"]["items"] if row["id"] == "pinecone")
+        self.assertEqual((connection["ok"], connection["state"]), (True, "Ready"))
+        entry = app.connection_info()["providers"]["pinecone"]
+        self.assertEqual((entry["index_state"], entry["index_error"], entry["test_status"], entry["test_detail"]),
+                         ("Ready", None, None, None))
+        self.assertNotIn("pinecone", app.connections.check_times)
+        self.assertNotIn("error", app.memory_info()["pinecone"])
+
+        app.connections.test("pinecone")
+        app.connection_state = app.connections.report()
+        self.assertEqual(app.connection_info()["providers"]["pinecone"]["test_status"], "denied")
 
     def test_edits_deletes_undo_redo_and_box_text(self):
         self.http.allow_box = True

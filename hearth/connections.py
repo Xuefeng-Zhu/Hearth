@@ -496,10 +496,18 @@ class Connections:
         connection_id = self.selected[provider]
         if catalog_entry(provider)["test_path"]:
             settings = self.config[provider] if provider in SETTINGS else {}
-            self.checks[provider] = probe(self.gateway, {**settings, **self.gateway_entry(provider, connection_id)})
+            status, detail = probe(self.gateway, {**settings, **self.gateway_entry(provider, connection_id)})
         else:
-            self.checks[provider] = self.test_authorization(provider, connection_id)
+            status, detail = self.test_authorization(provider, connection_id)
+        self.checks[provider] = status, detail
         self.check_times[provider] = iso()
+
+    def clear_pinecone_failure(self, previous):
+        if previous and previous[0] in ("failed", "denied") and self.checks.get("pinecone") is previous:
+            self.checks.pop("pinecone")
+            self.check_times.pop("pinecone", None)
+            return True
+        return False
 
     def test_authorization(self, provider, connection_id):
         try:

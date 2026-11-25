@@ -146,12 +146,23 @@ class Application:
                 self.reload_agent(reset_brain=False)
             if self.agent.models != previous_models:
                 self.reset_brain_status()
-            if sync_memory and previous_target != self.memory_index.target(self.agent.config):
-                self.memory_sync.request("startup")
+            if sync_memory:
+                status = self.memory_index.pinecone_status(self.agent.config)
+                if (previous_target != self.memory_index.target(self.agent.config)
+                        or (status["state"] != "Ready" and not self.memory_sync.running)):
+                    self.memory_sync.request("startup")
         self.connection_state = self.connections.report()
 
-    def connection_info(self):
-        return {**self.connection_state, **self.brain_status()}
+    def connection_info(self, pinecone=None):
+        if pinecone is None:
+            pinecone = self.memory_index.pinecone_status(self.agent.config)
+        report = {**self.connection_state, **self.brain_status()}
+        if pinecone["connected"]:
+            providers = report["providers"]
+            entry = {**providers["pinecone"], "index_state": pinecone["state"],
+                     "index_error": pinecone.get("error")}
+            report["providers"] = {**providers, "pinecone": entry}
+        return report
 
     def brain_status(self):
         provider, model = self.brain_reply

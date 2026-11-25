@@ -242,9 +242,11 @@ class Recall:
     def pinecone_status(self, config):
         connection_id, name, namespace = self.target(config)
         default = {"name": name, "namespace": namespace, "connected": bool(connection_id),
+                   "state": "Connecting" if connection_id else "Disconnected",
                    "record_count": None, "last_sync": None}
-        if connection_id and self.remote_status.get("target") == self.target(config):
-            return {**default, **{key: value for key, value in self.remote_status.items() if key != "target"}}
+        status = self.remote_status
+        if connection_id and status.get("target") == (connection_id, name, namespace):
+            return {**default, **{key: value for key, value in status.items() if key != "target"}}
         return default
 
     @staticmethod
@@ -379,7 +381,10 @@ class Recall:
             index.vector_transport = self.remote[1].vector_transport
         else:
             index.vector_transport = bool(saved.get("vector_transport"))
-        self.remote_status = {"target": target, "last_sync": saved.get("last_sync"), "state": "Connecting"}
+        status = self.remote_status
+        if status.get("target") != target:
+            status = {"target": target, "last_sync": saved.get("last_sync"), "state": "Connecting"}
+            self.remote_status = status
         try:
             info = index.bootstrap(bool(self.hf_entry(config)))
             remote = (target, index, info)
@@ -388,7 +393,6 @@ class Recall:
             if save_index:
                 save_index(entry, info)
             count = index.stats()
-            self.remote_status = {**self.remote_status, **info, "record_count": count, "state": "Ready"}
             records = {item["id"]: metadata(item) for item in self.corpus(config, selection)}
             fingerprints = {key: digest(json.dumps(row, sort_keys=True)) for key, row in records.items()}
             owned = set(saved.get("known", [])) | saved.get("records", {}).keys()
@@ -417,10 +421,6 @@ class Recall:
                 index.upsert(info, [records[key] for key in batch], embed)
                 stats["upserted"] += len(batch)
                 progress(upserted=stats["upserted"])
-            last_sync = iso() if inspect or rebuild or stats["work"] else saved.get("last_sync")
-            atomic_write(path, json.dumps({"records": fingerprints, "host": info["host"], "last_sync": last_sync,
-                                          "vector_transport": index.vector_transport}, separators=(",", ":")))
-            self.remote = remote
             if stats["work"]:
                 for delay in (0, 0.25, 0.6, 1):
                     if delay:
@@ -428,12 +428,15 @@ class Recall:
                     count = index.stats()
                     if count == len(records):
                         break
-            self.remote_status = {**self.remote_status, "record_count": count, "last_sync": last_sync,
+            last_sync = iso() if inspect or stats["work"] or not saved.get("last_sync") else saved["last_sync"]
+            atomic_write(path, json.dumps({"records": fingerprints, "host": info["host"], "last_sync": last_sync,
+                                          "vector_transport": index.vector_transport}, separators=(",", ":")))
+            self.remote = remote
+            self.remote_status = {"target": target, **info, "record_count": count, "last_sync": last_sync,
                                   "state": "Ready", "vector_transport": index.vector_transport}
             return {**stats, "record_count": count}
-        except (ConnectorError, OSError) as error:
-            self.remote_status = {**self.remote_status, "state": "Unavailable",
-                                  "error": error_message(error)}
+        except (HearthError, OSError) as error:
+            self.remote_status = {**status, "state": "Unavailable", "error": error_message(error)}
             raise
 
     def pinecone_hits(self, config, selection, query, candidates, filters, budget):

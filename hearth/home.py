@@ -141,11 +141,18 @@ class Home:
         zone = ZoneInfo(config["timezone"])
         today = now.astimezone(zone).date()
         rows_today = [row for row in rows if datetime.fromisoformat(row["at"]).astimezone(zone).date() == today]
-        report = self.app.connection_state
-        connections = [{"id": identity, "name": entry["name"],
-                        "ok": entry["status"] == "connected" and entry.get("test_status") not in ("failed", "denied")}
-                       for identity, entry in report["providers"].items()
-                       if entry["status"] in ("connected", "unauthorized")]
+        report = self.app.connection_info(pinecone)
+        connections = []
+        for identity, entry in report["providers"].items():
+            if entry["status"] not in ("connected", "unauthorized"):
+                continue
+            index_state = entry.get("index_state")
+            ok = (entry["status"] == "connected" and entry.get("test_status") not in ("failed", "denied")
+                  and index_state != "Unavailable")
+            item = {"id": identity, "name": entry["name"], "ok": ok}
+            if index_state and ok:
+                item["state"] = index_state
+            connections.append(item)
         weather = weather_state(state)
         built = {
             "today": {"quiet_until": iso(quiet) if quiet else None,
@@ -158,7 +165,7 @@ class Home:
                                                     for card in inbox[:3]]},
             "files": {"items": [{key: item[key] for key in ("id", "title", "format")} for item in files[:4]]},
             "memory": {"count": len(self.storage.files()), "last_sync": pinecone["last_sync"],
-                       "pinecone": pinecone.get("state") or ("Connected" if pinecone["connected"] else "Disconnected")},
+                       "pinecone": pinecone["state"], "record_count": pinecone["record_count"]},
             "activity": {"count": len(rows_today), "errors": sum(bool(row.get("error")) for row in rows_today),
                          "items": [{key: row[key] for key in ("at", "title", "kind")} for row in rows[:5]]},
             "connections": {"items": connections, "error": report.get("scan_error")},
