@@ -89,13 +89,13 @@ class Threads:
                     if first["role"] != "call":
                         title = compact(first["content"], 54)
                         break
-        return {"id": thread_id, "title": title or SIDE_TITLE}
+        return {"id": thread_id, "title": title or SIDE_TITLE, **({"skill": thread["skill"]} if "skill" in thread else {})}
 
     def list(self):
         index = self.load_index()
         return [self.describe(thread_id, index) for thread_id in index]
 
-    def create(self, *, title=None, panel_context=None):
+    def create(self, *, title=None, panel_context=None, skill=None):
         index = self.load_index()
         thread_id = new_id()
         index[thread_id] = {"created_at": iso()}
@@ -103,6 +103,8 @@ class Threads:
             index[thread_id]["title"] = title
         if panel_context is not None:
             index[thread_id]["panel_context"] = panel_context
+        if skill is not None:
+            index[thread_id]["skill"] = skill
         self.save_index(index)
         return self.describe(thread_id, index)
 

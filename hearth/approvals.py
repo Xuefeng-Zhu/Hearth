@@ -12,12 +12,13 @@ from .gateway_tools import scrub, validate_request
 from .storage import HearthError, atomic_write, iso, new_id
 from .threads import MAIN
 
-CATEGORIES = ("send", "spend", "public", "destructive")
+CONNECTOR_CATEGORIES = ("send", "spend", "public", "destructive")
+CATEGORIES = (*CONNECTOR_CATEGORIES, "skills")
 DEFAULTS = dict.fromkeys(CATEGORIES, "ask")
-LABELS = {"send": "Send", "spend": "Spend", "public": "Publish", "destructive": "Delete"}
+LABELS = {"send": "Send", "spend": "Spend", "public": "Publish", "destructive": "Delete", "skills": "Skills"}
 READ_TOOLS = frozenset({
     "memory_read", "memory_search", "web_search", "read_artifact", "list_reminders", "list_recurring_tasks",
-    "browse_fetch", "browse_search", "undo",
+    "browse_fetch", "browse_search", "undo", "skill_load",
 })
 LOCAL_TOOLS = frozenset({
     "remember_fact", "schedule", "checkpoint", "create_panel", "update_panel", "create_recurring_task",
@@ -52,7 +53,7 @@ def connector_effects(provider, method, path, body):
     if method in SAFE_HTTP:
         return effects
     if method == "DELETE":
-        return effects | {"destructive"} if provider == "box" else set(CATEGORIES)
+        return effects | {"destructive"} if provider == "box" else set(CONNECTOR_CATEGORIES)
     if effects and provider in {"browserbase", "fireworks", "openai", "anthropic", "openrouter", "nebius_jobs", "apify"}:
         return effects
     # The raw gateway cannot infer the behavior of an arbitrary endpoint or a
@@ -67,7 +68,7 @@ def connector_effects(provider, method, path, body):
         return effects | {"send"}
     if provider in {"discourse", "blotato", "github"} and re.search(r"(?:posts|comments|issues|pulls)$", route):
         return effects | {"public", "send"}
-    return set(CATEGORIES)
+    return set(CONNECTOR_CATEGORIES)
 
 
 def classify(tool, args, *, prompt=""):
@@ -75,12 +76,14 @@ def classify(tool, args, *, prompt=""):
         return ()
     if tool in DELETE_TOOLS:
         return ("destructive",)
+    if tool in {"skill_create", "skill_edit"}:
+        return ("skills",)
     if tool in {"send_email", "email_acknowledgment"}:
         return ("send",)
     if tool == "browse_session":
         steps = browserbase.normalize_steps(args.get("steps"))
         # Interacting with a page may submit, publish, or remove data.
-        return CATEGORIES if any(step["action"] in browserbase.WRITE_STEPS for step in steps) else ("spend",)
+        return CONNECTOR_CATEGORIES if any(step["action"] in browserbase.WRITE_STEPS for step in steps) else ("spend",)
     if tool == "memory_write":
         notes = args.get("notes")
         clears = isinstance(notes, list) and any(isinstance(note, dict) and isinstance(note.get("content"), str)

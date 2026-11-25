@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import approvals, artifacts, box, browserbase, home, inbox, memory_edits, page_policy, pages, recall, reminders, router, scheduler, search, tasks, timeline, uploads, voice, voice_call
+from . import approvals, artifacts, box, browserbase, home, inbox, memory_edits, page_policy, pages, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -39,6 +39,8 @@ STATIC = {
     "/reminders.js": ("reminders.js", "text/javascript; charset=utf-8"),
     "/automation.js": ("automation.js", "text/javascript; charset=utf-8"),
     "/automation.css": ("automation.css", "text/css; charset=utf-8"),
+    "/skills.js": ("skills.js", "text/javascript; charset=utf-8"),
+    "/skills.css": ("skills.css", "text/css; charset=utf-8"),
     "/reminder-action": ("reminder-action.html", "text/html; charset=utf-8"),
     "/reminder-action.js": ("reminder-action.js", "text/javascript; charset=utf-8"),
     "/avatar.js": ("avatar.js", "text/javascript; charset=utf-8"),
@@ -304,6 +306,8 @@ class Application:
         jobs = {job["id"]: job for job in state["jobs"]}
         actions = []
         for action in state["actions"].values():
+            if action["kind"] == "skill":
+                action = {**action, "undoable": skills.can_undo(state, action)}
             if (job := jobs.get(action.get("job", {}).get("id"))) is not None:
                 action = {**action, "job": {**job, "cancelable": reminders.can_cancel(state, job)}}
             if effect := state["actions"].get(action.get("effect_action")):
@@ -426,13 +430,15 @@ class Application:
                 phase = {"started": "thinking", "tool_started": "working", "tool_finished": "thinking",
                          "token": "thinking" if source == voice_call.SOURCE else "speaking",
                          "reset": "thinking", "remembered": "remembering"}.get(name)
-                if phase or name in {"browse_active", "browse_finished"}:
+                if phase or name in {"browse_active", "browse_finished", "skill_loaded"}:
                     with self.turn_lock:
                         activity = self.turn_activity.get(thread_id, {})
                         if name == "browse_active":
                             activity = {**activity, "browse": data, "pose": "working"}
                         elif name == "browse_finished":
                             activity = {key: value for key, value in activity.items() if key != "browse"}
+                        elif name == "skill_loaded":
+                            activity = {**activity, "skill": data}
                         else:
                             activity = {**activity, "pose": phase, "detail": data.get("title")}
                         self.turn_activity[thread_id] = activity
@@ -528,6 +534,8 @@ class Application:
             return tasks.undo_delete(self.storage, action_id), 200
         if action and action["kind"] == "page":
             return self.pages.undo(action_id), 200
+        if action and action["kind"] == "skill":
+            return self.agent.skills.undo(action_id), 200
         if action and action["kind"] == "reminder":
             return self.reminders.cancel(action["job"]["id"]), 200
         if action and action.get("memory_change"):
@@ -553,9 +561,10 @@ class Application:
     def restore_checkpoint(self, action):
         # Give the HTTP acknowledgement time to leave before the Sprite disconnects.
         time.sleep(0.35)
-        with self.operation, self.storage.lock():
+        with self.operation:
             try:
-                self.checkpoints.restore(action["checkpoint"]["id"])
+                with self.storage.lock():
+                    self.checkpoints.restore(action["checkpoint"]["id"])
             except (HearthError, OSError):
                 self.restore = {"action_id": action["id"], "status": "failed"}
             else:
@@ -666,6 +675,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise HearthError("Open Timeline from Hearth.")
                 with self.app.activity.subscribe() as events:
                     self.stream_events(events)
+            elif url.path == "/api/skills":
+                self.json({"skills": self.app.agent.skills.list()})
+            elif url.path == "/api/skills/detail":
+                params = parse_qs(url.query)
+                self.json(self.app.agent.skills.detail(params.get("id", [None])[0], params.get("version", [None])[0]))
             elif url.path == "/api/memory/settings":
                 self.json(self.app.memory_info())
             elif url.path == "/api/search/settings":
@@ -828,12 +842,13 @@ class Handler(BaseHTTPRequestHandler):
                   "/api/brain/test", "/api/brain/settings", "/api/brain/route", "/api/threads/create", "/api/threads/rename",
                   "/api/threads/delete", "/api/threads/share", "/api/memory/settings", "/api/memory/test",
                   "/api/memory/search", "/api/memory/reindex", "/api/memory/sync", "/api/memory/forget",
-                  "/api/search/settings", "/api/search/test", "/api/browse/settings", "/api/browse/approve"}
+                  "/api/search/settings", "/api/search/test", "/api/browse/settings", "/api/browse/approve",
+                  "/api/skills/create", "/api/skills/save", "/api/skills/delete", "/api/skills/duplicate", "/api/skills/try"}
         if self.path not in routes:
             self.json({"error": "Page not found."}, 404)
             return
         try:
-            body = self.body()
+            body = self.body(limit=100_000) if self.path.startswith("/api/skills/") else self.body()
         except HearthError as error:
             self.json({"error": str(error)}, 400)
             return
@@ -876,6 +891,17 @@ class Handler(BaseHTTPRequestHandler):
                     raise HearthError("Invalid browser approval.")
                 elif self.path.startswith("/api/threads/"):
                     result = self.app.update_thread(self.path.rsplit("/", 1)[-1], body)
+                elif self.path.startswith("/api/skills/"):
+                    operation = self.path.rsplit("/", 1)[-1]
+                    library = self.app.agent.skills
+                    if operation == "try":
+                        if body.keys() != {"id"}:
+                            raise HearthError("Choose a skill to try.")
+                        with self.app.storage.lock():
+                            skill = library.require(self.app.storage.load(), identity=body["id"])
+                            result = self.app.threads.create(title=skill["name"], skill={key: skill[key] for key in ("id", "name")})
+                    else:
+                        result, _ = library.mutate(operation, body)
                 elif self.path.startswith("/api/connections/"):
                     result = self.update_connections(body)
                 elif self.path.startswith("/api/brain/"):
