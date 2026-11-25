@@ -1,0 +1,384 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
+const url = process.env.HEARTH_QA_URL || "http://127.0.0.1:39519";
+const before = process.env.HEARTH_QA_BEFORE_URL;
+const shots = process.env.HEARTH_QA_SCREENSHOTS;
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
+const failures = new Map();
+const minima = new Map();
+let measurements = 0;
+
+function contrastPairs(dark) {
+  const modal = [...document.querySelectorAll("dialog:modal")].at(-1);
+  const scope = modal || document.body;
+  const pairs = [];
+  const colors = new Map();
+  const styles = new WeakMap();
+  const backgrounds = new WeakMap();
+  const read = (el) => {
+    if (!styles.has(el)) styles.set(el, getComputedStyle(el));
+    return styles.get(el);
+  };
+  const canvas = document.createElement("canvas").getContext("2d");
+  function color(value) {
+    if (!colors.has(value)) {
+      canvas.fillStyle = "#000";
+      canvas.fillStyle = value;
+      const hex = canvas.fillStyle;
+      const components = hex.startsWith("#") ? hex.slice(1).match(/../g).map((part) => parseInt(part, 16))
+        : hex.match(/[\d.]+/g).map(Number);
+      colors.set(value, [...components.slice(0, 3), components[3] ?? 1]);
+    }
+    return colors.get(value);
+  }
+  const transparent = [0, 0, 0, 0];
+  function over(fg, bg) {
+    const alpha = fg[3] + bg[3] * (1 - fg[3]);
+    return alpha ? [...fg.slice(0, 3).map((value, i) => (value * fg[3] + bg[i] * bg[3] * (1 - fg[3])) / alpha), alpha]
+      : transparent;
+  }
+  const opacity = (value, amount) => [...value.slice(0, 3), value[3] * amount];
+  function luminance(value) {
+    return value.slice(0, 3).map((channel) => channel / 255)
+      .map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+      .reduce((sum, channel, i) => sum + channel * [0.2126, 0.7152, 0.0722][i], 0);
+  }
+  function visible(el) {
+    if (!el?.checkVisibility({ opacityProperty: true, visibilityProperty: true }) || !el.getClientRects().length
+        || el.closest(".visually-hidden, [inert]")) return false;
+    for (let ancestor = el; ancestor; ancestor = ancestor.parentElement) {
+      if (ancestor.parentElement?.matches("details:not([open])") && ancestor.tagName !== "SUMMARY") return false;
+    }
+    return true;
+  }
+  const format = (value) => value.slice(0, 3).map((channel) => Math.round(channel)).join(",");
+  function surfaces(el) {
+    if (backgrounds.has(el)) return backgrounds.get(el);
+    const style = read(el);
+    const base = color(style.backgroundColor);
+    // Solid CSS colors and the extrema of the app's single-layer gradients.
+    const stops = style.backgroundImage.match(/rgba?\([^)]+\)/g) || [];
+    const values = [base, ...stops.map((stop) => over(color(stop), base))];
+    backgrounds.set(el, values);
+    return values;
+  }
+  function measure(el, value, threshold, sample, outside = false) {
+    const path = [];
+    for (let parent = outside ? el.parentElement : el; parent; parent = parent.parentElement) path.push(parent);
+    let combinations = [[color(value), transparent]];
+    for (const layer of path) {
+      const alpha = Number(read(layer).opacity);
+      combinations = combinations.flatMap(([ink, bg]) => surfaces(layer).map((surface) => [
+        opacity(over(ink, surface), alpha), opacity(over(bg, surface), alpha),
+      ]));
+    }
+    const base = color(dark ? "rgb(0,0,0)" : "rgb(255,255,255)");
+    const scored = combinations.map(([ink, bg]) => {
+      const foreground = over(ink, base), background = over(bg, base);
+      const a = luminance(foreground), b = luminance(background);
+      return { ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05),
+        colors: `${format(foreground)} / ${format(background)}` };
+    }).sort((a, b) => a.ratio - b.ratio)[0];
+    pairs.push({ ...scored, threshold, sample: sample.trim().replace(/\s+/g, " ").slice(0, 80),
+      element: el.id ? `#${el.id}` : el.tagName.toLowerCase() + (el.getAttribute("class") ? "." + el.getAttribute("class").split(" ")[0] : "") });
+  }
+  function text(el, value, style = read(el), multiplier = 1) {
+    if (!value?.trim() || (!dark && el.closest(":disabled, [aria-disabled=true]"))) return;
+    const size = parseFloat(style.fontSize);
+    const threshold = size >= 24 || (size >= 18.667 && Number(style.fontWeight) >= 700) ? 3 : 4.5;
+    const rgba = opacity(color(style.color), multiplier);
+    measure(el, `rgba(${rgba.join(",")})`, threshold, value);
+  }
+  const walk = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+  while (walk.nextNode()) {
+    const { parentElement: el, textContent } = walk.currentNode;
+    if (!textContent.trim() || !visible(el) || el.closest("script, style, select, textarea, svg")) continue;
+    const range = document.createRange();
+    range.selectNodeContents(walk.currentNode);
+    if (!range.getClientRects().length) continue;
+    text(el, textContent);
+  }
+  for (const el of scope.querySelectorAll("input, textarea, select")) {
+    if (!visible(el) || el.matches("[type=checkbox], [type=radio], [type=range], [type=color], [type=file]")) continue;
+    if (el.matches("select")) text(el, el.selectedOptions[0]?.label);
+    else if (el.value) text(el, el.value);
+    else if (el.placeholder) {
+      const style = getComputedStyle(el, "::placeholder");
+      text(el, el.placeholder, style, Number(style.opacity));
+    } else if (el.type === "datetime-local") text(el, "Date/time fields");
+  }
+  if (dark) {
+    for (const el of scope.querySelectorAll("svg path, svg circle, svg rect, .dot, .thread-dot, .voice-dot, .artifact-kind-icon, .timeline-chevron, .typing-dots i")) {
+      if ((el instanceof SVGElement ? !visible(el.ownerSVGElement) : !visible(el))
+          || el.closest(".mascot, [hidden]") || read(el).display === "none") continue;
+      const style = read(el);
+      if (el instanceof SVGElement) {
+        const value = style.stroke !== "none" ? style.stroke : style.fill;
+        if (value !== "none") measure(el, value, 3, "SVG icon");
+      } else {
+        const value = el.matches(".artifact-kind-icon") ? style.color
+          : el.matches(".timeline-chevron") ? style.borderRightColor : style.backgroundColor;
+        measure(el, value, 3, "icon", !el.matches(".artifact-kind-icon"));
+      }
+    }
+    for (const el of scope.querySelectorAll("input, select, textarea, button, .composer, .artifact-control")) {
+      if (!visible(el)) continue;
+      const style = read(el);
+      const sides = ["Top", "Right", "Bottom", "Left"].filter((side) =>
+        parseFloat(style[`border${side}Width`]) > 0 && color(style[`border${side}Color`])[3] > 0);
+      if (sides.length) measure(el, style[`border${sides[0]}Color`], 3, "control border", true);
+      if (el.matches(":focus-visible") && parseFloat(style.outlineWidth) && style.outlineStyle !== "none") {
+        measure(el, style.outlineColor, 3, "focus indicator", parseFloat(style.outlineOffset) >= 0);
+      }
+    }
+    for (const el of scope.querySelectorAll("a:focus-visible, summary:focus-visible, [tabindex]:focus-visible")) {
+      if (!visible(el)) continue;
+      const style = read(el);
+      if (parseFloat(style.outlineWidth) && style.outlineStyle !== "none") {
+        measure(el, style.outlineColor, 3, "focus indicator", parseFloat(style.outlineOffset) >= 0);
+      }
+    }
+  }
+  return pairs;
+}
+
+async function audit(page, state, scheme, width) {
+  const pairs = await page.evaluate(contrastPairs, scheme === "dark");
+  assert.ok(pairs.length, `No visible elements in ${state}`);
+  measurements += pairs.length;
+  for (const pair of pairs) {
+    const key = `${scheme} ${pair.threshold === 4.5 ? "body text" : "large text / non-text"}`;
+    const location = `${state} at ${width}px`;
+    if (pair.ratio < (minima.get(key)?.ratio ?? Infinity)) minima.set(key, { ...pair, location });
+    if (pair.ratio + 1e-6 < pair.threshold) {
+      const id = `${scheme} ${pair.element} ${pair.colors} ${pair.sample.includes("border") ? "border" : ""}`;
+      if (!failures.has(id)) failures.set(id, { ...pair, location, scheme });
+    }
+  }
+}
+
+async function save(page, name) {
+  if (shots) await page.screenshot({ path: join(shots, `run19-${name}.png`), animations: "disabled" });
+}
+
+async function go(page, id) {
+  if (await page.locator("#open-menu").isVisible()) {
+    await page.locator("#open-menu").click();
+    await page.locator(`#workspace-drawer [data-view=${id}]`).click();
+  } else {
+    await page.locator(`.sidebar [data-view=${id}]`).click();
+  }
+  await page.locator(`#${id}-view`).waitFor();
+}
+
+async function drawerChecks(page) {
+  const toggle = page.locator("#open-menu");
+  const drawer = page.locator("#workspace-drawer");
+  await toggle.click();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  assert.ok(await drawer.locator("[aria-current=page]").isVisible());
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await page.evaluate(() => document.activeElement.id), "avatar-view");
+  await page.keyboard.press("Tab");
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute("aria-label")), "Close menu");
+  await page.keyboard.press("Escape");
+  await drawer.waitFor({ state: "hidden" });
+  await toggle.focus();
+  await toggle.click();
+  await page.mouse.click((await page.viewportSize()).width - 4, 30);
+  await drawer.waitFor({ state: "hidden" });
+  await toggle.click();
+  const touch = await page.context().newCDPSession(page);
+  await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 235, y: 90 }] });
+  await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 115, y: 95 }] });
+  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await touch.detach();
+  await drawer.waitFor({ state: "hidden" });
+  assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+}
+
+async function screens(scheme, width, height) {
+  const mobile = width <= 760;
+  const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: scheme,
+    reducedMotion: "reduce", isMobile: mobile, hasTouch: mobile });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const check = (state) => audit(page, state, scheme, width);
+  const shot = (name) => mobile && scheme === "dark" ? save(page, `dark-${name}`) : undefined;
+  page.setDefaultTimeout(7500);
+  await page.goto(url);
+  assert.equal(await page.title(), "Hearth");
+  await page.locator(".chat-markdown table").waitFor();
+  assert.match(await page.locator(".chat-markdown").first().innerText(), /Seattle weekend/);
+  const screenshotLayout = page.locator("#composer");
+  if (mobile) {
+    assert.ok(Math.abs((await screenshotLayout.boundingBox()).y + (await screenshotLayout.boundingBox()).height - height) <= 1);
+    await save(page, `menu-closed-${scheme}`);
+    await page.locator("#open-menu").click();
+    await check("workspace drawer");
+    await save(page, `menu-open-${scheme}`);
+    await page.keyboard.press("Escape");
+    await page.locator("#workspace-drawer").waitFor({ state: "hidden" });
+    await drawerChecks(page);
+  }
+  await check("Chat");
+  await shot("chat");
+  await page.locator(".remembered summary").click();
+  await page.locator(".message.assistant .message-menu summary").click();
+  assert.ok(await page.getByText("DeepSeek-V4.1-Flash · fast", { exact: true }).isVisible());
+  await page.locator("#message").focus();
+  await check("Chat expanded actions, memory, and focus");
+  await page.locator(".remembered summary").click();
+  await page.locator(".message.assistant .message-menu summary").click();
+  await page.getByRole("button", { name: "Save to Box", exact: true }).first().click();
+  await page.locator("#notice").waitFor();
+  await check("Chat notice");
+  if (mobile) await page.locator("#open-menu").click();
+  await page.getByRole("button", { name: "Seattle notes", exact: true }).click();
+  await page.getByText("Any good viewpoints?").waitFor();
+  const more = page.getByRole("button", { name: "Show more", exact: true });
+  await more.click();
+  assert.equal(await page.getByRole("button", { name: "Show less", exact: true }).getAttribute("aria-expanded"), "true");
+  await page.getByRole("button", { name: "Show less", exact: true }).click();
+  await check("Side chat");
+  await shot("side-chat");
+  await go(page, "timeline");
+  await page.locator(".timeline-entry").first().waitFor();
+  await shot("timeline");
+  if (mobile && scheme === "dark") await save(page, "timeline-after");
+  const entryKinds = await page.locator(".timeline-entry").evaluateAll((items) => new Set(items.map((el) => el.dataset.kind)).size);
+  assert.ok(entryKinds >= 16, `Only ${entryKinds} Timeline entry kinds`);
+  await check("Timeline");
+  const detail = page.locator(".timeline-entry[data-kind=search] .timeline-card-head").first();
+  await detail.focus();
+  await page.keyboard.press("Enter");
+  await page.locator(".timeline-entry[data-kind=search] .timeline-raw summary").first().click();
+  await page.locator(".timeline-raw pre").first().waitFor();
+  await check("Timeline expanded details, raw view, and focus");
+  await page.locator(".timeline-card-head").evaluateAll((summaries) => {
+    for (const summary of summaries) if (!summary.parentElement.open) summary.click();
+  });
+  await check("All Timeline entry details");
+  await page.locator(".timeline-undo").first().click();
+  await page.locator(".timeline-confirm:visible").waitFor();
+  await check("Timeline undo confirmation");
+  await shot("timeline-undo");
+  await page.locator("#timeline-search").fill("no-contrast-fixture-results");
+  await page.locator(".timeline-empty").waitFor();
+  await check("Timeline empty");
+  await page.locator("#timeline-search").fill("");
+  await go(page, "artifacts");
+  await page.locator(".artifact-card").first().waitFor();
+  await check("Artifacts grid");
+  await shot("artifacts");
+  await page.locator("#artifact-list").click();
+  await check("Artifacts list");
+  await shot("artifacts-list");
+  for (const [format, selector] of Object.entries({ docx: ".artifact-document", pdf: ".artifact-pdf", xlsx: ".artifact-sheet", pptx: ".artifact-slides" })) {
+    const card = page.locator(".artifact-card").filter({ has: page.locator(`.artifact-badge.is-${format}`) }).first();
+    await card.locator(".artifact-card-title").click();
+    await page.locator(selector).waitFor();
+    await check(`Artifact ${format.toUpperCase()} drawer`);
+    await shot(`artifact-${format}`);
+    await page.locator("#artifact-close").click();
+  }
+  await page.locator("#artifact-search").fill("no-contrast-fixture-results");
+  await page.locator("#artifact-empty").waitFor();
+  await check("Artifacts empty");
+  await page.locator("#artifact-search").fill("");
+  await go(page, "memory");
+  await page.locator("#files button").first().waitFor();
+  await page.locator("#files button").first().click();
+  await check("Memory");
+  await shot("memory");
+  await go(page, "reminders");
+  await page.locator(".delivery-card").first().waitFor();
+  await page.locator("#reminder-create summary").click();
+  await check("Reminders including create form");
+  await shot("reminders");
+  await go(page, "inbox");
+  await page.locator(".inbox-card").first().waitFor();
+  const source = page.locator(".inbox-source summary").first();
+  if (await source.isVisible()) await source.click();
+  await check("Inbox and source");
+  await shot("inbox");
+  await go(page, "connections");
+  for (const id of ["configured", "not-configured"]) {
+    await page.getByRole("tab", { name: id === "configured" ? /^Configured/ : /^Not configured/ }).click();
+    await page.locator(`#${id}-panel .connection-card`).first().waitFor();
+    await check(`Connections ${id}`);
+    await shot(`connections-${id}`);
+  }
+  await go(page, "settings");
+  await check("Settings");
+  await shot("settings");
+  for (const id of ["brain", "memory", "artifacts", "search", "appearance", "voice", "reminders"]) {
+    const panel = page.locator(`#settings-${id}`);
+    if (mobile) {
+      if (!await panel.isVisible()) await page.locator(`.settings-disclosure[aria-controls=settings-${id}]`).click();
+    } else await page.locator(`[data-settings=${id}]`).click();
+    await panel.waitFor();
+    await check(`Settings ${id}`);
+    await shot(`settings-${id}`);
+  }
+  await go(page, "chat");
+  await page.locator("#start-call").click();
+  await page.locator("#call-sheet:modal").waitFor();
+  await check("Demo call sheet");
+  await page.locator("#call-captions li").nth(1).waitFor();
+  await check("Active demo call with captions");
+  await shot("call");
+  await page.keyboard.press("Escape");
+  const done = page.locator("#call-done");
+  if (await done.isVisible()) await done.click();
+  if (await page.locator("#call-sheet").isVisible()) await page.keyboard.press("Escape");
+  await page.locator("#call-sheet").waitFor({ state: "hidden" });
+  if (mobile) await page.locator("#open-menu").click();
+  await page.locator("#new-thread").click();
+  await page.locator("#side-welcome").waitFor();
+  await check("Empty side chat");
+  assert.deepEqual(errors, [], `Browser exceptions in ${scheme} at ${width}px`);
+  console.log(`Audited ${scheme} at ${width} × ${height}`);
+  await ctx.close();
+}
+
+try {
+  if (shots) await mkdir(shots, { recursive: true });
+  for (const scheme of ["dark", "light"]) {
+    for (const [width, height] of [[390, 844], [1440, 1000]]) await screens(scheme, width, height);
+  }
+  for (const scheme of ["dark", "light"]) {
+    for (const [width, height] of [[375, 812], [430, 932], [844, 390]]) {
+      const page = await browser.newPage({ viewport: { width, height }, colorScheme: scheme,
+        reducedMotion: "reduce", isMobile: true, hasTouch: true });
+      await page.goto(url);
+      await drawerChecks(page);
+      await page.locator("#open-menu").click();
+      await page.locator("#workspace-drawer [data-view=timeline]").click();
+      await page.locator(".timeline-entry").first().waitFor();
+      await page.close();
+    }
+  }
+  if (before && shots) {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, colorScheme: "dark",
+      reducedMotion: "reduce", isMobile: true, hasTouch: true });
+    await page.goto(before);
+    await page.locator(".mobile-tabs [data-view=timeline]").click();
+    await page.locator(".timeline-entry").first().waitFor();
+    await save(page, "timeline-before");
+  }
+} finally {
+  for (const [key, row] of minima) console.log(`Minimum ${key} ${row.ratio.toFixed(3)}:1 — ${row.sample} (${row.location})`);
+  for (const row of [...failures.values()].sort((a, b) => a.ratio - b.ratio)) {
+    console.error(`${row.scheme} ${row.ratio.toFixed(3)} < ${row.threshold} ${row.element} "${row.sample}" [${row.colors}] ${row.location}`);
+  }
+  console.log(`${measurements} contrast measurements, ${failures.size} distinct failures`);
+  await browser.close();
+}
+assert.equal(failures.size, 0, "Some visible colors are below WCAG AA.");
