@@ -287,6 +287,27 @@ class ChatWorkersTest(unittest.TestCase):
         self.assertTrue(any(name == "done" for name, _ in collect(events)))
         self.assertEqual(len(app.agent.skills.list()), 4)
 
+    def test_last_model_call_uses_evidence_without_native_tool_history(self):
+        class AtLimit(WorkerGateway):
+            def completion(self, model, messages, tools, emit, **limits):
+                if not (TURN_MEMORY.get() or {}).get("worker"):
+                    return super().completion(model, messages, tools, emit, **limits)
+                self.limits.append(limits)
+                if tools:
+                    return tool_call("memory_read", {"path": "topics/thanksgiving.md"})
+                if [item["role"] for item in messages] != ["system", "user"]:
+                    raise AssertionError("Text-only synthesis included native tool history")
+                if messages[-1]["content"].count("topics/thanksgiving.md") != workers.TOOL_LIMIT:
+                    raise AssertionError("Text-only synthesis lost evidence")
+                return {"role": "assistant", "content": '{"summary":"All findings reviewed.","sources":[]}'}
+
+        gateway = AtLimit(assignments=ASSIGNMENTS[:1])
+        app = self.make_app(gateway)
+        events = collect(app.enqueue("main", PROMPT))
+        self.assertEqual(gateway.results[0]["summary"], "All findings reviewed.")
+        self.assertEqual(len(gateway.limits), workers.MODEL_LIMIT)
+        self.assertTrue(any(name == "done" for name, _ in events))
+
     def test_recurring_task_can_delegate_and_handoff_approval(self):
         assignment = {"title": "Browser", "instructions": "Check the sample page with a browser session.",
                       "tools": ["browse_session"]}

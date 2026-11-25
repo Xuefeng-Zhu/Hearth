@@ -16,7 +16,7 @@ MAX_WORKERS = 6
 TIMEOUT = 75
 TOOL_LIMIT = 4
 MODEL_LIMIT = TOOL_LIMIT + 1
-OUTPUT_TOKENS = 1536
+OUTPUT_TOKENS = 2048
 ACTIVE = {"queued", "running", "waiting_approval"}
 
 
