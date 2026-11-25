@@ -24,7 +24,7 @@ def cron_field(field, low, high):
     return sorted(values)
 
 
-def next_cron(expression, now):
+def next_cron(expression, now, *, zone=None):
     try:
         fields = expression.split()
         minutes, hours, days, months, weekdays = [
@@ -34,7 +34,7 @@ def next_cron(expression, now):
     except ValueError:
         raise HearthError("Use a five-field UTC cron expression, such as 0 17 * * 4.") from None
     weekdays = {day % 7 for day in weekdays}
-    day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day = (now.astimezone(zone) if zone else now).replace(hour=0, minute=0, second=0, microsecond=0)
     for offset in range(366 * 9):
         date = day + timedelta(days=offset)
         day_match = date.day in days
@@ -46,7 +46,12 @@ def next_cron(expression, now):
         for hour in hours:
             for minute in minutes:
                 at = date.replace(hour=hour, minute=minute)
-                if at > now:
+                if zone:
+                    instant = at.astimezone(timezone.utc)
+                    # A spring-forward wall time does not occur. Use the first fold in fall.
+                    if instant > now and instant.astimezone(zone).replace(tzinfo=None) == at.replace(tzinfo=None):
+                        return instant
+                elif at > now:
                     return at
     raise HearthError("That cron expression has no upcoming occurrence.")
 

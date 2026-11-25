@@ -153,9 +153,11 @@ def normalized_results(provider, data, selection, cutoff):
     return results
 
 
-def search(gateway, config, selection, query, failure):
+def search(gateway, config, selection, query, failure, *, preferred=None):
     start = time.monotonic()
     entries = candidates(config, selection)
+    if preferred:
+        entries.sort(key=lambda item: item["provider"] != preferred)
     if not entries:
         if selection["provider"] == "off":
             raise HearthError("Web search is off in Settings.")

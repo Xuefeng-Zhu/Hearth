@@ -89,13 +89,13 @@ def validate_request(provider, method, path, body):
     if redact_text(unquote(path)) != unquote(path):
         raise HearthError("Remove private credentials and Sprite URLs from the request.")
     if body is not None:
-        if method in ("GET", "HEAD"):
-            raise HearthError("GET and HEAD requests take no JSON body.")
+        if method in ("GET", "HEAD", "OPTIONS"):
+            raise HearthError("GET, HEAD, and OPTIONS requests take no JSON body.")
         if len(json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8")) > 16_000:
             raise HearthError("The request body is too large.")
         if contains_credential_field(body) or scrub(body) != body:
             raise HearthError("Remove private credentials and Sprite URLs from the request.")
-    if provider == "upstash" and method == "GET" and route.strip("/").split("/")[0].lower() not in UPSTASH_READS:
+    if provider == "upstash" and method in ("GET", "HEAD", "OPTIONS") and route.strip("/").split("/")[0].lower() not in UPSTASH_READS:
         raise HearthError("Use an approved POST to run Redis commands that may change data.")
     return method, path.removeprefix("/")
 
