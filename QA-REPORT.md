@@ -1,5 +1,36 @@
 # Hearth QA for Hacksgiving
 
+## Run 22 · Glanceable Home
+
+November 25, 2026 · Private Hearth Sprite
+
+### Demo script
+
+1. In a demo workspace, choose **Mock** in **Settings → Brain**. To populate **Today** and **Recent files**, send **Plan Thanksgiving dinner** in Chat. Wait for the PDF, workbook, and in-app reminder. Leave the sample invitation awaiting approval.
+2. Open **Home**, the first item in the desktop sidebar and mobile menu. Select **Try sample panels in Chat**, then send the prepared prompt, **Create the Thanksgiving countdown and shopping list Home panels**. The reply’s **Open Home** action returns to the seven built-ins and the two new panels. Send the same prompt again if you need to resume this demo.
+3. Open **Thanksgiving plan** in **Recent files** to show its PDF preview. Return to Home, check off **Cranberries** in **Shopping list**, and use **Refresh Shopping list**. Reload to show that the checkmark persists. Select **Ask about this** to open a side chat with the panel snapshot and a prepared question.
+4. Drag **Today** by its handle on desktop. On mobile, select **Edit layout** and use **Move Today down**. Remove a panel and restore it from **Removed panels**, then select **Done**. Reload to verify the saved order.
+5. Open **Weather settings** from the weather panel and enter another city, such as **Seattle, WA**. Return to Home and refresh the panel. The location and conditions change while the clock stays on Pacific time. [Open-Meteo forecast documentation](https://open-meteo.com/en/docs) · [Location search documentation](https://open-meteo.com/en/docs/geocoding-api)
+
+### Verification and captures
+
+- Chromium passed at **390 × 844** and **1440 × 1080** in both themes. It verified the landing page, navigation order, grid, drag and button reordering, removal and restoration, checklist and layout persistence, preview focus, weather settings, the side-chat snapshot, approval for four panels, and refresh recovery with the last good value visible. No page or console errors were reported. The Browser plugin was unavailable, so the checks used Playwright Chromium.
+- The Home text contrast sweep measured a minimum of **5.50:1** in light mode and **6.20:1** in dark mode. Visual review compared the navigation, date hierarchy, panel order, heading icons, footer actions, and grid density with the desktop and mobile concepts. The deployed shell keeps Hearth’s existing sidebar and mobile status indicator.
+- **127 Python tests** and **7 Node tests** passed. All top-level frontend JavaScript passed `node --check`. The Home tests cover validation, atomic approval and replay, scheduler intervals, refresh and edit races, saved errors, persistence, connector GET, public URLs, and weather retries. The Run 21 browser regression also passed in all four viewport and theme combinations.
+- The deployment returned `{"ok": true, "checkpoints": "sprite"}` from authenticated `/health`. The live Home endpoint returned all seven built-ins, and Open-Meteo populated the stored Redmond forecast. In an isolated Sprite workspace, Kimi K3.1 Pro created a stat panel through Chat, and a public URL panel saved a summary from a connected brain. The screenshots use a Mock workspace with fixture weather and connector states.
+
+| Capture | 390 px light | 390 px dark | 1440 px light | 1440 px dark |
+| --- | --- | --- | --- | --- |
+| Home viewport | [Light](/workspace/tmp/hearth-qa/run22-home-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run22-home-390-dark.png) | [Light](/workspace/tmp/hearth-qa/run22-home-1440-light.png) | [Dark](/workspace/tmp/hearth-qa/run22-home-1440-dark.png) |
+| All nine panels | [Light](/workspace/tmp/hearth-qa/run22-all-panels-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run22-all-panels-390-dark.png) | | |
+| Mobile reorder mode | [Light](/workspace/tmp/hearth-qa/run22-reorder-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run22-reorder-390-dark.png) | | |
+
+With Playwright Chromium installed, run the Home browser regression from the repository root.
+
+```sh
+PYTHONPATH=. python tests/run22-browser.py --shots /tmp/hearth-shots
+```
+
 ## Run 21 · Chat attachments and mobile polish
 
 November 25, 2026 · Private Hearth Sprite
