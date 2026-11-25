@@ -34,6 +34,9 @@ let threadBusy = false;
 let state;
 let view = "chat";
 let selectedFile;
+let selectedSource;
+let fileRequest = 0;
+let memoryFindRequest = 0;
 let busy = false;
 let timelineTimer;
 let connectionState;
@@ -41,6 +44,11 @@ let connectionRequest;
 let brainSettings;
 let brainBusy = false;
 let modelRequest;
+let settingsSection = "brain";
+let reindexPoll;
+const preferences = { memory: {}, search: {} };
+const memoryNames = { auto: "Auto", keyword: "Keyword", huggingface: "Hugging Face embeddings", pinecone: "Pinecone" };
+const folderNames = { root: "Root · USER.md", people: "people/", topics: "topics/", daily: "daily/" };
 const brainProvider = byId("brain-provider");
 const brainModel = byId("brain-model");
 const customModel = byId("brain-custom");
@@ -112,6 +120,12 @@ function messageBubble(role, content, { message, status } = {}) {
   notices.setAttribute("role", "status");
   if (status) notices.append(node("p", "queued-label", status));
   body.append(notices, text, cards);
+  if (message?.remembered?.length) {
+    const sources = node("details", "remembered");
+    sources.append(node("summary", "", `Remembered · ${message.remembered.length}`));
+    sources.append(...message.remembered.map((hit) => button(memoryLabel(hit), () => openMemorySource(hit))));
+    body.append(sources);
+  }
   if (message?.id && currentThread !== mainThread.id) {
     const threadId = currentThread;
     const share = button("Share to Main", () => changeThread("share", { thread_id: threadId, message_id: message.id }));
@@ -160,6 +174,10 @@ function actionCard(action) {
         node("pre", "", JSON.stringify(gatewayResults.get(action.id), null, 2)));
       card.append(details);
     }
+  }
+  if (action.kind === "remember") {
+    card.append(node("p", "", action.fact));
+    if (action.status === "pending") card.append(button("Approve", () => approve(action)));
   }
   if (action.paths) card.append(node("p", "", action.paths.join(", ")));
   if (action.job) card.append(node("p", "", action.job.message), node("p", "meta", date(action.job.next_at)));
@@ -283,18 +301,41 @@ function renderBrain({ model, model_id: id }) {
   status.title = id && model !== "mock" ? `${name} · ${id}` : name;
 }
 
-async function selectFile(path) {
+function memoryLabel(hit) {
+  return `${hit.thread_id ? hit.heading : hit.path} · line ${hit.line}`;
+}
+
+async function selectFile(path, hit) {
   selectedFile = path;
+  selectedSource = hit;
+  const request = ++fileRequest;
   for (const item of byId("files").children) {
     item.setAttribute("aria-pressed", String(item.textContent === path));
   }
+  const forget = byId("forget-file");
+  forget.hidden = true;
   try {
-    const file = await api(`/api/memory?path=${encodeURIComponent(path)}`);
-    if (selectedFile !== path) return;
-    byId("file-name").textContent = file.path;
-    byId("file-content").textContent = file.content || "This note is empty.";
+    const file = hit?.thread_id
+      ? await api(`/api/memory/chat?thread=${encodeURIComponent(hit.thread_id)}&message=${encodeURIComponent(hit.message_id)}`)
+      : await api(`/api/memory?path=${encodeURIComponent(path)}`);
+    if (request !== fileRequest) return;
+    byId("file-name").textContent = hit?.thread_id ? memoryLabel(file) : file.path;
+    const preview = byId("file-content");
+    if (hit?.thread_id || !hit || !file.content) {
+      preview.textContent = file.excerpt || file.content || "This note is empty.";
+    } else {
+      preview.replaceChildren(...file.content.split(/\r?\n/).map((line, index) => {
+        const active = index + 1 >= hit.line && index + 1 <= hit.end_line;
+        return node("span", `file-line${active ? " is-highlighted" : ""}`, line || " ");
+      }));
+      preview.querySelector(".is-highlighted")?.scrollIntoView({ block: "nearest" });
+    }
+    forget.textContent = hit?.thread_id ? "Forget message" : "Forget note";
+    forget.hidden = false;
   } catch (error) {
-    showNotice(error.message);
+    if (request !== fileRequest) return;
+    byId("file-name").textContent = "Memory unavailable";
+    byId("file-content").textContent = error.message;
   }
 }
 
@@ -302,12 +343,80 @@ async function renderMemory() {
   const { files } = await api("/api/memory");
   const list = byId("files");
   list.replaceChildren(...files.map((path) => button(path, () => selectFile(path))));
-  const path = files.includes(selectedFile) ? selectedFile : files.includes("USER.md") ? "USER.md" : files[0];
+  const path = files.includes(selectedFile) || selectedSource?.thread_id ? selectedFile
+    : files.includes("USER.md") ? "USER.md" : files[0];
   if (path) {
-    await selectFile(path);
+    await selectFile(path, selectedSource?.path === path ? selectedSource : undefined);
   } else {
+    byId("forget-file").hidden = true;
     byId("file-name").textContent = "No memory files";
     byId("file-content").textContent = "";
+  }
+}
+
+async function openMemorySource(hit) {
+  showNotice();
+  selectedFile = hit.path;
+  selectedSource = hit;
+  await openView("memory");
+}
+
+async function forgetMemory(hit, excerpt = false) {
+  const question = hit.thread_id ? "Forget this message from recall?" : excerpt
+    ? `Remove this excerpt from ${hit.path}?` : `Delete the note ${hit.path}?`;
+  if (busy || !window.confirm(`${question} Hearth will save a checkpoint first.`)) return;
+  setBusy(true);
+  try {
+    const body = { path: hit.path };
+    if (hit.thread_id) body.message_id = hit.message_id;
+    else if (excerpt) body.item_id = hit.id;
+    await api("/api/memory/forget", body);
+    selectedSource = undefined;
+    await renderMemory();
+    if (byId("memory-query").value.trim()) await findMemory();
+    showNotice("Memory forgotten. Undo is available in Timeline.");
+  } catch (error) {
+    showNotice(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function renderRecall(container, result, allowForget = false) {
+  const backend = memoryNames[result.backend];
+  container.replaceChildren(node("p", "meta",
+    `${backend} · ${result.results.length} ${result.results.length === 1 ? "hit" : "hits"} · ${result.latency_ms.toLocaleString()} ms`));
+  for (const warning of result.warnings) container.append(node("p", "meta", warning));
+  if (!result.results.length) container.append(node("p", "empty", "No memories matched."));
+  for (const hit of result.results) {
+    const article = node("article", "result");
+    const open = button(memoryLabel(hit), () => openMemorySource(hit));
+    open.className = "result-title";
+    const score = hit.similarity === null ? `Keyword ${hit.keyword.toFixed(3)}`
+      : `Score ${hit.score.toFixed(3)} · Similarity ${hit.similarity.toFixed(3)} · Keyword ${hit.keyword.toFixed(3)}`;
+    article.append(open, node("p", "meta", score), node("p", "", hit.excerpt));
+    if (allowForget) {
+      const remove = button("Forget", () => forgetMemory(hit, true));
+      remove.className = "forget-excerpt";
+      remove.setAttribute("aria-label", `Forget ${memoryLabel(hit)}`);
+      article.append(remove);
+    }
+    container.append(article);
+  }
+}
+
+async function findMemory() {
+  const container = byId("memory-find-results");
+  const query = byId("memory-query").value.trim();
+  const request = ++memoryFindRequest;
+  container.hidden = !query;
+  if (!query) return;
+  container.replaceChildren(node("p", "meta", "Searching memory…"));
+  try {
+    const result = await api("/api/memory/search", { query });
+    if (request === memoryFindRequest) renderRecall(container, result, true);
+  } catch (error) {
+    if (request === memoryFindRequest) container.replaceChildren(node("p", "meta", error.message));
   }
 }
 
@@ -627,6 +736,221 @@ async function updateBrain(operation) {
   }
 }
 
+function settingOptions(select, options, selected) {
+  select.replaceChildren(...options.map(([value, label, disabled]) => {
+    const option = new Option(label, value);
+    option.disabled = !!disabled && value !== selected;
+    return option;
+  }));
+  select.value = selected;
+}
+
+function renderMemoryPreferences(info) {
+  const choice = info.selection;
+  settingOptions(byId("memory-backend"), Object.entries(memoryNames).map(([value, name]) => {
+    const disconnected = value !== "auto" && !info.available[value];
+    return [value, disconnected ? `${name} · Connect in Connections` : name, disconnected];
+  }), choice.backend);
+  settingOptions(byId("memory-model"), Object.entries(info.models), choice.model);
+  byId("memory-top-k").value = choice.top_k;
+  byId("memory-similarity").value = choice.min_similarity;
+  byId("memory-chat-history").checked = choice.include_chat;
+  byId("memory-remember").value = choice.auto_remember;
+  const header = node("div", "scope-row");
+  header.append(node("span", "", "Folder"), node("span", "", "Include"), node("span", "", "Exclude"));
+  const scope = byId("memory-folders");
+  scope.replaceChildren(header, ...info.folders.map((folder) => {
+    const row = node("div", "scope-row");
+    row.append(node("span", "", folderNames[folder]));
+    for (const field of ["include", "exclude"]) {
+      const check = node("input");
+      check.type = "checkbox";
+      check.checked = choice[field].includes(folder);
+      check.dataset[field] = folder;
+      check.setAttribute("aria-label", `${field === "include" ? "Include" : "Exclude"} ${folderNames[folder]}`);
+      row.append(check);
+    }
+    return row;
+  }));
+  updateReindex(info.reindex);
+}
+
+function renderSearchPreferences(info) {
+  const choice = info.selection;
+  const options = info.providers.map((entry) => [entry.provider, entry.connected ? entry.name
+    : `${entry.name} · Connect in Connections`, !entry.connected]);
+  settingOptions(byId("search-provider"), [["auto", "Auto"], ["off", "Off"], ...options], choice.provider);
+  byId("search-limit").value = choice.max_results;
+  byId("search-recency").value = choice.recency;
+  byId("search-safe").checked = choice.safe_search;
+  byId("search-include").value = choice.include_domains.join(", ");
+  byId("search-exclude").value = choice.exclude_domains.join(", ");
+  byId("search-connections").replaceChildren(...info.providers.map((entry) => {
+    const row = node("li");
+    row.append(node("span", "", entry.name), entry.connected ? node("span", "meta", "Connected")
+      : button("Connect in Connections", () => openView("connections")));
+    return row;
+  }));
+}
+
+function updatePreferenceControls(feature) {
+  const { info, pending, indexing } = preferences[feature];
+  byId(`${feature}-fields`).disabled = !info || !!pending || !!indexing;
+  const test = byId(`${feature}-test-form`).querySelector("button");
+  test.disabled = !info || !!pending || !!indexing;
+  if (!info) return;
+  if (feature === "memory") {
+    const backend = byId("memory-backend").value;
+    byId("memory-backend-detail").textContent = {
+      auto: "Pinecone → Hugging Face → Keyword",
+      keyword: "Matches words locally and works offline.",
+      huggingface: "Embeds queries and in-scope text via the Sprite gateway.",
+      pinecone: "Uses Pinecone inference first, with Hugging Face embeddings if compatible.",
+    }[backend];
+    byId("memory-model").disabled = backend === "keyword";
+    byId("memory-similarity").disabled = backend === "keyword";
+    byId("memory-reindex").disabled = !!pending || !!indexing;
+  } else {
+    const provider = byId("search-provider").value;
+    const connected = info.providers.filter((entry) => entry.connected);
+    const active = provider === "auto" ? connected[0] : connected.find((entry) => entry.provider === provider);
+    test.disabled ||= !active;
+    byId("search-safe-detail").hidden = !byId("search-safe").checked || !active || active.native_safe;
+    byId("search-provider-detail").textContent = provider === "off" ? "Web search is off."
+      : active ? provider === "auto" ? `Auto starts with ${active.name}.` : `${active.name} is connected.`
+        : "No selected provider is connected. Connect in Connections.";
+  }
+}
+
+function updateReindex(job) {
+  clearTimeout(reindexPoll);
+  const status = byId("memory-index-status");
+  const progress = byId("memory-index-progress");
+  const running = job?.status === "running";
+  preferences.memory.indexing = running;
+  progress.hidden = !running;
+  if (job?.unique) {
+    progress.max = job.unique;
+    progress.value = job.embedded + job.reused;
+  } else {
+    progress.removeAttribute("value");
+  }
+  if (!job) status.textContent = "New and edited text is indexed as Hearth recalls it.";
+  else if (running) {
+    status.textContent = job.phase === "checkpoint" ? "Saving checkpoint…"
+      : job.unique ? `Indexing · ${job.embedded + job.reused} of ${job.unique} distinct excerpts` : "Scanning excerpts…";
+  } else if (job.status === "failed") status.textContent = job.error;
+  else {
+    status.textContent = `${memoryNames[job.backend]} · ${job.total} excerpts · ${job.embedded} embedded · ${job.reused} reused · ${job.latency_ms.toLocaleString()} ms`;
+    if (job.warnings?.length) status.textContent += ` ${job.warnings.join(" ")}`;
+  }
+  updatePreferenceControls("memory");
+  if (running && view === "settings" && settingsSection === "memory") {
+    reindexPoll = setTimeout(async () => {
+      try {
+        updateReindex((await api("/api/memory/reindex")).reindex);
+      } catch (error) {
+        status.textContent = error.message;
+        preferences.memory.indexing = false;
+        updatePreferenceControls("memory");
+      }
+    }, 650);
+  }
+}
+
+function readPreferences(feature) {
+  if (feature === "search") {
+    const domains = (id) => byId(id).value.split(/[\s,]+/).filter(Boolean);
+    return { provider: byId("search-provider").value, max_results: byId("search-limit").valueAsNumber,
+      recency: byId("search-recency").value, safe_search: byId("search-safe").checked,
+      include_domains: domains("search-include"), exclude_domains: domains("search-exclude") };
+  }
+  const scope = (field) => [...byId("memory-folders").querySelectorAll(`[data-${field}]:checked`)]
+    .map((element) => element.dataset[field]);
+  return { backend: byId("memory-backend").value, model: byId("memory-model").value,
+    top_k: byId("memory-top-k").valueAsNumber, min_similarity: byId("memory-similarity").valueAsNumber,
+    include_chat: byId("memory-chat-history").checked, auto_remember: byId("memory-remember").value,
+    include: scope("include"), exclude: scope("exclude") };
+}
+
+async function openSettings(section) {
+  settingsSection = section;
+  clearTimeout(reindexPoll);
+  for (const item of document.querySelectorAll("[data-settings]")) {
+    const active = item.dataset.settings === section;
+    if (active) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+    byId(`settings-${item.dataset.settings}`).hidden = !active;
+  }
+  if (section === "brain") return openBrainSettings();
+  if (preferences[section].pending) return;
+  try {
+    const info = await api(`/api/${section}/settings`);
+    if (view !== "settings" || settingsSection !== section || preferences[section].pending) return;
+    preferences[section].info = info;
+    if (section === "memory") renderMemoryPreferences(info);
+    else renderSearchPreferences(info);
+    updatePreferenceControls(section);
+  } catch (error) {
+    byId(`${section}-feedback`).textContent = error.message;
+  }
+}
+
+function renderSearchTest(container, result) {
+  const provider = preferences.search.info.providers.find((item) => item.provider === result.provider);
+  container.replaceChildren(node("p", "meta", `${provider?.name || result.provider} · ${result.results.length} results · ${result.latency_ms.toLocaleString()} ms`));
+  for (const warning of result.warnings) container.append(node("p", "meta", warning));
+  if (!result.results.length) container.append(node("p", "empty", "No search results."));
+  for (const hit of result.results) {
+    const article = node("article", "result");
+    const link = node("a", "result-title", hit.title);
+    link.href = hit.url;
+    link.target = "_blank";
+    link.rel = "noreferrer noopener";
+    article.append(link, node("p", "meta", hit.published ? `${hit.url} · ${hit.published}` : hit.url));
+    if (hit.snippet) article.append(node("p", "", hit.snippet));
+    container.append(article);
+  }
+}
+
+async function changePreferences(feature, operation) {
+  const state = preferences[feature];
+  const form = byId(`${feature}-settings-form`);
+  if (!state.info || state.pending || state.indexing || busy) return;
+  if (operation !== "reindex" && !form.reportValidity()) return;
+  const selection = readPreferences(feature);
+  const feedback = byId(`${feature}-feedback`);
+  const results = byId(`${feature}-test-results`);
+  const query = operation === "test" ? byId(`${feature}-test-query`).value.trim() : "";
+  if (operation === "test" && !query) return;
+  state.pending = operation;
+  updatePreferenceControls(feature);
+  feedback.textContent = "";
+  if (operation === "test") results.replaceChildren(node("p", "meta", "Testing…"));
+  if (operation === "settings") feedback.textContent = "Saving settings…";
+  try {
+    const result = await api(`/api/${feature}/${operation}`, operation === "test" ? { selection, query }
+      : operation === "reindex" ? {} : selection);
+    if (operation === "reindex") {
+      updateReindex(result);
+    } else if (operation === "test") {
+      if (feature === "memory") renderRecall(results, result);
+      else renderSearchTest(results, result);
+    } else {
+      state.info = result;
+      if (feature === "memory") renderMemoryPreferences(result);
+      else renderSearchPreferences(result);
+      feedback.textContent = "Settings saved.";
+    }
+  } catch (error) {
+    const target = operation === "test" ? results : feedback;
+    target.textContent = error.message;
+  } finally {
+    state.pending = undefined;
+    updatePreferenceControls(feature);
+  }
+}
+
 async function refreshView() {
   if (!await refreshState()) return;
   if (view === "chat") renderChat();
@@ -637,6 +961,7 @@ async function refreshView() {
 async function openView(nextView) {
   view = nextView;
   clearTimeout(timelineTimer);
+  clearTimeout(reindexPoll);
   for (const item of nav) {
     const active = item.dataset.view === view;
     if (active) {
@@ -650,7 +975,7 @@ async function openView(nextView) {
   if (view === "connections") {
     await updateConnections("rescan");
   } else if (view === "settings") {
-    await openBrainSettings();
+    await openSettings(settingsSection);
   } else if (!busy) {
     try {
       await refreshView();
@@ -902,6 +1227,31 @@ byId("brain-form").addEventListener("submit", (event) => {
   event.preventDefault();
   updateBrain("settings");
 });
+byId("memory-find").addEventListener("submit", (event) => {
+  event.preventDefault();
+  findMemory();
+});
+byId("memory-query").addEventListener("input", (event) => {
+  if (!event.target.value) findMemory();
+});
+byId("forget-file").addEventListener("click", () => {
+  if (selectedFile) forgetMemory(selectedSource || { path: selectedFile });
+});
+for (const tab of document.querySelectorAll("[data-settings]")) {
+  tab.addEventListener("click", () => openSettings(tab.dataset.settings));
+}
+for (const feature of ["memory", "search"]) {
+  byId(`${feature}-settings-form`).addEventListener("submit", (event) => {
+    event.preventDefault();
+    changePreferences(feature, "settings");
+  });
+  byId(`${feature}-settings-form`).addEventListener("change", () => updatePreferenceControls(feature));
+  byId(`${feature}-test-form`).addEventListener("submit", (event) => {
+    event.preventDefault();
+    changePreferences(feature, "test");
+  });
+}
+byId("memory-reindex").addEventListener("click", () => changePreferences("memory", "reindex"));
 input.addEventListener("input", resizeInput);
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {

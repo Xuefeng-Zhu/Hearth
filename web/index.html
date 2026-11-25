@@ -75,10 +75,19 @@
       </section>
       <section class="view panel" id="memory-view" aria-labelledby="view-title" hidden>
         <div class="section-intro"><h2>Memory files</h2><p>Personal notes stored as Markdown in your workspace.</p></div>
+        <form id="memory-find" class="query-form" role="search">
+          <label class="visually-hidden" for="memory-query">Search memory</label>
+          <input id="memory-query" type="search" maxlength="1000" placeholder="Search memory…" required>
+          <button type="submit">Search</button>
+        </form>
+        <div id="memory-find-results" class="query-results" aria-live="polite" hidden></div>
         <div class="memory-browser">
           <div id="files" class="files" aria-label="Memory files"></div>
           <article class="file-preview">
-            <h3 id="file-name">Select a note</h3>
+            <div class="file-header">
+              <h3 id="file-name">Select a note</h3>
+              <button type="button" id="forget-file" hidden>Forget note</button>
+            </div>
             <pre id="file-content"></pre>
           </article>
         </div>
@@ -114,35 +123,158 @@
         </section>
       </section>
       <section class="view panel" id="settings-view" aria-labelledby="view-title" hidden>
-        <div class="section-intro">
-          <h2>Brain</h2>
-          <p>Choose which connected model Hearth uses for chat.</p>
-        </div>
-        <form class="card brain-form" id="brain-form">
-          <label for="brain-provider">Provider</label>
-          <select id="brain-provider" aria-describedby="brain-provider-detail" disabled>
-            <option value="auto">Auto</option>
-          </select>
-          <p class="meta" id="brain-provider-detail">Checking connections…</p>
-          <div id="brain-model-fields" hidden>
-            <label for="brain-model">Model</label>
-            <select id="brain-model" aria-describedby="brain-model-detail"></select>
-            <div id="brain-custom-field" hidden>
-              <label for="brain-custom">Custom model ID</label>
-              <input type="text" id="brain-custom" maxlength="150" autocomplete="off" spellcheck="false" placeholder="Enter a model ID">
+        <nav class="settings-nav" aria-label="Settings sections">
+          <button type="button" data-settings="brain" aria-current="page">Brain</button>
+          <button type="button" data-settings="memory">Memory</button>
+          <button type="button" data-settings="search">Search</button>
+        </nav>
+        <div id="settings-brain">
+          <div class="section-intro">
+            <h2>Brain</h2>
+            <p>Choose which connected model Hearth uses for chat.</p>
+          </div>
+          <form class="card brain-form" id="brain-form">
+            <label for="brain-provider">Provider</label>
+            <select id="brain-provider" aria-describedby="brain-provider-detail" disabled>
+              <option value="auto">Auto</option>
+            </select>
+            <p class="meta" id="brain-provider-detail">Checking connections…</p>
+            <div id="brain-model-fields" hidden>
+              <label for="brain-model">Model</label>
+              <select id="brain-model" aria-describedby="brain-model-detail"></select>
+              <div id="brain-custom-field" hidden>
+                <label for="brain-custom">Custom model ID</label>
+                <input type="text" id="brain-custom" maxlength="150" autocomplete="off" spellcheck="false" placeholder="Enter a model ID">
+              </div>
+              <p class="meta" id="brain-model-detail" role="status"></p>
             </div>
-            <p class="meta" id="brain-model-detail" role="status"></p>
+            <div class="brain-controls">
+              <button type="button" id="brain-test" disabled>Test</button>
+              <button type="submit" id="brain-save" disabled>Save</button>
+            </div>
+            <p class="brain-feedback" id="brain-feedback" role="status" hidden></p>
+            <div class="brain-test-result" id="brain-test-result" role="status" hidden>
+              <p class="meta" id="brain-test-latency"></p>
+              <pre id="brain-test-reply"></pre>
+            </div>
+          </form>
+        </div>
+        <div id="settings-memory" hidden>
+          <div class="section-intro">
+            <h2>Memory</h2>
+            <p>Choose what Hearth recalls and how it remembers new facts.</p>
           </div>
-          <div class="brain-controls">
-            <button type="button" id="brain-test" disabled>Test</button>
-            <button type="submit" id="brain-save" disabled>Save</button>
+          <div class="settings-layout">
+            <form class="card brain-form preference-form" id="memory-settings-form">
+              <fieldset class="preference-fields" id="memory-fields" disabled>
+                <div>
+                  <label for="memory-backend">Recall backend</label>
+                  <select id="memory-backend" aria-describedby="memory-backend-detail"></select>
+                  <p class="meta" id="memory-backend-detail"></p>
+                </div>
+                <div>
+                  <label for="memory-model">Hugging Face embedding model</label>
+                  <select id="memory-model"></select>
+                </div>
+                <div class="field-pair">
+                  <div><label for="memory-top-k">Top-k</label>
+                    <input id="memory-top-k" type="number" min="1" max="20" required></div>
+                  <div><label for="memory-similarity">Min. similarity</label>
+                    <input id="memory-similarity" type="number" min="0" max="1" step="any" required></div>
+                </div>
+                <div>
+                  <label for="memory-remember">Auto-remember</label>
+                  <select id="memory-remember">
+                    <option value="off">Off</option>
+                    <option value="ask">Ask first</option>
+                    <option value="automatic">Automatic</option>
+                  </select>
+                </div>
+                <label class="check-label"><input id="memory-chat-history" type="checkbox"> Include chat history from all threads</label>
+                <div class="scope-fields">
+                  <h3>Recall scope</h3>
+                  <div id="memory-folders"></div>
+                </div>
+                <div class="preference-actions"><button class="primary-setting" type="submit">Save</button></div>
+              </fieldset>
+              <p class="meta" id="memory-feedback" role="status"></p>
+            </form>
+            <div class="settings-stack">
+              <section class="card brain-form utility-card" aria-labelledby="memory-index-title">
+                <h3 id="memory-index-title">Memory index</h3>
+                <p class="meta" id="memory-index-status" role="status">Checking index…</p>
+                <progress id="memory-index-progress" aria-label="Memory index progress" hidden></progress>
+                <button id="memory-reindex" type="button" disabled>Reindex now</button>
+                <p class="meta">Rebuilds the saved scope after a checkpoint.</p>
+              </section>
+              <section class="card brain-form utility-card" aria-labelledby="memory-test-title">
+                <h3 id="memory-test-title">Test recall</h3>
+                <form id="memory-test-form" class="query-form">
+                  <label class="visually-hidden" for="memory-test-query">Recall query</label>
+                  <input type="search" id="memory-test-query" placeholder="Who can’t eat nuts?" maxlength="1000" required>
+                  <button type="submit" disabled>Test</button>
+                </form>
+                <div class="query-results" id="memory-test-results" aria-live="polite"></div>
+              </section>
+            </div>
           </div>
-          <p class="brain-feedback" id="brain-feedback" role="status" hidden></p>
-          <div class="brain-test-result" id="brain-test-result" role="status" hidden>
-            <p class="meta" id="brain-test-latency"></p>
-            <pre id="brain-test-reply"></pre>
+        </div>
+        <div id="settings-search" hidden>
+          <div class="section-intro">
+            <h2>Search</h2>
+            <p>Choose the connected provider Hearth uses to search the public web.</p>
           </div>
-        </form>
+          <div class="settings-layout">
+            <form class="card brain-form preference-form" id="search-settings-form">
+              <fieldset class="preference-fields" id="search-fields" disabled>
+                <div>
+                  <label for="search-provider">Search provider</label>
+                  <select id="search-provider" aria-describedby="search-provider-detail"></select>
+                  <p class="meta" id="search-provider-detail"></p>
+                </div>
+                <div class="field-pair">
+                  <div><label for="search-limit">Max results</label>
+                    <input id="search-limit" type="number" min="1" max="10" required></div>
+                  <div><label for="search-recency">Recency</label>
+                    <select id="search-recency">
+                      <option value="any">Any time</option>
+                      <option value="day">Past day</option>
+                      <option value="week">Past week</option>
+                      <option value="month">Past month</option>
+                      <option value="year">Past year</option>
+                    </select></div>
+                </div>
+                <label class="check-label"><input id="search-safe" type="checkbox"> Safe search</label>
+                <p class="meta" id="search-safe-detail" hidden>Hearth applies a basic filter when the provider lacks native Safe Search.</p>
+                <div>
+                  <label for="search-include">Include domains</label>
+                  <input id="search-include" placeholder="docs.python.org, python.org" maxlength="6000" spellcheck="false">
+                </div>
+                <div>
+                  <label for="search-exclude">Exclude domains</label>
+                  <input id="search-exclude" placeholder="example.com" maxlength="6000" spellcheck="false">
+                </div>
+                <div class="preference-actions"><button class="primary-setting" type="submit">Save</button></div>
+              </fieldset>
+              <p class="meta" id="search-feedback" role="status"></p>
+            </form>
+            <div class="settings-stack">
+              <section class="card brain-form utility-card" aria-labelledby="search-test-title">
+                <h3 id="search-test-title">Test search</h3>
+                <form id="search-test-form" class="query-form">
+                  <label class="visually-hidden" for="search-test-query">Search query</label>
+                  <input type="search" id="search-test-query" placeholder="Python pathlib documentation" maxlength="800" required>
+                  <button type="submit" disabled>Test</button>
+                </form>
+                <div class="query-results" id="search-test-results" aria-live="polite"></div>
+              </section>
+              <section class="card brain-form utility-card" aria-labelledby="search-connectors-title">
+                <h3 id="search-connectors-title">Search connections</h3>
+                <ul id="search-connections" class="search-connections"></ul>
+              </section>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
   </div>

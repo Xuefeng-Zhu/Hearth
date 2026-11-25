@@ -198,3 +198,51 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 @media (max-width: 380px) {
   .nav-link { font-size: 12px; }
 }
+
+.settings-nav { display: flex; gap: 4px; margin: 0 0 22px; border-bottom: 1px solid var(--border); }
+.settings-nav button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; padding: 9px 15px 11px; color: var(--muted); font-weight: 650; }
+.settings-nav button[aria-current] { border-bottom-color: var(--accent); color: var(--accent); }
+.settings-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; max-width: 1040px; }
+.settings-layout .brain-form { max-width: none; }
+.settings-stack { display: grid; gap: 16px; min-width: 0; }
+.preference-fields { display: grid; gap: 14px; min-width: 0; padding: 0; border: 0; margin: 0; }
+.preference-fields .meta { margin: 5px 0 0; }
+.field-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.preference-fields .check-label { display: flex; align-items: center; gap: 8px; margin: 0; }
+.brain-form input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--accent); }
+.preference-actions { display: flex; gap: 8px; }
+.card button.primary-setting { background: var(--accent); border-color: var(--accent); color: white; margin: 0; min-height: 36px; padding-inline: 16px; }
+.scope-fields h3, .utility-card h3 { font-size: 15px; margin: 0 0 9px; }
+.scope-row { display: grid; grid-template-columns: minmax(100px, 1fr) 62px 62px; align-items: center; padding: 6px 0; gap: 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.scope-row > :not(:first-child) { justify-self: center; }
+.scope-row:first-child { color: var(--muted); padding-top: 0; }
+.utility-card progress { width: 100%; accent-color: var(--accent); }
+.utility-card .meta:last-child { margin-bottom: 0; }
+.query-form { display: flex; gap: 8px; max-width: 640px; align-items: stretch; }
+.query-form input { min-width: 0; flex: 1; padding: 8px 10px; font: inherit; border: 1px solid var(--border); border-radius: 7px; background: white; color: inherit; }
+.query-form button, .utility-card .query-form button { flex: none; margin: 0; }
+.query-results { overflow-wrap: anywhere; }
+.query-results:empty { display: none; }
+.query-results .result { border-top: 1px solid var(--border); padding: 10px 0; }
+.query-results .result p { margin: 5px 0; white-space: pre-wrap; }
+.query-results .result-title { color: var(--accent); font-weight: 650; }
+.query-results button.result-title { border: 0; padding: 0; background: none; text-align: left; margin: 0; }
+.query-results .result .forget-excerpt { margin: 5px 0 0; font-size: 12px; }
+#search-test-results { max-height: 345px; overflow: auto; }
+#search-test-results .result p:not(.meta) {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: normal;
+}
+#memory-find { margin: 0 0 17px; }
+#memory-find-results:not([hidden]) { margin-bottom: 17px; }
+.file-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.file-header h3 { overflow-wrap: anywhere; }
+.file-header button { flex: none; margin: 0; }
+.file-line { display: block; }
+.file-line.is-highlighted { background: #f4e8f4; border-radius: 3px; }
+.search-connections { list-style: none; padding: 0; margin: 0; }
+.search-connections li { display: flex; gap: 8px; justify-content: space-between; align-items: center; padding: 7px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.search-connections button { margin: 0; padding: 3px 7px; font-size: 12px; }
+.remembered { margin: 8px 0 3px; }
+.remembered summary { display: list-item; cursor: pointer; border-radius: 999px; padding: 4px 10px; color: var(--accent); background: #f4eef4; font-size: 12px; font-weight: 650; }
+.remembered button { padding: 2px 5px; margin: 4px 6px 0 0; font-size: 12px; }
+@media (max-width: 900px) { .settings-layout { grid-template-columns: minmax(0, 1fr); } }
