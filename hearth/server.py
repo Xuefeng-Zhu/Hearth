@@ -48,14 +48,21 @@ class Application:
             self.connection_state = self.connections.report()
 
     def connection_info(self):
-        return {**self.connection_state, "model": self.brain}
+        return {**self.connection_state, **self.brain_status()}
+
+    def brain_status(self):
+        model = next((entry["model"] for entry in self.agent.models if entry["provider"] == self.brain), "")
+        return {"model": self.brain, "model_id": model}
+
+    def brain_info(self):
+        return {**self.connections.brain_info(), **self.brain_status(), "scan_error": self.connections.scan_error}
 
     def info(self):
         with self.storage.lock():
             state = self.storage.load()
         return {"messages": state["messages"], "actions": list(state["actions"].values()),
                 "jobs": state["jobs"], "reminders": state["reminders"], "restore": self.restore,
-                "checkpoints": self.checkpoints.mode, "model": self.brain}
+                "checkpoints": self.checkpoints.mode, **self.brain_status()}
 
     def timeline(self):
         with self.storage.lock():
@@ -144,6 +151,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.json(self.app.info())
             elif url.path == "/api/connections":
                 self.json(self.app.connection_info())
+            elif url.path == "/api/brain":
+                self.json(self.app.brain_info())
+            elif url.path == "/api/brain/models":
+                provider = parse_qs(url.query).get("provider", [None])[0]
+                self.json(self.app.connections.brain_models(provider))
             elif url.path == "/api/checkpoints":
                 self.json({"checkpoints": self.app.timeline()})
             elif url.path == "/api/memory":
@@ -177,33 +189,39 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         routes = {"/api/chat", "/api/approve", "/api/undo",
-                  "/api/connections/rescan", "/api/connections/test", "/api/connections/settings"}
+                  "/api/connections/rescan", "/api/connections/test", "/api/connections/settings",
+                  "/api/brain/test", "/api/brain/settings"}
         if self.path not in routes:
             self.json({"error": "Page not found."}, 404)
             return
         if not self.app.operation.acquire(blocking=False):
             self.json({"error": "Hearth is working on another action."}, 409)
             return
+        status = 200
         try:
             if self.app.restore and self.app.restore["status"] == "restoring":
-                self.json({"error": "A checkpoint is being restored."}, 409)
-                return
-            body = self.body()
-            if self.path == "/api/chat":
-                self.stream_chat(require_text(body.get("message"), 4_000))
-            elif self.path.startswith("/api/connections/"):
-                self.update_connections(body)
+                result, status = {"error": "A checkpoint is being restored."}, 409
             else:
-                action_id = require_text(body.get("id"), 40)
-                if self.path == "/api/approve":
-                    self.json(self.app.agent.approve(action_id))
+                body = self.body()
+                if self.path == "/api/chat":
+                    self.stream_chat(require_text(body.get("message"), 4_000))
+                    return
+                if self.path.startswith("/api/connections/"):
+                    result = self.update_connections(body)
+                elif self.path.startswith("/api/brain/"):
+                    result = self.update_brain(body)
                 else:
-                    self.app.start_restore(action_id)
-                    self.json(self.app.restore, 202)
+                    action_id = require_text(body.get("id"), 40)
+                    if self.path == "/api/approve":
+                        result = self.app.agent.approve(action_id)
+                    else:
+                        self.app.start_restore(action_id)
+                        result, status = self.app.restore, 202
         except HearthError as error:
-            self.json({"error": str(error)}, 400)
+            result, status = {"error": str(error)}, 400
         finally:
             self.app.operation.release()
+        self.json(result, status)
 
     def update_connections(self, body):
         if self.path == "/api/connections/rescan" and not body:
@@ -216,7 +234,18 @@ class Handler(BaseHTTPRequestHandler):
             self.app.reload_agent(reset_brain=False)
         else:
             raise HearthError("Invalid connection request.")
-        self.json(self.app.connection_info())
+        return self.app.connection_info()
+
+    def update_brain(self, body):
+        if body.keys() != {"provider", "model"}:
+            raise HearthError("Invalid brain settings.")
+        provider, model = body["provider"], body["model"]
+        if self.path == "/api/brain/test":
+            entry = self.app.connections.brain_entry(provider, model)
+            return self.app.agent.test_brain(entry)
+        self.app.connections.save_brain(provider, model)
+        self.app.reload_agent()
+        return self.app.brain_info()
 
     def stream_chat(self, prompt):
         self.response_headers(200, "text/event-stream")

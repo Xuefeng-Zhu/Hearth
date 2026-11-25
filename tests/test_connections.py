@@ -41,6 +41,12 @@ class FakeGateway(Gateway):
                 raise ConnectorError("private upstream details", 503)
             if provider == "meta":
                 payload = {"choices": [{"message": {"content": "OK"}}]}
+            elif provider == "huggingface" and endpoint == "v1/models":
+                payload = {"data": [
+                    {"id": "Qwen/Qwen3-Coder-Next", "architecture": {"output_modalities": ["text"]}},
+                    {"id": "Qwen/Qwen3-Embedding", "pipeline_tag": "feature-extraction"},
+                    {"id": "image-generator", "architecture": {"output_modalities": ["image"]}},
+                ]}
             elif provider == "pinecone":
                 payload = {"name": endpoint.removeprefix("indexes/")}
             elif provider == "tavily":
@@ -61,7 +67,7 @@ class FakeGateway(Gateway):
         self.completions.append(config["connection_id"])
         self.seen_tools = tools
         if config["provider"] in self.failed_models:
-            raise ConnectorError("Fake model unavailable.")
+            raise ConnectorError("Private upstream model details", 503)
         emit("Muse Spark replied")
         return {"role": "assistant", "content": "Muse Spark replied"}
 
@@ -286,3 +292,50 @@ class ConnectionsTest(unittest.TestCase):
                 request("/api/connections/settings", body, headers)
             self.assertEqual(error.exception.code, 400)
         self.assertEqual(json.loads(self.path.read_text()), saved)
+
+        self.gateway.add("huggingface", "conn_hf")
+        self.gateway.add("codex", "conn_codex")
+        request("/api/connections/rescan", {})
+        brain = request("/api/brain")
+        self.assertEqual(brain["selection"]["provider"], "auto")
+        self.assertEqual({row["provider"]: row["supported"] for row in brain["providers"]},
+                         {"meta": True, "huggingface": True, "codex": False})
+        listing = request("/api/brain/models?provider=huggingface")
+        self.assertEqual(listing["models"], ["Qwen/Qwen3-Coder-Next:fastest"])
+        self.assertTrue(request("/api/connections")["providers"]["huggingface"]["can_test"])
+        self.assertEqual(request("/api/connections/test", {"provider": "huggingface"})
+                         ["providers"]["huggingface"]["test_status"], "passed")
+        snapshots_before = len(self.checkpoints.list())
+        selection = {"provider": "huggingface", "model": "Qwen/explicit-override:fastest"}
+        state_before_test = request("/api/state")
+        result = request("/api/brain/test", selection)
+        self.assertEqual(result["model"], selection["model"])
+        self.assertGreaterEqual(result["latency_ms"], 0)
+        self.assertEqual(self.gateway.seen_tools, [])
+        self.assertEqual(request("/api/state"), state_before_test)
+        self.assertEqual(len(self.checkpoints.list()), snapshots_before)
+        brain = request("/api/brain/settings", selection)
+        self.assertEqual(brain["selection"], selection)
+        self.assertEqual(request("/api/state")["model"], "huggingface")
+        self.assertEqual(self.app.agent.models[0]["model"], selection["model"])
+        self.assertEqual(json.loads(self.path.read_text())["brain"], selection)
+        self.assertEqual(len(self.checkpoints.list()), snapshots_before + 1)
+        self.assertTrue(any(snapshot and snapshot["brain"]["provider"] == "auto"
+                            for snapshot in map(self.checkpoint_copy, self.checkpoints.list())))
+        request("/api/connections/rescan", {})
+        self.assertEqual(request("/api/brain")["selection"], selection)
+
+        self.gateway.failed_models.add("huggingface")
+        stream = request("/api/chat", {"message": "Hello"})
+        self.assertIn("Hugging Face could not reply. The gateway returned HTTP 503. Trying Meta Muse Spark.", stream)
+        self.assertNotIn("Private upstream model details", stream)
+        state = request("/api/state")
+        self.assertEqual(state["model"], "meta")
+        self.assertEqual(state["messages"][-1]["notices"], [state["actions"][-1]["detail"]])
+        self.assertEqual(state["actions"][-1]["title"], "Brain fallback")
+        self.assertEqual(request("/api/brain")["selection"], selection)
+
+        request("/api/brain/settings", {"provider": "mock", "model": ""})
+        self.assertEqual([entry["provider"] for entry in self.app.agent.models], ["mock"])
+        request("/api/brain/settings", {"provider": "auto", "model": ""})
+        self.assertEqual(request("/api/state")["model"], "meta")

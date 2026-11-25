@@ -5,7 +5,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 
-from .connectors import ConnectorError, Integrations, MODEL_PATHS
+from .connections import catalog_entry, with_model
+from .connectors import ConnectorError, Integrations, MODEL_PATHS, model_error
 from .gateway_tools import METHODS, gateway_read, gateway_result, redact_text, validate_request
 from .scheduler import add_job
 from .storage import HearthError, MAX_NOTE, iso, new_id
@@ -18,7 +19,15 @@ Never request or pass provider credentials or Sprites tokens. Choose paths from 
 when it was only proposed. Propose an email only when the user asked to contact someone or draft it.
 The user approves sends in the UI. Schedules are in-app reminders in UTC. For undo, offer the Undo
 card and explain that it rolls the filesystem back. Be concise and transparent about tool errors."""
+BRAIN_TEST_PROMPT = "Reply with exactly: Hearth is ready."
+READ_ONLY_TOOLS = {"memory_read", "memory_search", "web_search"}
 EMAIL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+
+
+class TurnActionError(ConnectorError):
+    def __init__(self, error, action_ids):
+        super().__init__("The model failed after a workspace action.", error.status)
+        self.action_ids = action_ids
 
 
 def schema(description, properties=None, required=()):
@@ -61,7 +70,9 @@ def mock_completion(messages, emit, clock):
     lower = prompt.lower()
     wipe = re.match(r"^(?:please\s+)?(?:wipe|clear|blank|erase)\b", lower)
     note = re.search(r"(?:USER|(?:people|topics)/[\w-]+|daily/\d{4}-\d{2}-\d{2})\.md", prompt)
-    if last.get("error"):
+    if prompt == BRAIN_TEST_PROMPT:
+        answer = "Hearth is ready."
+    elif last.get("error"):
         answer = last["error"]
     elif lower.startswith("gateway "):
         if not prior:
@@ -183,6 +194,32 @@ class Agent:
         self.gateway_connections = config.get("gateway", {})
         self.models = [item for item in config["llm"]
                        if item["provider"] == "mock" or item["provider"] in MODEL_PATHS and item["connection_id"]]
+        selection = config.get("brain", {"provider": "auto", "model": ""})
+        provider = selection["provider"]
+        chosen = next((item for item in self.models if item["provider"] == provider), None)
+        self.unavailable_provider = provider if not chosen and provider != "auto" else None
+        if provider == "mock":
+            self.models = [chosen]
+        elif chosen:
+            self.models.remove(chosen)
+            self.models.insert(0, {**chosen, "model": selection["model"]})
+
+    def test_brain(self, model):
+        start = time.monotonic()
+        messages = [{"role": "user", "content": BRAIN_TEST_PROMPT}]
+        try:
+            if model["provider"] == "mock":
+                reply = mock_completion(messages, lambda _: None, datetime.now(timezone.utc))
+            else:
+                model = with_model(self.tools.gateway, model)
+                reply = self.tools.gateway.completion(model, messages, [], lambda _: None)
+        except ConnectorError as error:
+            raise HearthError(f"{catalog_entry(model['provider'])['name']}. {model_error(error)}") from None
+        text = reply.get("content")
+        if not text or not text.strip():
+            raise HearthError("The model did not return a text reply.")
+        return {"reply": redact_text(text)[:1_000], "latency_ms": round((time.monotonic() - start) * 1_000),
+                "provider": model["provider"], "model": model["model"]}
 
     def record_message(self, role, text, **fields):
         with self.storage.lock():
@@ -212,17 +249,62 @@ class Agent:
         tools = [{"type": "function", "function": {"name": name, **definition}}
                  for name, definition in definitions.items()]
 
-        for model in self.models:
+        notices = []
+        recovery = None
+        if self.unavailable_provider:
+            self.note_model_failure(self.unavailable_provider, "The connector is unavailable.",
+                                    self.models[0]["provider"], notices, event)
+        for index, model in enumerate(self.models):
             try:
-                self.run_model(model, messages.copy(), tools, event, clock)
+                model = with_model(self.tools.gateway, model)
+                if recovery is None:
+                    self.run_model(model, messages.copy(), tools, event, clock, notices)
+                else:
+                    self.resume_reply(model, messages, recovery, event, notices)
                 return
-            except ConnectorError:
-                event("reset", {"message": "Model unavailable. Trying the next configured provider."})
+            except ConnectorError as error:
+                if isinstance(error, TurnActionError):
+                    recovery = error.action_ids
+                next_provider = self.models[index + 1]["provider"] if index + 1 < len(self.models) else None
+                self.note_model_failure(model["provider"], model_error(error), next_provider, notices, event)
         event("error", {"message": "No model could finish this reply."})
 
-    def run_model(self, model, messages, tools, event, clock):
+    def note_model_failure(self, provider, detail, next_provider, notices, event):
+        name = catalog_entry(provider)["name"]
+        message = f"{name} could not reply. {detail}"
+        if next_provider:
+            message += f" Trying {catalog_entry(next_provider)['name']}."
+        with self.storage.lock():
+            self.add_action("brain", "Brain fallback" if next_provider else "Brain interrupted",
+                            status="complete", detail=message)
+        notices.append(message)
+        event("reset", {})
+        event("model_warning", {"message": message})
+
+    def resume_reply(self, model, messages, action_ids, event, notices):
+        emit = lambda text: event("token", {"text": text})
+        if model["provider"] == "mock":
+            reply = mock_text("The turn was interrupted. Review the workspace actions before retrying.", emit)
+        else:
+            with self.storage.lock():
+                actions = self.storage.load()["actions"]
+                summary = [{key: actions[id_][key] for key in ("title", "status")} for id_ in action_ids if id_ in actions]
+            context = ("The previous model encountered an error after attempting workspace actions. "
+                       "Summarize the interruption and ask the user to review the recorded actions. "
+                       f"Recorded actions: {json.dumps(summary)}")
+            recovery_messages = [messages[0], {"role": "user", "content": f"{messages[-1]['content']}\n\n{context}"}]
+            reply = self.tools.gateway.completion(model, recovery_messages, [], emit)
+        if not reply.get("content"):
+            raise ConnectorError("The recovery reply contained no text.")
+        self.finish_reply(model, reply, action_ids, notices, event)
+
+    def finish_reply(self, model, reply, action_ids, notices, event):
+        self.record_message("assistant", redact_text(reply["content"]), action_ids=action_ids, notices=notices)
+        event("done", {"provider": model["provider"]})
+
+    def run_model(self, model, messages, tools, event, clock, notices):
         action_ids = []
-        executed = False
+        touched_state = False
         for _ in range(9):
             emit = lambda text: event("token", {"text": text})
             try:
@@ -230,26 +312,28 @@ class Agent:
                     reply = mock_completion(messages, emit, clock)
                 else:
                     reply = self.tools.gateway.completion(model, messages, tools, emit)
-            except ConnectorError:
-                if not executed:
-                    raise
-                event("error", {"message": "The model stopped after using tools. Review the results before retrying."})
-                return
+            except ConnectorError as error:
+                if touched_state:
+                    raise TurnActionError(error, action_ids) from None
+                raise
             calls = reply.get("tool_calls", [])
             if not calls:
-                self.record_message("assistant", redact_text(reply["content"]), action_ids=action_ids)
-                event("done", {"provider": model["provider"]})
+                self.finish_reply(model, reply, action_ids, notices, event)
                 return
             if len(calls) > 8:
                 event("error", {"message": "The model requested too many tools at once. Try a smaller request."})
                 return
-            executed = True
             messages.append(reply)
             for call in calls:
                 function = call["function"]
                 try:
+                    arguments = json.loads(function["arguments"])
+                    name = function["name"]
+                    touched_state |= name not in READ_ONLY_TOOLS and not (
+                        name == "gateway_request" and isinstance(arguments, dict) and arguments.get("method") == "GET"
+                    )
                     with self.storage.lock():
-                        result = self.execute(function["name"], json.loads(function["arguments"]))
+                        result = self.execute(name, arguments)
                 except HearthError as error:
                     result = {"error": str(error)}
                 except (TypeError, ValueError, RecursionError):

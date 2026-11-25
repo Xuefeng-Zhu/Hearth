@@ -3,7 +3,8 @@ import re
 from copy import deepcopy
 from urllib.parse import quote
 
-from .connectors import CORE_PROVIDERS, GATEWAY_SEGMENT, ConnectorError, valid_provider
+from .connectors import CORE_PROVIDERS, GATEWAY_SEGMENT, MODELS_PATHS, MODEL_PATHS, ConnectorError, valid_provider
+from .gateway_tools import redact_text
 from .storage import HearthError, ROOT, atomic_write, iso
 
 CATALOG = {entry["slug"]: entry for entry in json.loads((ROOT / "config/catalog.json").read_text(encoding="utf-8"))}
@@ -13,6 +14,61 @@ SETTINGS = {"pinecone": "index", "agentmail": "inbox_id"}
 INDEX = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?")
 INBOX = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 MODEL = re.compile(r"[A-Za-z0-9_.:/-]{1,150}")
+NON_CHAT_MODEL = re.compile(r"(?:^|[/_.:-])(?:embeddings?|rerank(?:er)?|whisper|tts|stt|dall-e|"
+                            r"image|transcribe|moderation|guard|safeguard)(?:$|[/_.:-])", re.I)
+
+
+def valid_model(value):
+    return isinstance(value, str) and bool(MODEL.fullmatch(value)) and redact_text(value) == value
+
+
+def chat_models(provider, data):
+    if provider == "gemini":
+        entries, key = data.get("models"), "name"
+    elif provider == "ollama":
+        entries, key = data.get("models"), "model"
+    else:
+        entries, key = data.get("data"), "id"
+    if not isinstance(entries, list):
+        raise ConnectorError("The provider did not return a model list.")
+    models = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        model = entry.get(key) or (entry.get("name") if provider == "ollama" else None)
+        if not valid_model(model) or NON_CHAT_MODEL.search(model):
+            continue
+        if provider == "gemini" and "generateContent" not in (entry.get("supportedGenerationMethods") or []):
+            continue
+        task = entry.get("pipeline_tag")
+        if task and task not in ("conversational", "text-generation", "image-text-to-text", "text2text-generation"):
+            continue
+        architecture = entry.get("architecture")
+        if isinstance(architecture, dict) and any(
+            modalities is not None and (not isinstance(modalities, list) or "text" not in modalities)
+            for modalities in (architecture.get("input_modalities"), architecture.get("output_modalities"))
+        ):
+            continue
+        if provider == "huggingface" and ":" not in model:
+            model += ":fastest"
+        models.add(model.removeprefix("models/") if provider == "gemini" else model)
+    return sorted(models, key=str.casefold)
+
+
+def list_chat_models(gateway, entry):
+    provider = entry["provider"]
+    if provider not in MODELS_PATHS:
+        return []
+    return chat_models(provider, gateway.json(entry, MODELS_PATHS[provider], timeout=8))
+
+
+def with_model(gateway, entry):
+    if entry["model"]:
+        return entry
+    models = list_chat_models(gateway, entry)
+    if not models:
+        raise ConnectorError("Choose a model ID in Settings.")
+    return {**entry, "model": models[0]}
 
 
 def catalog_entry(provider):
@@ -78,6 +134,7 @@ class Connections:
     def load(self):
         config = deepcopy(self.defaults)
         config["gateway"] = {}
+        config.setdefault("brain", {"provider": "auto", "model": ""})
         if not self.path.is_file():
             return config
         try:
@@ -104,13 +161,22 @@ class Connections:
                 if valid_provider(provider) and isinstance(connection_id, str)
                 and GATEWAY_SEGMENT.fullmatch(connection_id)
             }
+        brain = data.get("brain")
+        if isinstance(brain, dict):
+            provider, model = brain.get("provider"), brain.get("model")
+            if isinstance(provider, str) and provider in MODEL_PATHS and valid_model(model):
+                config["brain"] = {"provider": provider, "model": model}
+            elif provider in ("auto", "mock"):
+                config["brain"] = {"provider": provider, "model": ""}
         return config
 
     @staticmethod
     def merge(config, saved):
         if not isinstance(saved, dict):
             return
-        rules = {"connection_id": GATEWAY_SEGMENT, "model": MODEL, "index": INDEX,
+        if "model" in config and valid_model(saved.get("model")):
+            config["model"] = saved["model"]
+        rules = {"connection_id": GATEWAY_SEGMENT, "index": INDEX,
                  "inbox_id": INBOX, "namespace": GATEWAY_SEGMENT}
         for key in config.keys() & rules.keys():
             value = saved.get(key)
@@ -136,6 +202,62 @@ class Connections:
         config["gateway"] = {provider: self.gateway_entry(provider, connection_id)
                              for provider, connection_id in self.selected.items()}
         return config
+
+    def brain_info(self):
+        saved = self.config.get("brain", {"provider": "auto", "model": ""})
+        entries = self.configured_entries(self.config)
+        providers = []
+        for provider in CATALOG:
+            if CATALOG[provider]["category"] != "AI models" or (
+                provider not in self.selected and provider != saved["provider"]
+            ):
+                continue
+            providers.append({
+                "provider": provider, "name": CATALOG[provider]["name"],
+                "default_model": entries.get(provider, {}).get("model", ""),
+                "available": provider in self.selected, "supported": provider in MODEL_PATHS,
+            })
+        return {"selection": saved, "providers": providers}
+
+    def brain_entry(self, provider, model=""):
+        if not isinstance(provider, str) or not isinstance(model, str):
+            raise HearthError("Choose a valid brain provider and model.")
+        if provider in ("auto", "mock"):
+            if provider == "auto":
+                return next(entry for entry in self.active_config()["llm"]
+                            if entry["provider"] == "mock" or entry["connection_id"])
+            return {"provider": "mock", "model": "hearth-demo"}
+        if provider not in MODEL_PATHS:
+            raise HearthError("This connector does not have a Hearth chat adapter.")
+        if provider not in self.selected:
+            raise HearthError("Authorize this connector in Fly, then re-scan.")
+        default = self.configured_entries(self.config).get(provider, {}).get("model", "")
+        model = model.strip() or default
+        if not valid_model(model):
+            raise HearthError("Enter a model ID using letters, digits, and model path punctuation.")
+        return {**self.gateway_entry(provider, self.selected[provider]), "model": model}
+
+    def brain_models(self, provider):
+        if not isinstance(provider, str) or provider not in self.selected:
+            raise HearthError("Authorize this connector in Fly, then re-scan.")
+        if provider not in MODELS_PATHS:
+            return {"models": [], "detail": "Model discovery is unavailable. Enter a model ID."}
+        try:
+            models = list_chat_models(self.gateway, self.gateway_entry(provider, self.selected[provider]))
+        except ConnectorError:
+            return {"models": [], "detail": "Could not load models. Enter a model ID."}
+        return {"models": models, "detail": "" if models else "No chat models listed. Enter a model ID."}
+
+    def save_brain(self, provider, model):
+        entry = self.brain_entry(provider, model)
+        selection = {"provider": provider, "model": "" if provider in ("auto", "mock") else entry["model"]}
+        config = self.load()
+        if config != self.config:
+            raise HearthError("Saved connection settings changed. Re-scan and try again.")
+        if selection != config["brain"]:
+            config["brain"] = selection
+            self.persist(config, "Before saving Hearth brain settings")
+            self.config = config
 
     def report(self):
         providers = {}

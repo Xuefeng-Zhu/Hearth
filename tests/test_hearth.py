@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
-from hearth.agent import Agent
+from hearth.agent import Agent, tool_call
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import ConnectorError, Gateway, read_config
 from hearth.scheduler import add_job, next_cron, run_due
@@ -120,6 +120,25 @@ class HearthTest(unittest.TestCase):
         self.assertIn("reset", [name for name, _ in events])
         self.assertEqual(events[-1], ("done", {"provider": "mock"}))
         self.assertTrue(self.storage.load()["messages"][-1]["content"].startswith("# Frank"))
+
+    def test_model_fallback_preserves_an_already_staged_action(self):
+        class InterruptedGateway(Recorder):
+            def completion(self, config, messages, tools, emit):
+                if messages[-1]["role"] == "tool":
+                    raise ConnectorError("Unavailable.", 503)
+                return tool_call("send_email", {"to": ["guest@example.invalid"], "subject": "Dinner", "text": "Join us?"})
+
+        self.config["llm"][0]["connection_id"] = "test-id"
+        self.agent = Agent(self.storage, self.checkpoints, self.config, InterruptedGateway())
+        events = self.chat("Draft a Thanksgiving invitation")
+        self.assertEqual(events[-1], ("done", {"provider": "mock"}))
+        state = self.storage.load()
+        draft, fallback = state["actions"].values()
+        self.assertEqual((draft["kind"], draft["status"]), ("email", "pending"))
+        self.assertEqual(fallback["title"], "Brain fallback")
+        self.assertEqual(state["messages"][-1]["action_ids"], [draft["id"]])
+        self.assertEqual(state["messages"][-1]["notices"], [fallback["detail"]])
+        self.assertEqual(state["outbox"], [])
 
     def test_scheduler_persists_and_catches_up_once(self):
         now = datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc)
