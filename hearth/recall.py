@@ -147,12 +147,24 @@ def metadata(item):
     }.items()}
 
 
+def artifact_text(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from artifact_text(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from artifact_text(item)
+
+
+
 def artifact_chunks(rows):
     for row in rows:
-        if row.get("deleted") or not row.get("content"):
+        if row.get("deleted"):
             continue
         # Bound embedding input while retaining consecutive sections of long files.
-        content = redact_text(row["content"])
+        content = redact_text(row.get("content") or "\n".join(artifact_text(row.get("structured"))))
         for start in range(0, len(content), 1_000):
             excerpt = content[start:start + 1_000]
             if excerpt.strip():

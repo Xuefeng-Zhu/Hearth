@@ -145,6 +145,11 @@ def probe(gateway, config):
     return "passed", "The provider answered a read-only request."
 
 
+def artifact_preferences(value):
+    # Existing installs may have a default text format alongside their Box settings.
+    return {key: entry for key, entry in value.items() if key != "format"} if isinstance(value, dict) else value
+
+
 class Connections:
     def __init__(self, defaults, path, gateway, storage, checkpoints):
         self.defaults = defaults
@@ -176,7 +181,7 @@ class Connections:
         config.setdefault("brain_pool", [])
         config["memory"] = recall.settings(config.get("memory", {}))
         config["search"] = search.settings(config.get("search", {}))
-        config["artifacts"] = box.settings(config.get("artifacts", {}))
+        config["artifacts"] = box.settings(artifact_preferences(config.get("artifacts", {})))
         config["box_folders"] = {}
         if not self.path.is_file():
             return config
@@ -232,7 +237,7 @@ class Connections:
         for key, validate in (("memory", recall.settings), ("search", search.settings), ("artifacts", box.settings)):
             if key in data:
                 try:
-                    config[key] = validate(data[key])
+                    config[key] = validate(artifact_preferences(data[key]) if key == "artifacts" else data[key])
                 except HearthError:
                     pass
         folders = data.get("box_folders")

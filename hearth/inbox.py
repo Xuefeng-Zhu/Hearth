@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.error import URLError
 from zoneinfo import ZoneInfo
 
-from . import artifacts, mail_content, scheduler, timeline
+from . import artifacts, mail_content, office, scheduler, timeline
 from .connectors import ConnectorError
 from .reminder_config import KINDS, NOT_CONNECTED, saved
 from .reminders import cancel, change_occurrence
@@ -281,20 +281,23 @@ class Inbox:
                           f"Forwarded by {card['sender']}" if card["sender"] else "",
                           f"Original sender {card['original_sender']}" if card["original_sender"] else "",
                           f"Original date {card['original_date']}" if card["original_date"] else ""]
-            text = "\n\n".join(filter(None, (f"# {proposal['title']}", ". ".join(filter(None, provenance)),
-                                                 detail, proposal["summary"], card["body"])))
+            paragraphs = list(filter(None, (". ".join(filter(None, provenance)), detail,
+                                            proposal["summary"], card["body"])))
             if kind == "list":
                 key = card["id"][:32]
-                text, size = artifacts.clean_content(text, "md")
-                state.setdefault("artifacts", {})[key] = {
-                    "id": key, "title": proposal["title"], "kind": "list", "content": text,
-                    "filename": artifacts.filename(proposal["title"], "md", f" - {key[:8]}"),
-                    "format": "md", "size": size, "source": "Email Hearth", "revision": new_id(),
-                    "created_at": iso(now), "updated_at": iso(now), "sync": "local", **ORIGIN}
-                changes["artifact"] = key
-                changes["revision"] = state["artifacts"][key]["revision"]
+                title = proposal["title"][:160]
+                chunks = [paragraph[start:start + 8_000] for paragraph in paragraphs
+                          for start in range(0, len(paragraph), 8_000)]
+                content = office.prepare("docx", {"title": title, "sections": [{"paragraphs": chunks}]})
+                row = {"id": key, "title": title, "kind": "list", "format": "docx",
+                       "filename": artifacts.filename(title, "docx", f" - {key[:8]}"),
+                       "source": "Email Hearth", "created_at": iso(now), **ORIGIN}
+                artifact = self.app.artifacts.stage_file(row, content)
+                state.setdefault("artifacts", {})[key] = artifact
+                changes.update(artifact=key, revision=artifact["revision"])
             else:
                 path = f"topics/email-{card['id'][:32]}.md"
+                text = "\n\n".join([f"# {proposal['title']}", *paragraphs])
                 self.storage.write(path, text)
                 changes["note"] = path
                 changes["digest"] = hashlib.sha256(text.encode()).hexdigest()

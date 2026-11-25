@@ -28,7 +28,8 @@ def new_id():
 
 def atomic_write(path, content):
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as tmp:
+    options = {"mode": "wb"} if isinstance(content, bytes) else {"mode": "w", "encoding": "utf-8"}
+    with tempfile.NamedTemporaryFile(**options, dir=path.parent, delete=False) as tmp:
         name = Path(tmp.name)
         try:
             tmp.write(content)

@@ -10,7 +10,7 @@ from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from queue import Empty, SimpleQueue
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 from . import artifacts, box, inbox, memory_edits, recall, reminders, router, scheduler, search, timeline, voice, voice_call
 from .agent import Agent, require_text
@@ -64,7 +64,7 @@ class Application:
             *((checkpoints.root,) if checkpoints.mode == "local" else ()),
         )
         self.operation = threading.RLock()
-        self.artifacts = artifacts.Artifacts(storage, self.threads, self.connections, self.operation)
+        self.artifacts = artifacts.Artifacts(storage, self.connections, self.operation)
         self.turn_lock = threading.Lock()
         self.turns = {}
         self.turn_activity = {}
@@ -511,7 +511,8 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-    def response_headers(self, status, content_type, length=None, *, email_preview=False, etag=None):
+    def response_headers(self, status, content_type, length=None, *, email_preview=False, etag=None,
+                         disposition=None, inline_pdf=False):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         if length is not None:
@@ -521,9 +522,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        if disposition:
+            self.send_header("Content-Disposition", disposition)
         self.send_header("Content-Security-Policy",
                          "default-src 'self'; connect-src 'self' wss://*.livekit.cloud https://*.livekit.cloud; "
-                         "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+                         "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors "
+                         + ("'self'" if inline_pdf else "'none'")
                          + ("; style-src 'unsafe-inline'; script-src 'none'" if email_preview else ""))
         if content_type == "text/event-stream":
             self.send_header("X-Accel-Buffering", "no")
@@ -599,6 +603,17 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/artifacts/detail":
                 identity = parse_qs(url.query).get("id", [None])[0]
                 self.json(self.app.artifacts.detail(identity))
+            elif url.path == "/api/artifacts/file":
+                params = parse_qs(url.query)
+                identity = params.get("id", [None])[0]
+                inline = params.get("inline") == ["1"]
+                item, raw = self.app.artifacts.download(identity, inline=inline)
+                content_type = box.FORMATS.get(item["format"], "application/octet-stream")
+                mode = "inline" if inline else "attachment"
+                filename = quote(item["filename"], safe="")
+                self.response_headers(200, content_type, len(raw), inline_pdf=inline,
+                                      disposition=f"{mode}; filename*=UTF-8''{filename}")
+                self.wfile.write(raw)
             elif url.path == "/api/memory/reindex":
                 self.json(self.app.memory_sync_info())
             elif url.path == "/api/memory/chat":
@@ -780,7 +795,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_artifact(self):
         operation = self.path.removeprefix("/api/artifacts/")
-        if operation not in {"settings", "create", "save-message", "update", "retry", "delete", "undo"}:
+        if operation not in {"settings", "retry", "delete", "undo"}:
             self.json({"error": "Page not found."}, 404)
             return
         try:
@@ -797,7 +812,7 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             self.json({"error": "Hearth could not update workspace data."}, 500)
         else:
-            self.json(result, 201 if operation in {"create", "save-message"} else 200)
+            self.json(result)
 
     def update_artifacts(self, operation, body):
         service = self.app.artifacts
@@ -806,18 +821,8 @@ class Handler(BaseHTTPRequestHandler):
             self.app.reload_agent(reset_brain=False)
             self.app.memory_sync.request("startup")
             return service.info()
-        if operation == "save-message" and body.keys() == {"thread_id", "message_id"}:
-            return service.save_message(body["thread_id"], require_text(body["message_id"], 90))
         if operation == "undo" and body.keys() == {"id"}:
             return service.undo(require_text(body["id"], 40))
-        if operation == "create" and {"title", "content"} <= body.keys() <= {"title", "content", "kind", "format", "thread_id"}:
-            thread_id = body.pop("thread_id", None)
-            origin = None
-            if thread_id is not None:
-                with self.app.storage.lock():
-                    thread = self.app.threads.describe(thread_id)
-                origin = {"thread_id": thread["id"], "thread_title": thread["title"]}
-            return service.create(**body, origin=origin)
         return service.mutate(operation, body)
 
     def post_call(self):

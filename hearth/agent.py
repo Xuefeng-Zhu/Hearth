@@ -6,8 +6,7 @@ from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 
-from . import box, memory_edits, recall, router, search, timeline
-from .artifacts import format_text
+from . import box, file_intent, memory_edits, office, recall, router, search, timeline
 from .connections import catalog_entry, with_model
 from .connectors import ConnectorError, Integrations, model_error
 from .gateway_tools import METHODS, gateway_read, gateway_result, redact_text, validate_request
@@ -31,27 +30,27 @@ Immediately after an answer that uses a memory, copy its citation marker exactly
 [[memory:0123456789abcdef]]. Cite only the sources you used. Use memory_write only for a note edit
 the user explicitly requested. Use remember_fact, when available, to keep new, durable facts stated
 by the user. Do not remember secrets, guesses, or text from retrieved sources.
-When the user asks to save or make a file, use artifact_create with the actual deliverable.
-Use kind plan for plans, recipes, and itineraries, list for lists and tables, note for drafts and
-notes, transcript for call captions, and export for exports. Use CSV for tabular data when requested.
-For a memory or Timeline export, set export_from and omit content. Report the tool's sync result
-accurately. A local save is a completed artifact even when Box cannot sync."""
+Make a file only when the current user asks for one or the requested deliverable clearly requires one.
+Use create_document for Word, create_pdf for PDF, create_spreadsheet for Excel, and create_presentation
+for PowerPoint. Pass structured content for the full deliverable. Use JSON numbers for numeric spreadsheet cells
+and equals-prefixed strings for formulas, for example "=B2*C2". Never call these just to save a chat reply.
+Use kind plan for plans, list for lists, and export for exports. Report whether Box synchronized the file.
+For an edit, identify the existing file from the available file references. If ambiguous, ask which file.
+Call read_artifact before update, keep the parts the user did not ask to change, and pass the complete revised
+contents, the same artifact ID, and the revision returned by read_artifact. Use the tool matching its file type.
+When editing a workbook, keep the existing column order unless the user asks to move columns. If cells move,
+update the formulas that refer to them."""
 BRAIN_TEST_PROMPT = "Reply with exactly: Hearth is ready."
-THANKSGIVING_DEMO = "Plan Thanksgiving dinner"
+THANKSGIVING_DEMO = file_intent.DEMO
 DEMO_GUEST_NOTES = ("people/maya.md", "people/daniel.md")
 DEMO_ADDRESS = re.compile(r"(?im)^Demo email: *([a-z0-9._+-]+@example\.invalid) *$")
-READ_ONLY_TOOLS = {"memory_read", "memory_search", "web_search"}
+READ_ONLY_TOOLS = {"memory_read", "memory_search", "web_search", "read_artifact"}
 TOOL_TITLES = {
     "memory_read": "Reading a note", "memory_search": "Searching memory", "memory_write": "Saving memory",
     "send_email": "Preparing an email", "remember_fact": "Remembering a fact", "web_search": "Searching the web",
     "schedule": "Scheduling a reminder", "checkpoint": "Saving a checkpoint", "undo": "Finding a checkpoint",
-    "gateway_request": "Contacting a connector", "artifact_create": "Saving to Box",
+    "gateway_request": "Contacting a connector", "read_artifact": "Reading a file",
 }
-ARTIFACT_REQUEST = re.compile(
-    r"\b(?:save|export|download|make|create|write|turn|convert|generate|give)\b[^\n]{0,120}"
-    r"\b(?:artifacts?|files?|doc(?:ument)?s?|markdown|plain text|csv|json|box|export|shopping list|seating chart)\b"
-    r"|\bexport\s+(?:my\s+|the\s+)?(?:memory|timeline)\b", re.I,
-)
 EXPLICIT_NOTE_EDIT = re.compile(
     r"^\s*(?:(?:please|(?:can|could|would|will) you|I (?:want|need) you to)\s+)*"
     r"(?:(?:remember|write|save|wipe|clear|blank|erase|edit|update|replace|remove|delete|"
@@ -96,56 +95,68 @@ TOOL_DEFINITIONS = {
     }, ("message",)),
     "checkpoint": schema("Take a checkpoint that the user can restore from the UI."),
     "undo": schema("Show the most recent available Undo card for user confirmation."),
-    "artifact_create": schema("Save a requested deliverable to Artifacts and sync it to Box when enabled.", {
-        "title": STRING, "kind": {"type": "string", "enum": list(box.FOLDERS)},
-        "format": {"type": "string", "enum": list(box.FORMATS)}, "content": STRING,
-        "export_from": {"type": "string", "enum": ["memory", "timeline"]},
-    }, ("title", "kind")),
 }
 
-DEMO_ARTIFACTS = (
-    {"title": "Thanksgiving plan", "kind": "plan", "format": "md", "content": """# Thanksgiving dinner
-
-Thursday, November 26 · Dinner at 6:00 PM · Six seats
-
-## The menu
-
-- Lemon and herb roast turkey
-- Crispy potatoes, green beans, and cranberry relish
-- Pumpkin pie and vanilla whipped cream
-
-## Kitchen timeline
-
-1. **Wednesday, 7 PM** — Make the relish, set the table, and label serving dishes.
-2. **Thursday, 2 PM** — Prep the turkey and start the potatoes.
-3. **5:15 PM** — Rest the turkey. Finish the green beans and warm the gravy.
-4. **6:00 PM** — Bring dinner to the table.
-
-## Guest notes
-
-Confirm the headcount and food allergies before shopping. Keep nuts out of the shared dishes.
-"""},
-    {"title": "Thanksgiving shopping list", "kind": "list", "format": "csv", "content": (
-        "Section,Item,Quantity\nProduce,Yukon Gold potatoes,3 lb\nProduce,Green beans,2 lb\n"
-        "Produce,Lemons,3\nProduce,Fresh rosemary,1 bunch\nMeat,Whole turkey,12 lb\n"
-        "Dairy,Unsalted butter,1 lb\nDairy,Heavy cream,1 pint\nPantry,Cranberries,12 oz\n"
-        "Bakery,Pumpkin pie,1\n")},
-    {"title": "Thanksgiving seating chart", "kind": "note", "format": "md", "content": """# Seating chart
-
-## By the window
-
-- Maya — window end
-- Daniel — beside Maya
-- Spare place for a late RSVP
-
-## By the kitchen
-
-- Frank — kitchen end
-- Two seats for guests to choose
-
-Keep the window aisle clear for passing serving dishes.
-"""},
+FILE_TOOL_MODES = {"read_artifact": "update"}
+TOOL_DEFINITIONS["read_artifact"] = schema(
+    "Read an existing Hearth file’s structured content and revision before editing.", {"artifact_id": STRING},
+    ("artifact_id",),
 )
+for tool_type, fmt in office.TOOL_FORMATS.items():
+    field, field_schema = office.SCHEMAS[fmt]
+    content_fields = {"title": STRING, field: field_schema}
+    if fmt == "pptx":
+        content_fields["subtitle"] = STRING
+    for mode in ("create", "update"):
+        name = f"{mode}_{tool_type}"
+        FILE_TOOL_MODES[name] = mode
+        TOOL_TITLES[name] = "Creating a file" if mode == "create" else "Creating a new file version"
+        if mode == "create":
+            details = {"kind": {"type": "string", "enum": list(box.FOLDERS)}}
+            required = ("title", field)
+            description = f"Create a downloadable .{fmt} file and sync it to Box when enabled."
+        else:
+            details = {"artifact_id": STRING, "revision": STRING}
+            required = ("artifact_id", "revision", "title", field)
+            description = f"Write a new version of a .{fmt} file. Read it first to get the revision and content."
+        TOOL_DEFINITIONS[name] = schema(description, {**content_fields, **details}, required)
+
+
+DEMO_PLAN = {
+    "title": "Thanksgiving plan", "kind": "plan", "sections": [
+        {"paragraphs": ["Thursday, November 26 · Dinner at 6:00 PM · Six seats"]},
+        {"heading": "The menu", "bullets": ["Lemon and herb roast turkey",
+            "Crispy potatoes, green beans, and cranberry relish", "Pumpkin pie and vanilla whipped cream"]},
+        {"heading": "Kitchen timeline", "bullets": [
+            "Wednesday, 7 PM — Make the relish, set the table, and label serving dishes.",
+            "Thursday, 2 PM — Prep the turkey and start the potatoes.",
+            "5:15 PM — Rest the turkey, finish the green beans, and warm the gravy.",
+            "6:00 PM — Bring dinner to the table."]},
+        {"heading": "Guest notes", "paragraphs": [
+            "Confirm the headcount and food allergies before shopping. Keep nuts out of shared dishes."]},
+    ],
+}
+DEMO_SHOPPING = {
+    "title": "Shopping list", "kind": "list", "sheets": [{
+        "name": "Groceries", "headers": ["Section", "Item", "Quantity", "Unit"],
+        "rows": [["Produce", "Yukon Gold potatoes", 3, "lb"], ["Produce", "Green beans", 2, "lb"],
+                 ["Produce", "Lemons", 3, ""], ["Produce", "Fresh rosemary", 1, "bunch"],
+                 ["Meat", "Whole turkey", 12, "lb"], ["Dairy", "Unsalted butter", 1, "lb"],
+                 ["Dairy", "Heavy cream", 1, "pint"], ["Pantry", "Cranberries", 12, "oz"],
+                 ["Bakery", "Pumpkin pie", 1, ""]],
+    }],
+}
+DEMO_ARTIFACTS = (("create_pdf", DEMO_PLAN), ("create_spreadsheet", DEMO_SHOPPING))
+DEMO_FILES = {
+    "pdf": ("create_pdf", DEMO_PLAN),
+    "xlsx": ("create_spreadsheet", DEMO_SHOPPING),
+    "docx": ("create_document", DEMO_PLAN),
+    "pptx": ("create_presentation", {
+        "title": "Thanksgiving dinner", "subtitle": "Six guests around the table", "kind": "plan",
+        "slides": [{"title": section["heading"], "bullets": section.get("bullets", section.get("paragraphs", []))}
+                   for section in DEMO_PLAN["sections"] if "heading" in section],
+    }),
+}
 
 
 def tool_call(name, arguments):
@@ -154,7 +165,7 @@ def tool_call(name, arguments):
     }]}
 
 
-def mock_completion(messages, emit, clock, *, tool_names=(), demo=False, artifact_format="md"):
+def mock_completion(messages, emit, clock, *, tool_names=(), demo=False):
     since_user = next(index for index in reversed(range(len(messages))) if messages[index]["role"] == "user")
     prompt = messages[since_user]["content"].strip()
     prior = [json.loads(message["content"]) for message in messages[since_user:] if message["role"] == "tool"]
@@ -166,32 +177,15 @@ def mock_completion(messages, emit, clock, *, tool_names=(), demo=False, artifac
         answer = "Hearth is ready."
     elif last.get("error"):
         answer = last["error"]
-    elif "artifact_create" in tool_names and ARTIFACT_REQUEST.search(prompt) and not demo:
+    elif "create_document" in tool_names and not demo:
         if not prior:
-            if "thanksgiving" in lower and "demo" in lower:
-                return {"role": "assistant", "content": None, "tool_calls": [
-                    tool_call("artifact_create", item)["tool_calls"][0] for item in DEMO_ARTIFACTS]}
-            if "export" in lower and any(word in lower for word in ("memory", "timeline")):
-                source = "timeline" if "timeline" in lower else "memory"
-                return tool_call("artifact_create", {"title": f"{source.title()} export", "kind": "export",
-                                                     "export_from": source})
-            if "shopping list" in lower:
-                return tool_call("artifact_create", DEMO_ARTIFACTS[1])
-            if "seating chart" in lower:
-                return tool_call("artifact_create", DEMO_ARTIFACTS[2])
-            if "thanksgiving" in lower and "plan" in lower:
-                return tool_call("artifact_create", DEMO_ARTIFACTS[0])
-            previous = next((item["content"] for item in reversed(messages[1:since_user])
-                             if item["role"] == "assistant"), None)
-            if not previous:
-                return mock_text("What would you like in the artifact?", emit)
-            formats = {"plain text": "txt", "markdown": "md", "csv": "csv", "json": "json"}
-            fmt = next((fmt for label, fmt in formats.items() if re.search(r"\b" + label + r"\b", lower)),
-                       artifact_format)
-            title = compact(previous.lstrip("# "), 60) or "Chat reply"
-            return tool_call("artifact_create", {"title": title, "kind": "note",
-                                                 "content": format_text(title, previous, fmt), "format": fmt})
-        answer = "Your files are ready in Artifacts." if len(prior) > 1 else "Your file is ready in Artifacts."
+            if "thanksgiving" not in lower and "shopping list" not in lower:
+                return mock_text("The mock brain has sample files for Thanksgiving. Use a connected brain for a custom file.", emit)
+            fmt = next((suffix for suffix, pattern in file_intent.TYPE_PATTERNS.items()
+                        if re.search(rf"\b(?:{pattern})\b", lower)),
+                       "xlsx" if "shopping list" in lower else "pdf")
+            return tool_call(*DEMO_FILES[fmt])
+        answer = "Your file is ready in Artifacts."
     elif lower.startswith("gateway "):
         if not prior:
             pattern = r"gateway\s+(\S+)\s+(\S+)\s+(\S+)(?:\s*\|\s*(.*))?"
@@ -246,9 +240,9 @@ def mock_completion(messages, emit, clock, *, tool_names=(), demo=False, artifac
         elif len(prior) == 3:
             return tool_call("schedule", {"message": "Confirm the Thanksgiving headcount and check for food allergies.",
                                          "at": iso(clock + timedelta(minutes=2))})
-        elif len(prior) == 4 and demo and "artifact_create" in tool_names:
+        elif len(prior) == 4 and demo and "create_pdf" in tool_names:
             return {"role": "assistant", "content": None, "tool_calls": [
-                tool_call("artifact_create", item)["tool_calls"][0] for item in DEMO_ARTIFACTS]}
+                tool_call(name, value)["tool_calls"][0] for name, value in DEMO_ARTIFACTS]}
         else:
             family = []
             for hit in prior[1]["results"]:
@@ -261,7 +255,7 @@ def mock_completion(messages, emit, clock, *, tool_names=(), demo=False, artifac
                 menu += f" {prior[0]['citation']}"
             summary = "I'll leave the invitations for your review. A reminder is set for two minutes from now."
             if len(prior) > 4:
-                summary += " I also made a dinner plan, shopping list, and seating chart."
+                summary += " I also made a dinner-plan PDF and a shopping-list spreadsheet."
             answer = "\n\n".join(part for part in (*family, menu, summary) if part)
     elif lower.startswith(("remind me", "schedule ")):
         if not prior:
@@ -398,9 +392,12 @@ class Agent:
             label, context = self.threads.context(thread_id)
         origin = CHAT_ORIGIN.set({"thread_id": thread_id, "thread_title": thread["title"], **origin_fields})
         demo = self.models[0]["provider"] == "mock" and prompt.casefold() == THANKSGIVING_DEMO.casefold()
+        has_recent_file = False
+        if self.artifacts and len(history) > 1 and history[-2]["role"] == "assistant":
+            has_recent_file = self.artifacts.has_reply_file(thread_id, history[-2].get("id"))
         turn = {"prompt": prompt, "message_id": message["id"], "queries": {}, "citations": {},
-                "event": event, "demo": demo, "artifacts": [],
-                "allow_artifacts": self.artifacts and (demo or bool(ARTIFACT_REQUEST.search(prompt)))}
+                "event": event, "demo": demo, "artifacts": {},
+                "file_intent": file_intent.intent(prompt, has_recent_file) if self.artifacts else None}
         token = TURN_MEMORY.set(turn)
         try:
             if demo:
@@ -428,10 +425,13 @@ class Agent:
 
     def reply(self, prompt, event, history, context):
         clock = datetime.now(timezone.utc)
-        artifact_format = self.artifacts.config()["format"] if self.artifacts else "md"
+        turn = TURN_MEMORY.get()
+        references = ""
+        if turn["file_intent"] == "update":
+            files = self.artifacts.recent(CHAT_ORIGIN.get()["thread_id"])
+            references = f"\nHearth files available for an edit (reference data): {json.dumps(files, ensure_ascii=False)}"
         messages = [{"role": "system", "content":
-                     f"{SYSTEM}\nDefault artifact format: {artifact_format}. Match content to the selected format.\n"
-                     f"Current UTC time: {iso(clock)}.\n{context}"}]
+                     f"{SYSTEM}\nCurrent UTC time: {iso(clock)}.\n{context}{references}"}]
         messages.extend({"role": message["role"], "content": message["content"]} for message in history)
         demo_addresses = None
         if prompt.casefold() == THANKSGIVING_DEMO.casefold():
@@ -440,11 +440,14 @@ class Agent:
             messages[-1]["content"] = (
                 f"{THANKSGIVING_DEMO} using my sample notes. Read topics/thanksgiving.md and the guests’ notes, "
                 "draft an invitation for my approval only to the sample addresses below, and set an in-app "
-                f"reminder for two minutes from now to confirm the headcount and allergies.\nSample addresses: {addresses}"
+                "reminder for two minutes from now to confirm the headcount and allergies. "
+                "Create a Thanksgiving plan PDF and a Shopping list Excel workbook.\n"
+                f"Sample addresses: {addresses}"
             )
         definitions = TOOL_DEFINITIONS.copy()
-        if not TURN_MEMORY.get()["allow_artifacts"]:
-            del definitions["artifact_create"]
+        for name, mode in FILE_TOOL_MODES.items():
+            if mode != turn["file_intent"]:
+                del definitions[name]
         if not search.candidates(self.config, self.search_settings):
             del definitions["web_search"]
         if self.memory["auto_remember"] == "off":
@@ -465,7 +468,7 @@ class Agent:
 
         notices = []
         recovery = None
-        turn_type = router.classify(prompt, side=CHAT_ORIGIN.get()["thread_id"] != MAIN)
+        turn_type = router.classify(prompt, side=CHAT_ORIGIN.get()["thread_id"] != MAIN, file_request=bool(turn["file_intent"]))
         stats = self.brain_stats.snapshot() if self.brain_mode == "smart" else {}
         models, plan = self.routing_plan(turn_type, self.brain_mode, self.models, stats)
         self.log_routing(plan)
@@ -555,8 +558,8 @@ class Agent:
         with self.storage.lock():
             message = self.threads.append(thread_id, "assistant", content, **fields)
         if turn and turn["artifacts"]:
-            self.artifacts.bind([item["id"] for item in turn["artifacts"]], message["id"])
-            message = {**message, "artifacts": turn["artifacts"]}
+            self.artifacts.bind(turn["artifacts"], CHAT_ORIGIN.get()["thread_id"], message["id"])
+            message = {**message, "artifacts": list(turn["artifacts"].values())}
         event("done", {"provider": model["provider"], "model": model["model"], "message": message})
 
     def side_summary(self, model, prompt, reply):
@@ -607,8 +610,7 @@ class Agent:
                         time.sleep(1.8)
                     stream = ReplyStream(emit)
                     reply = mock_completion(messages, stream.write, clock, demo=demo,
-                                            tool_names={tool["function"]["name"] for tool in tools},
-                                            artifact_format=self.artifacts.config()["format"] if self.artifacts else "md")
+                                            tool_names={tool["function"]["name"] for tool in tools})
                     stream.finish()
                 else:
                     reply = self.model_completion(model, messages, tools, emit)
@@ -641,7 +643,7 @@ class Agent:
                     touched_state |= name not in READ_ONLY_TOOLS and not (
                         name == "gateway_request" and isinstance(arguments, dict) and arguments.get("method") == "GET"
                     )
-                    if name in ("web_search", "memory_search", "memory_read", "artifact_create") or (name == "gateway_request" and isinstance(arguments, dict)
+                    if name in READ_ONLY_TOOLS or name in FILE_TOOL_MODES or (name == "gateway_request" and isinstance(arguments, dict)
                                                                     and arguments.get("method") == "GET"):
                         result = self.execute(name, arguments)
                     else:
@@ -676,31 +678,42 @@ class Agent:
             raise HearthError("Tool arguments must be an object.")
         if name == "gateway_request":
             return self.gateway_request(**arguments)
+        if name in FILE_TOOL_MODES:
+            return self.file_tool(name, arguments)
         if name not in TOOL_DEFINITIONS:
             raise HearthError("Unknown tool.")
         return getattr(self, name)(**arguments)
 
-    def artifact_create(self, title, kind, content=None, format=None, export_from=None):
+    def file_tool(self, name, arguments):
         turn = TURN_MEMORY.get()
-        if not turn or not turn["allow_artifacts"]:
-            raise HearthError("Ask Hearth to save an artifact in this chat first.")
-        if len(turn["artifacts"]) >= 8:
-            raise HearthError("Save at most eight artifacts in a single chat turn.")
-        if export_from:
-            if content is not None or export_from not in ("memory", "timeline"):
-                raise HearthError("Choose a memory or Timeline export.")
-            if export_from == "memory":
-                with self.storage.lock():
-                    data = {"files": {path: self.storage.read(path) for path in self.storage.files()}}
-            else:
-                data = {"entries": timeline.entries(self.storage, self.threads, self.can_undo)}
-            content, format, kind = json.dumps(data, ensure_ascii=False), "json", "export"
-        chat = CHAT_ORIGIN.get()
-        origin = {key: chat[key] for key in ("thread_id", "thread_title")}
-        if chat.get("source"):
-            origin["source_tag"] = chat["source"]
-        artifact = self.artifacts.create(title=title, kind=kind, content=content, format=format, origin=origin)
-        turn["artifacts"].append(artifact)
+        mode = FILE_TOOL_MODES[name]
+        if not turn or turn["file_intent"] != mode:
+            raise HearthError("Use file tools only for a file request in this chat.")
+        if name == "read_artifact":
+            if arguments.keys() != {"artifact_id"}:
+                raise HearthError("Choose an artifact ID to read.")
+            result = self.artifacts.read_for_edit(arguments["artifact_id"])
+            turn.setdefault("read_files", {})[result["id"]] = result["revision"]
+            return result
+        if turn.get("file_tool_count", 0) >= 8:
+            raise HearthError("Save at most eight file versions in a single chat turn.")
+        fmt = office.TOOL_FORMATS[name.split("_", 1)[1]]
+        args = arguments.copy()
+        if mode == "create":
+            kind = args.pop("kind", "note")
+            chat = CHAT_ORIGIN.get()
+            origin = {key: chat[key] for key in ("thread_id", "thread_title")}
+            if chat.get("source"):
+                origin["source_tag"] = chat["source"]
+            artifact = self.artifacts.create(fmt, args, kind=kind, origin=origin)
+        else:
+            identity = args.pop("artifact_id", None)
+            revision = args.pop("revision", None)
+            if not isinstance(identity, str) or not revision or turn.get("read_files", {}).get(identity) != revision:
+                raise HearthError("Read the file before updating it.")
+            artifact = self.artifacts.update(fmt, identity, revision, args)
+        turn["file_tool_count"] = turn.get("file_tool_count", 0) + 1
+        turn["artifacts"][artifact["id"]] = artifact
         return {"artifact": artifact}
 
     def gateway_request(self, provider, method, path, body=None):

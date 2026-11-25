@@ -9,12 +9,14 @@ from urllib.request import Request, build_opener
 
 from .connectors import ConnectorError, NoRedirect
 from .gateway_tools import redact_text
+from .office import MIME_TYPES
 from .storage import HearthError, new_id
 
 FOLDERS = {"plan": "Plans", "list": "Lists", "note": "Notes",
            "transcript": "Transcripts", "export": "Exports"}
-FORMATS = {"md": "text/markdown", "txt": "text/plain", "csv": "text/csv", "json": "application/json"}
-DEFAULTS = {"auto_save": True, "format": "md", "folder_name": "Hearth"}
+TEXT_TYPES = {"md": "text/markdown", "txt": "text/plain", "csv": "text/csv", "json": "application/json"}
+FORMATS = {**TEXT_TYPES, **MIME_TYPES}
+DEFAULTS = {"auto_save": True, "folder_name": "Hearth"}
 MAX_BYTES = 128 * 1024
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 UNAVAILABLE = "Saved locally — Box upload unavailable"
@@ -31,11 +33,10 @@ def settings(value):
         raise HearthError("Invalid artifact settings.")
     result = {**DEFAULTS, **value}
     name = result["folder_name"]
-    fmt = result["format"]
-    if (type(result["auto_save"]) is not bool or not isinstance(fmt, str) or fmt not in FORMATS
+    if (type(result["auto_save"]) is not bool
             or not isinstance(name, str) or not 1 <= len(name.strip()) <= 80
             or name.strip() in (".", "..") or re.search(r'[/\\\x00-\x1f\x7f]', name)):
-        raise HearthError("Choose a format and a Box folder name of 1–80 characters.")
+        raise HearthError("Choose a Box folder name of 1–80 characters.")
     name = redact_text(name.strip())
     if "/" in name or "\\" in name:
         raise HearthError("Choose a folder name without credentials.")
@@ -112,12 +113,11 @@ class Box:
             found[key] = item["id"]
         return {name: found[name.casefold()] for name in names}
 
-    def upload(self, row, folder_id=None):
+    def upload(self, row, content, folder_id=None):
         file_id = row.get("box_id")
         attrs = {} if file_id else {"name": row["filename"], "parent": {"id": folder_id}}
         boundary = new_id()
         content_type = FORMATS[row["format"]]
-        content = row["content"].encode("utf-8")
         if len(content) > MAX_UPLOAD_BYTES:
             raise HearthError("Box uploads must be at most 50 MiB.")
         multipart = (
@@ -154,7 +154,7 @@ class Box:
             if not isinstance(count, int) or offset + limit >= count:
                 return
 
-    def content(self, identity, version=None):
+    def download(self, identity, version=None, *, limit=MAX_UPLOAD_BYTES):
         path = f"2.0/files/{identity}/content"
         if version:
             path += "?" + urlencode({"version": version})
@@ -174,11 +174,15 @@ class Box:
                 raise ConnectorError("Box could not open the download.") from None
         try:
             with response:
-                raw = response.read(MAX_BYTES + 1)
+                raw = response.read(limit + 1)
         except (OSError, HTTPException, URLError):
             raise ConnectorError("The Box download was interrupted.") from None
-        if len(raw) > MAX_BYTES:
+        if len(raw) > limit:
             raise HearthError("This file is too large to preview in Hearth.")
+        return raw
+
+    def content(self, identity, version=None):
+        raw = self.download(identity, version, limit=MAX_BYTES)
         try:
             return redact_text(raw.decode("utf-8-sig"))
         except UnicodeError:

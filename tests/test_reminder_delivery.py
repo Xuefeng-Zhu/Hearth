@@ -278,6 +278,20 @@ Appointment 2030-01-10T10:00:00Z.
         self.assertFalse(any(row["title"].startswith("Event saved") and not row.get("undone")
                              for row in timeline.entries(self.storage, self.app.threads, self.app.agent.can_undo)))
 
+    def test_inbox_list_acceptance_creates_a_word_file_and_undo_hides_it(self):
+        self.connect()
+        self.gateway.messages = [self.message("shopping", "Shopping list", "Rice and tea.")]
+        self.assertEqual(self.app.inbox.poll(force=True, clock=NOW), 1)
+        card = next(iter(self.storage.load()["inbox"].values()))
+        self.assertEqual(card["proposal"]["kind"], "list")
+        self.app.inbox.update("accept", {"id": card["id"]})
+        item = self.app.artifacts.list()["artifacts"][0]
+        self.assertEqual((item["format"], item["sync"]), ("docx", "local"))
+        self.assertTrue(any("Rice and tea" in block.get("text", "")
+                            for block in self.app.artifacts.detail(item["id"])["preview"]["blocks"]))
+        self.app.inbox.update("undo", {"id": card["id"]})
+        self.assertEqual(self.app.artifacts.list()["artifacts"], [])
+
     def test_ics_attachment_and_reminder_reply(self):
         zone = ZoneInfo("America/Los_Angeles")
         text = ("BEGIN:VEVENT\r\nDTSTART;TZID=America/Los_Angeles:20300108T090000\r\n"
