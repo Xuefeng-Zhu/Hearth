@@ -182,8 +182,10 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
         open.type = "button";
         open.setAttribute("aria-haspopup", "dialog");
         open.dataset.control = `file-${item.id}`;
-        open.append(node("span", "home-format", item.format.toUpperCase()), node("span", "", item.title));
-        open.addEventListener("click", () => openFile(item.id, open));
+        open.dataset.artifactId = item.id;
+        open.append(node("span", "home-format", item.kind === "page" ? "Page" : item.format.toUpperCase()),
+          node("span", "", item.title));
+        open.addEventListener("click", () => openFile(item, open));
         return [open];
       }));
     } else if (id === "memory") {

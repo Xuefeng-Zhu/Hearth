@@ -1,4 +1,4 @@
-"""Exercise the Pages UI and capture all four viewport/theme combinations."""
+"""Exercise Page artifacts and capture all four viewport/theme combinations."""
 
 import argparse
 import re
@@ -12,6 +12,21 @@ from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import read_config
 from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage
+from test_pages import seed_legacy_page
+
+NAV_ORDER = ["home", "chat", "timeline", "artifacts", "reminders", "inbox", "connections", "memory", "settings"]
+FILES = {
+    "Documents": ("docx", {"title": "Dinner notes", "sections": [{"paragraphs": ["Bring dessert."]}]}),
+    "PDFs": ("pdf", {"title": "Dinner plan", "sections": [{"paragraphs": ["Dinner starts at 5 PM."]}]}),
+    "Sheets": ("xlsx", {"title": "Shopping list", "sheets": [{"name": "Groceries", "headers": ["Item"], "rows": [["Pie"]]}]}),
+    "Slides": ("pptx", {"title": "Menu", "slides": [{"title": "Dinner", "bullets": ["Roast squash"]}]}),
+}
+
+
+class DisconnectedGateway:
+    def discover(self):
+        return {}, set()
+
 
 Contrast = """() => {
   const rgb = value => (value.match(/[\\d.]+/g) || []).map(Number);
@@ -59,18 +74,47 @@ def verify(page, context, origin, width, theme, output):
     page.on("console", lambda event: errors.append(event.text) if event.type in ("error", "warning") else None)
     app_requests = []
     page.on("request", lambda request: app_requests.append(request.url))
-    outcome = page.goto(origin, wait_until="domcontentloaded")
-    assert outcome.status == 200 and page.title() == "Hearth" and page.url.rstrip("/") == origin
-    nav = page.locator(".sidebar [data-view]")
-    assert nav.evaluate_all("(items) => items.map(item => item.dataset.view)") == [
-        "home", "chat", "timeline", "artifacts", "pages", "reminders", "inbox", "connections", "memory", "settings"
-    ]
-    go(page, "Pages", mobile)
-    expect(page.get_by_role("heading", name="No pages yet")).to_be_visible()
-    page.get_by_role("button", name="Build in Chat").click()
+    outcome = page.goto(origin + "/#pages", wait_until="domcontentloaded")
+    assert outcome.status == 200 and page.title() == "Hearth"
+    expect(page).to_have_url(origin + "/#artifacts/pages")
+    expect(page.get_by_role("heading", name="Artifacts", exact=True)).to_be_visible()
+    for scope in (".sidebar", "#workspace-drawer"):
+        nav = page.locator(f"{scope} [data-view]")
+        assert nav.evaluate_all("(items) => items.map(item => item.dataset.view)") == NAV_ORDER
+        expect(page.locator(f'{scope} .workspace-settings [data-view="settings"]')).to_have_count(1)
+    filters = page.get_by_role("group", name="Artifact type")
+    assert filters.get_by_role("button").all_text_contents() == ["All", *FILES, "Pages"]
+    expect(filters.get_by_role("button", name="Pages")).to_have_attribute("aria-pressed", "true")
+    collection = page.locator("#artifact-collection")
+    expect(collection.get_by_role("article")).to_have_count(1)
+    expect(collection.get_by_role("button", name="Weekend market guide")).to_be_visible()
+    filters.get_by_role("button", name="All", exact=True).click()
+    expect(collection.get_by_role("article")).to_have_count(5)
+    for category, (_, file) in FILES.items():
+        filters.get_by_role("button", name=category, exact=True).click()
+        expect(collection.get_by_role("article")).to_have_count(1)
+        expect(collection.get_by_role("button", name=file["title"])).to_be_visible()
+    page.go_back()
+    expect(filters.get_by_role("button", name="Sheets")).to_have_attribute("aria-pressed", "true")
+    page.go_forward()
+    expect(filters.get_by_role("button", name="Slides")).to_have_attribute("aria-pressed", "true")
+    filters.get_by_role("button", name="Documents").click()
+    collection.get_by_role("button", name="Dinner notes").click()
+    office = page.get_by_role("dialog", name="Dinner notes")
+    expect(office.get_by_text("Bring dessert.")).to_be_visible()
+    office.get_by_role("button", name="Close artifact").click()
+
+    go(page, "Chat", mobile)
+    legacy = page.locator("#transcript .chat-page-file").filter(has_text="Weekend market guide")
+    expect(legacy).to_have_text(re.compile("Weekend market guidePage · v1"))
+    legacy.click()
+    expect(page.frame_locator("#page-preview-fit iframe").get_by_role("heading", name="Weekend market guide")).to_be_visible()
+    page.get_by_role("button", name="Close page preview").click()
+    expect(legacy).to_be_focused()
+    page.locator("#message").focus()
     expect(page.locator("#message")).to_be_focused()
     send(page, "Make a page for our Thanksgiving dinner.")
-    first = page.locator(".page-chat-card").filter(has_text="v1")
+    first = page.locator("#transcript .chat-page-file").filter(has_text="Thanksgiving dinner").filter(has_text="Page · v1")
     expect(first).to_be_visible(timeout=15000)
     first.click()
     preview = page.get_by_role("dialog", name="Thanksgiving dinner")
@@ -79,24 +123,47 @@ def verify(page, context, origin, width, theme, output):
     page.get_by_role("button", name="Close page preview").click()
     expect(first).to_be_focused()
     send(page, "Make the header green.")
-    latest = page.locator(".page-chat-card").filter(has_text="v2")
+    latest = page.locator("#transcript .chat-page-file").filter(has_text="Page · v2")
     expect(latest).to_be_visible(timeout=15000)
+    latest.click()
+    expect(preview.get_by_text("Version 2 · Current")).to_be_visible()
+    page.get_by_role("button", name="Close page preview").click()
 
     def capture(name):
-        page.screenshot(path=output / f"run23-{name}-{width}-{theme}.png", animations="disabled")
+        assert page.evaluate("document.documentElement.scrollWidth === innerWidth")
+        page.screenshot(path=output / f"run25-artifacts-{name}-{width}-{theme}.png", animations="disabled")
 
-    capture("chat-card")
-    go(page, "Pages", mobile)
-    tile = page.locator(".page-tile")
-    expect(tile).to_contain_text("Thanksgiving dinner")
+    go(page, "Home", mobile)
+    recent = page.get_by_role("heading", name="Recent files").locator("..").locator("..")
+    home_file = recent.get_by_role("button", name="Page Thanksgiving dinner")
+    expect(home_file).to_be_visible()
+    home_file.click()
+    expect(preview.get_by_text("Version 2 · Current")).to_be_visible()
+    page.get_by_role("button", name="Close page preview").click()
+    expect(home_file).to_be_focused()
+    go(page, "Artifacts", mobile)
+    filters.get_by_role("button", name="Pages").click()
+    expect(page).to_have_url(origin + "/#artifacts/pages")
+    expect(collection.get_by_role("article")).to_have_count(2)
+    page.get_by_role("button", name="List view").click()
+    expect(collection).to_have_attribute("data-layout", "list")
+    expect(collection.get_by_role("article")).to_have_count(2)
+    page.get_by_role("button", name="Grid view").click()
+    tile = collection.get_by_role("article").filter(has_text="Thanksgiving dinner")
+    expect(tile.get_by_text("HTML / Page")).to_be_visible()
+    expect(tile.get_by_text("v2")).to_be_visible()
+    expect(tile.locator(".page-tile-art")).to_be_visible()
     expect(tile.locator("time")).to_have_attribute("datetime", re.compile(r"\d{4}-\d\d-\d\dT"))
-    capture("pages-list")
-    tile.click()
+    capture("pages")
+    thumbnail = tile.locator(".page-tile-art").bounding_box()
+    page.mouse.click(thumbnail["x"] + thumbnail["width"] / 2, thumbnail["y"] + thumbnail["height"] / 2)
     expect(preview.get_by_text("Version 2 · Current")).to_be_visible()
     generated = page.frame_locator("#page-preview-fit iframe")
     expect(preview.locator("iframe")).to_have_attribute("sandbox", "")
     expect(generated.get_by_role("heading", name="Thanksgiving dinner")).to_be_visible()
     expect(generated.get_by_text("Maya and Daniel", exact=False)).to_be_visible()
+    expect(preview.get_by_role("button", name="Save HTML to Box")).to_be_visible()
+    capture("detail")
 
     ratios = []
     for device, frame_width in (("Phone", 390), ("Desktop", 1440)):
@@ -114,14 +181,17 @@ def verify(page, context, origin, width, theme, output):
         assert contrast and all(row["ratio"] >= row["min"] for row in contrast), contrast
         ratios.extend(row["ratio"] for row in contrast)
         preview.evaluate("element => element.scrollTop = 0")
-        capture("preview-" + device.lower())
 
-    details = context.request.get(origin + "/api/pages").json()["pages"][0]
-    identity = details["id"]
+    artifacts = context.request.get(origin + "/api/artifacts").json()["artifacts"]
+    identity = next(item["id"] for item in artifacts if item["title"] == "Thanksgiving dinner")
     old = preview.get_by_role("button", name="Preview version 1")
     old.click()
     expect(preview.get_by_text("Version 1", exact=True)).to_be_visible()
     expect(preview.get_by_role("link", name="Open in new tab")).to_have_attribute("href", f"/pages/{identity}/v/1")
+    with page.expect_popup() as new_tab:
+        preview.get_by_role("link", name="Open in new tab").click()
+    expect(new_tab.value.get_by_role("heading", name="Thanksgiving dinner")).to_be_visible()
+    new_tab.value.close()
     with page.expect_download() as downloaded:
         preview.get_by_role("link", name="Download .html").click()
     assert downloaded.value.suggested_filename == "Thanksgiving dinner.html"
@@ -142,16 +212,21 @@ def verify(page, context, origin, width, theme, output):
     expect(preview.get_by_text("Version 3 · Current")).to_be_visible()
     expect(preview.get_by_text("Reverted to v1.")).to_be_visible()
     page.get_by_role("button", name="Close page preview").click()
+    expect(tile.get_by_text("v3")).to_be_visible()
+    expect(tile.get_by_role("button", name="Thanksgiving dinner")).to_be_focused()
     go(page, "Timeline", mobile)
-    restored = page.locator(".timeline-entry").filter(has_text="Restored page · Thanksgiving dinner")
+    feed = page.locator("#timeline-view")
+    expect(feed.get_by_text("Page created · Thanksgiving dinner", exact=True)).to_be_visible()
+    restored = feed.locator(".timeline-entry").filter(has_text="Page updated · Thanksgiving dinner").first
     expect(restored).to_be_visible()
     restored.get_by_role("button", name="Undo", exact=True).click()
     restored.get_by_role("button", name="Undo change").click()
     expect(page.get_by_text("Page change undone.")).to_be_visible()
-    assert context.request.get(origin + "/api/pages").json()["pages"][0]["version"] == 2
+    assert context.request.get(origin + f"/api/artifacts/detail?id={identity}").json()["version_number"] == 2
     assert not errors, errors
     assert all(url.startswith(origin) for url in app_requests), app_requests
-    print(f"{width} {theme}: page/card/preview/share/download/revert/undo passed. Minimum sampled page contrast {min(ratios):.2f}:1.")
+    print(f"{width} {theme}: routing, filters, Chat, Home, preview, sharing, download, restore and Undo passed. "
+          f"Minimum sampled preview contrast {min(ratios):.2f}:1.")
 
 
 def main():
@@ -168,7 +243,10 @@ def main():
                     storage = Storage(directory)
                     config = read_config(ROOT / "config/connectors.json")
                     config["brain"] = {"provider": "mock", "model": ""}
-                    app = Application(storage, LocalCheckpoints(storage), config)
+                    app = Application(storage, LocalCheckpoints(storage), config, gateway=DisconnectedGateway())
+                    seed_legacy_page(app)
+                    for fmt, value in FILES.values():
+                        app.artifacts.create(fmt, value)
                     with HTTPServer(("127.0.0.1", 0), app) as server:
                         worker = threading.Thread(target=server.serve_forever, daemon=True)
                         worker.start()

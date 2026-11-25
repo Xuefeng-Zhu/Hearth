@@ -59,6 +59,8 @@ Hearth mints room credentials through the Fly gateway. The browser uses them for
 
 Ask Hearth to “make me a shopping list spreadsheet,” “create a PDF of the Thanksgiving plan,” or “make a slide deck.” Hearth creates DOCX, PDF, XLSX, and PPTX files. The reply links to the file, and **Artifacts** shows its type, size, version, and Box status. Existing text artifacts are still available as legacy files.
 
+Ask Hearth to build a web page, then open the **Page** card in Chat or choose **Artifacts → Pages**. The detail has Phone and Desktop previews, version history, and controls to open, download, or save the HTML to Box. Restoring an earlier version creates a new one. Sharing requires approval, publishes the selected version, and can be revoked from the same detail.
+
 Open a file to preview it, download it, or open it in Box. PDFs display inline, Excel previews show the first 200 rows of the first sheet, and PowerPoint previews show an outline. To edit a file, ask Hearth for a change, such as “add a column for cost.” Hearth saves a local version and, when enabled, writes a new version of the same Box file. Hearth keeps version receipts locally. **Move to Trash** hides the file in Hearth. Timeline offers **Undo** for file changes and Trash.
 
 **Settings → Artifacts** controls auto-save and the Box folder name. Hearth finds or creates the folder on the first upload, keeps local copies available when Box is disconnected, and accepts files up to 50 MiB on the upload path. A failed sync can be retried in Artifacts. [Box folder items API](https://developer.box.com/reference/get-folders-id-items), [Fly Sprites connectors](https://docs.fly.io/sprites/concepts/connectors)

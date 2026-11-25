@@ -27,7 +27,6 @@
         <button type="button" class="nav-link" data-view="chat"><span data-icon="message"></span> Chat</button>
         <button type="button" class="nav-link" data-view="timeline"><span data-icon="clock"></span> Timeline</button>
         <button type="button" class="nav-link" data-view="artifacts"><span data-icon="files"></span> Artifacts</button>
-        <button type="button" class="nav-link" data-view="pages"><span data-icon="page"></span> Pages</button>
         <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>
         <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
         <button type="button" class="nav-link" data-view="connections"><span data-icon="plug"></span> Connections</button>
@@ -175,7 +174,7 @@
       <section class="view panel" id="artifacts-view" aria-labelledby="view-title" hidden>
         <div class="artifact-library">
           <div class="section-intro artifact-intro">
-            <div><h2>Saved work</h2><p>Files created by Hearth and files in your Box folder.</p></div>
+            <div><h2>Saved work</h2><p>Files and pages created by Hearth, plus files in your Box folder.</p></div>
             <div class="artifact-box-control">
               <span id="artifact-box-status" class="artifact-box-status" role="status">Checking Box…</span>
               <button type="button" class="artifact-icon-button" id="artifact-refresh" aria-label="Refresh artifacts" title="Refresh artifacts"><span data-icon="refresh"></span></button>
@@ -207,26 +206,20 @@
               <button type="button" id="artifact-list" aria-label="List view" title="List view" aria-pressed="false"><span data-icon="list"></span></button>
             </div>
           </div>
+          <div class="artifact-filters" id="artifact-filters" role="group" aria-label="Artifact type">
+            <button type="button" data-format-filter="all" aria-pressed="true">All</button>
+            <button type="button" data-format-filter="documents" aria-pressed="false">Documents</button>
+            <button type="button" data-format-filter="pdfs" aria-pressed="false">PDFs</button>
+            <button type="button" data-format-filter="sheets" aria-pressed="false">Sheets</button>
+            <button type="button" data-format-filter="slides" aria-pressed="false">Slides</button>
+            <button type="button" data-format-filter="pages" aria-pressed="false">Pages</button>
+          </div>
           <p class="artifact-count" id="artifact-count" role="status">Loading artifacts…</p>
           <div class="artifact-collection" id="artifact-collection"></div>
           <div id="artifact-empty" class="artifact-empty" hidden>
             <span class="artifact-kind-icon" aria-hidden="true"><span data-icon="files"></span></span>
             <h3 id="artifact-empty-title">No artifacts yet</h3>
-            <p id="artifact-empty-hint">Ask Hearth to create a Word document, PDF, spreadsheet, or slide deck.</p>
-          </div>
-        </div>
-      </section>
-      <section class="view panel" id="pages-view" aria-labelledby="view-title" hidden>
-        <div class="pages-library">
-          <div class="pages-heading">
-            <p id="pages-status" role="status">Loading pages…</p>
-            <button type="button" id="pages-chat"><span data-icon="message" data-icon-size="16"></span> Build in Chat</button>
-          </div>
-          <div id="pages-grid" class="pages-grid"></div>
-          <div class="pages-empty" id="pages-empty" hidden>
-            <span data-icon="page" data-icon-size="32"></span>
-            <h2>No pages yet</h2>
-            <p>Ask Hearth to make a trip itinerary, dinner invite, or one-page plan.</p>
+            <p id="artifact-empty-hint">Ask Hearth to create a document, PDF, spreadsheet, slide deck, or page.</p>
           </div>
         </div>
       </section>
@@ -699,7 +692,6 @@
         <button type="button" class="nav-link" data-view="chat"><span data-icon="message"></span> Chat</button>
         <button type="button" class="nav-link" data-view="timeline"><span data-icon="clock"></span> Timeline</button>
         <button type="button" class="nav-link" data-view="artifacts"><span data-icon="files"></span> Artifacts</button>
-        <button type="button" class="nav-link" data-view="pages"><span data-icon="page"></span> Pages</button>
         <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>
         <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
         <button type="button" class="nav-link" data-view="connections"><span data-icon="plug"></span> Connections</button>
@@ -756,7 +748,10 @@
     <div class="page-dialog-shell">
       <header class="page-dialog-head">
         <div>
-          <p class="page-dialog-version" id="page-dialog-version"></p>
+          <div class="page-dialog-meta">
+            <span class="artifact-badge is-page">HTML / Page</span>
+            <p class="page-dialog-version" id="page-dialog-version"></p>
+          </div>
           <h2 id="page-dialog-title">Page preview</h2>
         </div>
         <button type="button" class="icon-button" id="page-close" aria-label="Close page preview"><span data-icon="x"></span></button>

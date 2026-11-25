@@ -3,7 +3,7 @@ import { announcePose, looks, mascot, poseLabel, setLook, setPose } from "./avat
 import { createVoiceInput } from "./voice.js";
 import { callDuration, captionLine, createVoiceCall } from "./voice-call.js";
 import { createTimeline } from "./timeline.js";
-import { createArtifacts, markdown } from "./artifacts.js";
+import { artifactFilterFromHash, createArtifacts, markdown } from "./artifacts.js";
 import { channelChip, createReminders } from "./reminders.js";
 import { reconcileChildren } from "./dom.js";
 import { setupMobile } from "./mobile.js";
@@ -11,7 +11,6 @@ import { createAttachments } from "./attachments.js";
 import { icon, iconButton, mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
 import { createHome } from "./home.js";
-import { createPages } from "./pages.js";
 
 mountIcons();
 
@@ -95,16 +94,11 @@ const artifactLibrary = createArtifacts({
   api, showNotice, openThread: openArtifactThread,
   openConnections: () => openView("connections"),
   refreshChat: async () => { if (view === "chat") await refreshView(); },
-});
-const pagesLibrary = createPages({
-  api, openChat: async () => {
-    await openView("chat");
-    input.focus();
-  },
+  onFilter: selectArtifactFilter,
 });
 const homePage = createHome({
   api, openView, openWeatherSettings, openPanelChat, openDemo,
-  openFile: (id, trigger) => artifactLibrary.open(id, trigger),
+  openFile: (file, trigger) => artifactLibrary.open(file.id, trigger, file),
   onData(data) {
     setTimeZone(data.timezone);
     const connections = data.builtin.connections;
@@ -241,6 +235,14 @@ function updateFaceCaption(text) {
   captions.scrollTop = captions.scrollHeight;
 }
 
+function replyArtifacts(message) {
+  const linked = message?.artifacts || state?.message_artifacts?.[message?.id] || [];
+  const legacyPages = (message?.pages || []).map((page) => ({
+    ...page, kind: "page", format: "html", version_number: page.version,
+  }));
+  return [...linked, ...legacyPages];
+}
+
 function renderFace(local, messages, actions, remoteBrowse) {
   if (avatarMode !== "face") return;
   const active = local.find((turn) => (turn.user || turn.approval) && !turn.reply && !turn.finished);
@@ -251,16 +253,14 @@ function renderFace(local, messages, actions, remoteBrowse) {
   const items = active ? [...active.actions.values()]
     : (reply?.action_ids || []).map((id) => actions.get(id) || latest?.actions.get(id)).filter(Boolean);
   const details = byId("face-actions");
-  const linked = !active && (reply?.artifacts || state?.message_artifacts?.[reply?.id] || []);
+  const linked = active ? [] : replyArtifacts(reply);
   const screenshots = !active && (reply?.browse_images || []);
   const browse = active?.browse || remoteBrowse;
   byId("face-browse").replaceChildren(...(browse ? [browseCard(browse)] : []));
-  const pageCards = !active && (reply?.pages || []);
-  details.hidden = !items.length && !linked?.length && !screenshots?.length && !pageCards?.length;
+  details.hidden = !items.length && !linked.length && !screenshots?.length;
   if (details.hidden) details.open = false;
   details.querySelector(".cards").replaceChildren(...items.map((action) => actionCard(actions.get(action.id) || action)));
-  if (linked?.length) details.querySelector(".cards").append(artifactLibrary.chatActions(linked));
-  if (pageCards?.length) details.querySelector(".cards").append(pagesLibrary.chatCards(pageCards));
+  if (linked.length) details.querySelector(".cards").append(artifactLibrary.chatActions(linked));
   if (screenshots?.length) details.querySelector(".cards").append(...screenshots.map(browseScreenshot));
 }
 
@@ -680,9 +680,8 @@ function messageBubble(role, content, { message, status, prompt, working, attach
   }
   if (message?.id) item.dataset.messageId = message.id;
   if (role === "assistant" && message?.id) {
-    const linked = message.artifacts || state?.message_artifacts?.[message.id] || [];
+    const linked = replyArtifacts(message);
     if (linked.length) body.append(artifactLibrary.chatActions(linked));
-    if (message.pages?.length) body.append(pagesLibrary.chatCards(message.pages));
     if (message.browse_images?.length) body.append(...message.browse_images.map(browseScreenshot));
   }
   item.append(body);
@@ -1300,13 +1299,27 @@ function selectConnectionTab(tab) {
   connectionPanels.get(tab).button.focus();
 }
 
-function syncConnectionRoute() {
+function artifactHash(filter = "all") {
+  return filter === "all" ? "#artifacts" : `#artifacts/${filter}`;
+}
+
+function selectArtifactFilter(filter) {
+  if (location.hash !== artifactHash(filter)) history.pushState(history.state, "", artifactHash(filter));
+  artifactLibrary.selectFormat(filter);
+}
+
+function syncWorkspaceRoute() {
   if (isConnectionsRoute()) {
     const tab = tabFromHash();
     if (tab) rememberConnectionTab(tab);
     if (view === "connections") renderConnections();
     else openView("connections", false);
-  } else if (view === "connections") {
+  } else if (artifactFilterFromHash(location.hash)) {
+    const filter = artifactFilterFromHash(location.hash);
+    if (location.hash === "#pages") history.replaceState(history.state, "", artifactHash(filter));
+    if (view === "artifacts") artifactLibrary.selectFormat(filter);
+    else openView("artifacts", false);
+  } else if (view === "connections" || view === "artifacts") {
     openView(history.state?.hearthView || "home", false);
   }
 }
@@ -2054,7 +2067,6 @@ async function refreshView() {
   if (view === "home") return homePage.load();
   if (view === "timeline") return timeline.show();
   if (view === "artifacts") return artifactLibrary.show();
-  if (view === "pages") return pagesLibrary.show();
   if (view === "reminders") return delivery.reminders();
   if (view === "inbox") return delivery.inbox();
   if (!await refreshState()) return;
@@ -2066,11 +2078,15 @@ async function openView(nextView, updateHistory = true) {
   const previousView = view;
   mobile.closeDrawer();
   if (nextView !== "chat") voice.cancel();
-  if (updateHistory && nextView === "connections" && !isConnectionsRoute()) {
-    history.replaceState({ ...history.state, hearthView: view }, "");
-    history.pushState(null, "", connectionHash());
-  } else if (updateHistory && nextView !== "connections" && isConnectionsRoute()) {
-    history.pushState({ hearthView: nextView }, "", location.pathname + location.search);
+  if (updateHistory) {
+    const routedView = isConnectionsRoute() ? "connections" : artifactFilterFromHash(location.hash) ? "artifacts" : null;
+    const hash = nextView === "connections" ? connectionHash() : nextView === "artifacts" ? artifactHash() : null;
+    if (hash && nextView !== routedView) {
+      if (!routedView) history.replaceState({ ...history.state, hearthView: view }, "");
+      history.pushState(null, "", hash);
+    } else if (!hash && routedView) {
+      history.pushState({ hearthView: nextView }, "", location.pathname + location.search);
+    }
   }
   if (view === "timeline" && nextView !== view) timeline.hide();
   view = nextView;
@@ -2099,9 +2115,8 @@ async function openView(nextView, updateHistory = true) {
     if (previousView !== "home") byId("home-view").scrollTop = 0;
     await homePage.load();
   } else if (view === "artifacts") {
+    artifactLibrary.selectFormat(artifactFilterFromHash(location.hash) || "all");
     await artifactLibrary.show();
-  } else if (view === "pages") {
-    await pagesLibrary.show();
   } else if (view === "reminders" || view === "inbox") {
     await refreshView();
     if (view === "inbox") delivery.poll();
@@ -2614,7 +2629,7 @@ for (const tab of configTabs) {
     selectConnectionTab(target);
   });
 }
-window.addEventListener("hashchange", syncConnectionRoute);
+window.addEventListener("hashchange", syncWorkspaceRoute);
 byId("rescan-connections").addEventListener("click", () => updateConnections("rescan"));
 brainProvider.addEventListener("change", async () => {
   clearBrainTest();
@@ -2746,7 +2761,7 @@ setInterval(async () => {
 setInterval(() => { if (!document.hidden) delivery.poll(); }, 60_000);
 applyAppearance();
 renderWorkspaceStatus();
-openView(requestedThread ? "chat" : "home", false);
+if (isConnectionsRoute() || artifactFilterFromHash(location.hash)) syncWorkspaceRoute();
+else openView(requestedThread ? "chat" : "home", false);
 if (!document.hidden) delivery.poll();
-if (isConnectionsRoute()) syncConnectionRoute();
-else updateConnections("rescan");
+if (!isConnectionsRoute()) updateConnections("rescan");

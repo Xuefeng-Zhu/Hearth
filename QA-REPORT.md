@@ -27,7 +27,7 @@ November 25, 2026 · Private Hearth Sprite
 | Desktop preview | [Light](/workspace/tmp/hearth-qa/run23-preview-desktop-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-preview-desktop-390-dark.png) | [Light](/workspace/tmp/hearth-qa/run23-preview-desktop-1440-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-preview-desktop-1440-dark.png) |
 | Chat card | [Light](/workspace/tmp/hearth-qa/run23-chat-card-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-chat-card-390-dark.png) | [Light](/workspace/tmp/hearth-qa/run23-chat-card-1440-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-chat-card-1440-dark.png) |
 
-Run the browser regression from the repository root with Playwright Chromium installed.
+At the Run 23 revision, run the browser regression from the repository root with Playwright Chromium installed.
 
 ```sh
 PYTHONPATH=. python tests/run23-browser.py --output /tmp/hearth-shots

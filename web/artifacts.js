@@ -1,16 +1,27 @@
 import { fileGlyph, uploadURL } from "./attachments.js";
 import { icon, iconButton } from "./icons.js";
+import { createPageDetail, pageThumbnail } from "./pages.js";
 import { setTimeZone, timeFormatter } from "./time.js";
 
 const get = (id) => document.getElementById(id);
 const kinds = {
   plan: ["Plan", "file-text"], list: ["List", "list"], note: ["Note", "file-text"],
   transcript: ["Transcript", "mic"], export: ["Export", "download"],
+  page: ["Page", "page"],
 };
 const fileTypes = {
   docx: ["DOCX", "file-text"], pdf: ["PDF", "files"], xlsx: ["XLSX", "sheet"], pptx: ["PPTX", "slides"],
 };
 const legacyTypes = { md: "MD", txt: "TXT", csv: "CSV", json: "JSON" };
+const formatFilters = { documents: ["docx", "md", "txt"], pdfs: ["pdf"], sheets: ["xlsx", "csv"], slides: ["pptx"] };
+
+export function artifactFilterFromHash(hash) {
+  if (hash === "#artifacts") return "all";
+  if (hash === "#pages") return "pages";
+  const filter = hash.match(/^#artifacts\/([a-z]+)$/)?.[1];
+  if (filter === "pages" || Object.hasOwn(formatFilters, filter)) return filter;
+}
+
 const sizeFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 const statuses = { synced: "Synced to Box", saving: "Saving…", local: "Local only", error: "Sync error" };
 const updated = timeFormatter({ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -302,18 +313,23 @@ function preview(artifact) {
     ? "Download this file to view it." : "Open this file in Box to view it.");
 }
 
-export function createArtifacts({ api, openThread, openConnections, showNotice, refreshChat }) {
+export function createArtifacts({ api, openThread, openConnections, showNotice, refreshChat, onFilter }) {
   const collection = get("artifact-collection");
   const drawer = get("artifact-drawer");
   const detailBody = get("artifact-detail-body");
   const detailStatus = get("artifact-detail-status");
   const search = get("artifact-search");
   const kind = get("artifact-kind");
+  const filters = [...get("artifact-filters").querySelectorAll("button")];
   const sort = get("artifact-sort");
   const settingsForm = get("artifact-settings-form");
   const settingsStatus = get("artifact-settings-status");
   const pending = new Set();
+  const pageDetail = createPageDetail({ api, onChange: () => {
+    if (!get("artifacts-view").hidden) void show();
+  } });
   let layout = localStorage.getItem("hearth-artifact-layout") === "list" ? "list" : "grid";
+  let formatFilter = "all";
   let snapshot, selected, request, detailRequest, opener, liveBrowse, confirming = false;
 
   function connection(info) {
@@ -328,12 +344,14 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
 
   function syncLabel(item) {
     const state = pending.has(item.id) ? "saving" : item.sync;
-    const label = element("span", `artifact-sync is-${state}`, statuses[state]);
-    label.title = item.sync_message || statuses[state];
+    const text = item.kind === "page" && state === "synced" ? "Saved to Box" : statuses[state];
+    const label = element("span", `artifact-sync is-${state}`, text);
+    label.title = item.sync_message || text;
     return label;
   }
 
   function chips(item) {
+    if (item.kind === "page") return [badge("HTML / Page", "is-page"), badge(`v${item.version_number}`)];
     const format = fileTypes[item.format]?.[0] || legacyTypes[item.format] || item.format?.toUpperCase() || "File";
     const labels = [badge(format, fileTypes[item.format] ? `is-${item.format}` : ""),
       badge(kinds[item.kind]?.[0] || "File", `is-${item.kind}`)];
@@ -357,13 +375,17 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
   function card(item) {
     const panel = element("article", "artifact-card");
     panel.dataset.kind = item.kind;
-    const icon = fileIcon(item);
+    const page = item.kind === "page";
+    const thumbnail = page ? pageThumbnail() : fileIcon(item);
     const header = element("div", "artifact-card-header");
     const badges = element("div", "artifact-badges");
     const heading = element("h3");
-    const title = control(item.title, (event) => open(item.id, event.currentTarget), "artifact-card-title");
+    const title = control(item.title, (event) => open(item.id, event.currentTarget, { kind: item.kind }), "artifact-card-title");
     title.dataset.artifactId = item.id;
     title.setAttribute("aria-haspopup", "dialog");
+    if (page) panel.addEventListener("click", (event) => {
+      if (!event.target.closest("button, a")) title.click();
+    });
     heading.append(title);
     badges.append(...chips(item));
     header.append(heading, badges);
@@ -377,12 +399,12 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     }
     foot.append(sync, timestamp);
     const sources = element("div", "artifact-card-links");
-    if (fileTypes[item.format] || item.legacy) sources.append(fileLink(item));
+    if (page || fileTypes[item.format] || item.legacy) sources.append(fileLink(item));
     if (item.box_url) sources.append(fileLink(item, true));
-    if ((item.sync !== "synced" && snapshot.connected) && !pending.has(item.id)) {
+    if (!page && item.sync !== "synced" && snapshot.connected && !pending.has(item.id)) {
       sources.append(control("Retry sync", () => retry(item), "artifact-text-button"));
     }
-    panel.append(icon, header, foot);
+    panel.append(thumbnail, header, foot);
     if (sources.childElementCount) panel.append(sources);
     return panel;
   }
@@ -391,12 +413,15 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     collection.dataset.layout = layout;
     get("artifact-grid").setAttribute("aria-pressed", String(layout === "grid"));
     get("artifact-list").setAttribute("aria-pressed", String(layout === "list"));
+    for (const button of filters) button.setAttribute("aria-pressed", String(button.dataset.formatFilter === formatFilter));
     if (!snapshot) return;
     connection(snapshot);
     const query = search.value.trim().toLocaleLowerCase();
     const all = snapshot.artifacts;
-    const rows = all.filter((item) => (!kind.value || item.kind === kind.value)
-      && [item.title, item.filename, item.thread_title, kinds[item.kind][0], item.source].filter(Boolean)
+    const matchesFormat = (item) => formatFilter === "all" || (formatFilter === "pages" ? item.kind === "page"
+      : formatFilters[formatFilter].includes(item.format));
+    const rows = all.filter((item) => matchesFormat(item) && (!kind.value || item.kind === kind.value)
+      && [item.title, item.filename, item.thread_title, kinds[item.kind]?.[0], item.source].filter(Boolean)
         .join(" ").toLocaleLowerCase().includes(query));
     const byName = (a, b) => a.title.localeCompare(b.title);
     rows.sort(sort.value === "name" ? byName : (a, b) => ((Date.parse(b.updated_at) || 0)
@@ -412,9 +437,19 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       (replacement || search).focus({ preventScroll: true });
     }
     get("artifact-empty").hidden = !!rows.length;
-    get("artifact-empty-title").textContent = all.length ? "No matches" : "No artifacts yet";
-    get("artifact-empty-hint").textContent = all.length ? "Try a different search or kind."
-      : "Ask Hearth to create a Word document, PDF, spreadsheet, or slide deck.";
+    const hasType = all.some(matchesFormat);
+    get("artifact-empty-title").textContent = hasType ? "No matches"
+      : formatFilter === "pages" ? "No pages yet" : all.length ? "No artifacts of this type" : "No artifacts yet";
+    get("artifact-empty-hint").textContent = hasType ? "Try a different search or kind."
+      : formatFilter === "pages" ? "Ask Hearth in Chat to build a page."
+      : all.length ? "Choose another type to see more artifacts."
+      : "Ask Hearth to create a document, PDF, spreadsheet, slide deck, or page.";
+  }
+
+  function selectFormat(value) {
+    if (formatFilter !== value && value === "pages") kind.value = "";
+    formatFilter = value;
+    render();
   }
 
   async function show() {
@@ -501,7 +536,9 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     detailBody.append(versions);
   }
 
-  async function open(id, trigger) {
+  async function open(id, trigger, { kind, version_number: version } = {}) {
+    const row = snapshot?.artifacts.find((item) => item.id === id);
+    if ((kind || row?.kind) === "page") return pageDetail.open(id, trigger || document.activeElement, version);
     liveBrowse = undefined;
     if (!drawer.open) {
       opener = trigger || document.activeElement;
@@ -512,7 +549,6 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     detailRequest = token;
     selected = id;
     confirming = false;
-    const row = snapshot?.artifacts.find((item) => item.id === id);
     get("artifact-drawer-title").textContent = row?.title || "Artifact";
     get("artifact-detail-meta").replaceChildren();
     get("artifact-actions").replaceChildren();
@@ -521,7 +557,13 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     detailBody.replaceChildren();
     try {
       const item = await api(`/api/artifacts/detail?id=${encodeURIComponent(id)}`);
-      if (detailRequest === token && drawer.open) renderDetail(item);
+      if (detailRequest !== token || !drawer.open) return;
+      if (item.kind === "page") {
+        const source = opener;
+        drawer.close();
+        return pageDetail.open(id, source, version, item);
+      }
+      renderDetail(item);
     } catch (error) {
       if (detailRequest === token && drawer.open) detailStatus.textContent = error.message;
     }
@@ -696,6 +738,16 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
   function chatActions(linked) {
     const actions = element("div", "artifact-chat-actions");
     for (const artifact of linked) {
+      if (artifact.kind === "page") {
+        const card = control("", (event) => open(artifact.id, event.currentTarget, artifact), "card chat-file chat-page-file");
+        card.dataset.artifactId = artifact.id;
+        card.setAttribute("aria-haspopup", "dialog");
+        const name = element("span", "chat-file-name");
+        name.append(element("strong", "", artifact.title), element("span", "meta", `Page · v${artifact.version_number}`));
+        card.append(fileIcon(artifact), name, icon("external", 17));
+        actions.append(card);
+        continue;
+      }
       if (!fileTypes[artifact.format]) continue;
       const card = element("article", "card chat-file");
       const name = element("div", "chat-file-name");
@@ -765,12 +817,13 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     selected = detailRequest = liveBrowse = undefined;
     detailBody.replaceChildren();
     opener = undefined;
-    target.focus();
+    if (!get("page-dialog").open) target?.focus();
   });
   get("artifact-refresh").addEventListener("click", show);
   search.addEventListener("input", render);
   kind.addEventListener("change", render);
   sort.addEventListener("change", render);
+  for (const button of filters) button.addEventListener("click", () => onFilter(button.dataset.formatFilter));
   for (const mode of ["grid", "list"]) {
     get(`artifact-${mode}`).addEventListener("click", () => {
       layout = mode;
@@ -779,5 +832,5 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     });
   }
 
-  return { show, settings, chatActions, attachmentCards, open, openAttachment, openBrowse, endBrowse };
+  return { show, selectFormat, settings, chatActions, attachmentCards, open, openAttachment, openBrowse, endBrowse };
 }

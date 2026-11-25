@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { csvRows } from "../web/artifacts.js";
+import { artifactFilterFromHash, csvRows } from "../web/artifacts.js";
+
+test("artifact route accepts type filters and the legacy Pages hash", () => {
+  assert.equal(artifactFilterFromHash("#artifacts"), "all");
+  assert.equal(artifactFilterFromHash("#artifacts/documents"), "documents");
+  assert.equal(artifactFilterFromHash("#artifacts/pages"), "pages");
+  assert.equal(artifactFilterFromHash("#pages"), "pages");
+  assert.equal(artifactFilterFromHash("#artifacts/unknown"), undefined);
+  assert.equal(artifactFilterFromHash("#connections/configured"), undefined);
+});
 
 test("CSV preview preserves quoted commas, escaped quotes, and multiline cells", () => {
   assert.deepEqual(csvRows('Item,Note\r\n"Cranberries, fresh","Say ""hello"""\r\nPie,"First\nSecond"\r\n'), [

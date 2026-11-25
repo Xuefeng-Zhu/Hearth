@@ -38,7 +38,16 @@ function time(value) {
   return stamp;
 }
 
-export function createPages({ api, openChat }) {
+export function pageThumbnail() {
+  const artwork = element("span", "page-tile-art");
+  artwork.setAttribute("aria-hidden", "true");
+  const mockWindow = element("span", "page-tile-window");
+  mockWindow.append(element("i"), element("i"), element("i"), element("i"));
+  artwork.append(mockWindow, icon("page", 24));
+  return artwork;
+}
+
+export function createPageDetail({ api, onChange }) {
   const get = (name) => document.getElementById(name);
   const dialog = get("page-dialog");
   const title = get("page-dialog-title");
@@ -55,6 +64,10 @@ export function createPages({ api, openChat }) {
   let device;
   let requestId = 0;
   let busy = false;
+
+  function load(id) {
+    return api(`/api/artifacts/detail?id=${encodeURIComponent(id)}`);
+  }
 
   function fitPreview() {
     if (!frame || !stage.clientWidth) return;
@@ -78,55 +91,7 @@ export function createPages({ api, openChat }) {
     fitPreview();
   }
 
-  async function show() {
-    const status = get("pages-status");
-    try {
-      const result = await api("/api/pages");
-      setTimeZone(result.timezone);
-      status.textContent = `${result.pages.length} saved ${result.pages.length === 1 ? "page" : "pages"}`;
-      get("pages-empty").hidden = result.pages.length > 0;
-      get("pages-grid").replaceChildren(...result.pages.map(pageTile));
-    } catch (error) {
-      status.textContent = error.message;
-    }
-  }
-
-  function pageTile(page) {
-    const tile = control("", (event) => open(page.id, event.currentTarget));
-    tile.className = "page-tile";
-    tile.dataset.pageId = page.id;
-    tile.setAttribute("aria-haspopup", "dialog");
-    const artwork = element("span", "page-tile-art");
-    artwork.setAttribute("aria-hidden", "true");
-    const mockWindow = element("span", "page-tile-window");
-    mockWindow.append(element("i"), element("i"), element("i"), element("i"));
-    artwork.append(mockWindow, icon("page", 24));
-    const information = element("span", "page-tile-information");
-    const meta = element("span", "page-tile-meta");
-    meta.append(time(page.updated_at), element("span", "page-version-pill", `v${page.version}`));
-    information.append(element("strong", "", page.title), meta);
-    tile.append(artwork, information);
-    return tile;
-  }
-
-  function chatCards(rows) {
-    const group = element("div", "page-chat-cards");
-    for (const row of rows) {
-      const card = control("", (event) => open(row.id, event.currentTarget, row.version));
-      card.className = "page-chat-card";
-      card.dataset.pageId = row.id;
-      card.setAttribute("aria-haspopup", "dialog");
-      const iconWrap = element("span", "page-chat-icon");
-      iconWrap.append(icon("page", 22));
-      const copy = element("span", "page-chat-copy");
-      copy.append(element("strong", "", row.title), element("span", "", `Web page · v${row.version}`));
-      card.append(iconWrap, copy, icon("external", 17));
-      group.append(card);
-    }
-    return group;
-  }
-
-  async function open(id, trigger, version) {
+  async function open(id, trigger, version, initial) {
     const request = ++requestId;
     opener = trigger;
     detail = undefined;
@@ -144,8 +109,9 @@ export function createPages({ api, openChat }) {
     get("page-close").focus();
     chooseDevice(matchMedia("(max-width: 700px)").matches ? "phone" : "desktop");
     try {
-      const data = await api(`/api/pages/detail?id=${encodeURIComponent(id)}`);
+      const data = initial || await load(id);
       if (request !== requestId || !dialog.open) return;
+      setTimeZone(data.timezone);
       detail = data;
       if (!data.versions.some((row) => row.version === selected)) selected = data.version;
       feedback.textContent = "";
@@ -253,7 +219,8 @@ export function createPages({ api, openChat }) {
     try {
       const result = operation === "approve" ? await api("/api/approve", { id: detail.approval.id })
         : await api(`/api/pages/${operation}`, { id, version: selected, current: detail.version });
-      const updated = await api(`/api/pages/detail?id=${encodeURIComponent(id)}`);
+      if (operation === "revert" || operation === "box") onChange();
+      const updated = await load(id);
       if (request !== requestId || !dialog.open) return;
       detail = updated;
       if (operation === "revert") selected = detail.version;
@@ -265,10 +232,8 @@ export function createPages({ api, openChat }) {
       feedback.textContent = status[operation];
       if (operation === "share") approval.querySelector("button")?.focus();
       else if (operation === "approve") approval.querySelector("a")?.focus();
-      else if (operation === "revert") {
-        get(`page-select-${selected}`).focus();
-        if (!get("pages-view").hidden) void show();
-      } else {
+      else if (operation === "revert") get(`page-select-${selected}`).focus();
+      else {
         actions.querySelector(operation === "box" && result.url ? 'a[href*="app.box.com"]' : "button:last-child")?.focus();
       }
     } catch (error) {
@@ -288,13 +253,12 @@ export function createPages({ api, openChat }) {
     ++requestId;
     fit.replaceChildren();
     frame = undefined;
-    const replacement = [...document.querySelectorAll("[data-page-id]")].find((item) =>
-      item.dataset.pageId === detail?.id && item.getClientRects().length
+    const replacement = [...document.querySelectorAll("[data-artifact-id]")].find((item) =>
+      item.dataset.artifactId === detail?.id && item.getClientRects().length
     );
-    const fallback = get("pages-view").hidden ? get("message") : get("pages-chat");
+    const fallback = !get("artifacts-view").hidden ? get("artifact-search") : get("message");
     (opener?.isConnected ? opener : replacement || fallback)?.focus();
   });
-  get("pages-chat").addEventListener("click", openChat);
 
-  return { show, chatCards };
+  return { open };
 }
