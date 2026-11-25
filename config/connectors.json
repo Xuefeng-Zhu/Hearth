@@ -1,0 +1,11 @@
+{
+  "llm": [
+    {"provider": "meta", "connection_id": "", "model": "muse-spark-1.3"},
+    {"provider": "ollama", "connection_id": "", "model": "kimi-k3"},
+    {"provider": "openrouter", "connection_id": "", "model": "openai/gpt-4.1-mini"},
+    {"provider": "mock", "connection_id": "", "model": "hearth-demo"}
+  ],
+  "pinecone": {"provider": "pinecone", "connection_id": "", "index": "hearth-memory", "namespace": "hearth", "model": "multilingual-e5-large"},
+  "tavily": {"provider": "tavily", "connection_id": ""},
+  "agentmail": {"provider": "agentmail", "connection_id": "", "inbox_id": ""}
+}

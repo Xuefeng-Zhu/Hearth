@@ -1,0 +1,5 @@
+.hearth/
+__pycache__/
+*.pyc
+.env*
+config/connectors.local.json
