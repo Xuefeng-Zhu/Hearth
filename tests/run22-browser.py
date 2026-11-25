@@ -88,17 +88,16 @@ def go(page, name, mobile):
 def capture(page, directory, label, mobile):
     if not directory:
         return
+    view = page.locator("#home-view")
+    view.evaluate("element => element.scrollTop = 0")
     page.screenshot(path=directory / f"run22-home-{label}.png", animations="disabled")
     if mobile:
-        page.evaluate("""() => {
-          document.querySelector('main').style.height = 'auto';
-          document.querySelector('#home-view').style.overflowY = 'visible';
-        }""")
+        viewport = page.viewport_size
+        height = view.evaluate("element => Math.ceil(element.getBoundingClientRect().top + element.scrollHeight) + 1")
+        page.set_viewport_size({"width": viewport["width"], "height": height})
+        view.evaluate("element => element.scrollTop = 0")
         page.screenshot(path=directory / f"run22-all-panels-{label}.png", animations="disabled", full_page=True)
-        page.evaluate("""() => {
-          document.querySelector('main').style.height = '';
-          document.querySelector('#home-view').style.overflowY = '';
-        }""")
+        page.set_viewport_size(viewport)
 
 
 def test_dashboard(page, base, mobile, label, shots, app):
@@ -139,6 +138,7 @@ def test_dashboard(page, base, mobile, label, shots, app):
     expect(page.get_by_role("button", name="Open Home", exact=True)).to_be_visible()
     page.get_by_role("button", name="Open Home", exact=True).click()
     expect(page.locator("#home-grid h2")).to_have_text(ORDER + DEMO)
+    assert page.locator("#home-view").evaluate("element => element.scrollTop") == 0
     expect(page.locator('[data-panel="weather"] [data-updated]')).to_have_text(re.compile(r"Updated [5-9] min ago"))
     expect(page.locator(".home-card-countdown .home-stat")).to_have_text(re.compile(r"^(Today|\d+ days?)$"))
     contrast = page.evaluate(CONTRAST)
@@ -228,7 +228,7 @@ def run(options):
         options.shots.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=options.chromium)
-        for width, height, mobile in [(1440, 1024, False), (390, 844, True)]:
+        for width, height, mobile in [(1440, 1080, False), (390, 844, True)]:
             for theme in ("light", "dark"):
                 if options.only and options.only != f"{width}-{theme}":
                     continue

@@ -109,7 +109,7 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
   let dragged;
   let hovered;
   let signature;
-  let dayFormat, timeFormat, dateTimeFormat, dateKey;
+  let dayFormat, timeFormat, dateTimeFormat, compactDateTime, dateKey;
   const pending = new Set();
 
   const titleFor = (id) => builtIns[id]?.title || snapshot.panels[id]?.title;
@@ -132,6 +132,9 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
       dayFormat = new Intl.DateTimeFormat(undefined, { ...calendar, timeZone: data.timezone });
       timeFormat = new Intl.DateTimeFormat(undefined, { ...standardTime, timeZone: data.timezone });
       dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: data.timezone });
+      compactDateTime = new Intl.DateTimeFormat(undefined, {
+        ...standardTime, month: "short", day: "numeric", timeZone: data.timezone,
+      });
       dateKey = dailyDate(data.timezone);
       render();
     } catch (error) {
@@ -142,6 +145,11 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
   const wallClock = new Intl.DateTimeFormat(undefined, { ...standardTime, timeZone: "UTC" });
   const quietTime = (value) => wallClock.format(new Date(`2000-01-01T${value}:00Z`));
   const pendingTime = (value) => timeElement(value, dateTimeFormat.format(new Date(value)));
+  const reminderTime = (value) => {
+    const stamp = new Date(value);
+    const formatter = dateKey.format(stamp) === dateKey.format(new Date()) ? timeFormat : compactDateTime;
+    return timeElement(value, formatter.format(stamp));
+  };
   const activityTime = (value) => {
     const stamp = new Date(value);
     const label = dateKey.format(stamp) === dateKey.format(new Date()) ? timeFormat.format(stamp)
@@ -164,7 +172,7 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
       if (data.quiet_until) quiet.append(node("span", "", `Until ${timeFormat.format(new Date(data.quiet_until))}`));
       else if (data.quiet_enabled) quiet.append(node("span", "", `${quietTime(data.quiet_start)}–${quietTime(data.quiet_end)}`));
       body.append(quiet, node("p", "home-list-heading", "Next reminders"),
-        rows(data.jobs, "No upcoming reminders.", (item) => [pendingTime(item.at), node("span", "", item.message)]));
+        rows(data.jobs, "No upcoming reminders.", (item) => [reminderTime(item.at), node("span", "", item.message)]));
     } else if (id === "inbox") {
       body.append(labelCount(data.count, "item to review", "items to review"),
         rows(data.items, "You’re caught up.", (item) => [node("span", "home-bullet"), node("span", "", item.title)]));
@@ -207,7 +215,7 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
         node("p", "home-meta", weatherLabel(data.value.code)));
       else forecast.append(node("p", "home-meta", data.error ? "No weather data" : "Fetching weather…"));
       pair.append(clock, forecast);
-      body.append(pair, detailLink("Weather by Open-Meteo", "https://open-meteo.com/"));
+      body.append(pair);
     }
     return body;
   }
@@ -313,7 +321,9 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
       const refresh = iconButton("refresh", `Refresh ${titleFor(id)}`, () => mutate(id, "refresh", {}, refresh), "home-icon-button");
       refresh.dataset.control = "refresh";
       refresh.disabled = pending.has(id);
-      status.append(stamp, refresh);
+      status.append(stamp);
+      if (id === "weather") status.append(detailLink("Open-Meteo", "https://open-meteo.com/"));
+      status.append(refresh);
       footer.append(status);
     }
     return footer;

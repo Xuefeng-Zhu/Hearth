@@ -292,7 +292,7 @@
 }
 
 .home-link:hover { text-decoration: underline; }
-.home-card-body > .home-link { font-size: .72rem; min-height: 25px; }
+.home-refresh-row .home-link { font-size: .72rem; min-height: 28px; }
 
 .home-grip, .home-order-tools { margin-left: auto; flex: none; }
 .home-grip {

@@ -2019,6 +2019,7 @@ async function refreshView() {
 }
 
 async function openView(nextView, updateHistory = true) {
+  const previousView = view;
   mobile.closeDrawer();
   if (nextView !== "chat") voice.cancel();
   if (updateHistory && nextView === "connections" && !isConnectionsRoute()) {
@@ -2052,6 +2053,7 @@ async function openView(nextView, updateHistory = true) {
   } else if (view === "settings") {
     await openSettings(settingsSection, false);
   } else if (view === "home") {
+    if (previousView !== "home") byId("home-view").scrollTop = 0;
     await homePage.load();
   } else if (view === "artifacts") {
     await artifactLibrary.show();
