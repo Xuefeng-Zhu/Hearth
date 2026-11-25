@@ -10,12 +10,12 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, urlsplit
 
-from . import recall, router, search, voice, voice_call
+from . import recall, router, search, timeline, voice, voice_call
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
 from .connectors import Gateway, read_config
-from .gateway_tools import redact_text
+from .gateway_tools import redact_text, scrub
 from .storage import HearthError, ROOT, Storage, iso
 from .threads import MAIN, Threads, compact
 
@@ -45,6 +45,10 @@ class Application:
         self.gateway = gateway or Gateway()
         self.connections = Connections(
             config, config_path or storage.live / "connectors.local.json", self.gateway, storage, checkpoints,
+        )
+        self.activity = timeline.ActivityStream(
+            storage.live, storage.state, self.threads.root, self.connections.path,
+            *((checkpoints.root,) if checkpoints.mode == "local" else ()),
         )
         self.operation = threading.Lock()
         self.turn_lock = threading.Lock()
@@ -204,7 +208,7 @@ class Application:
                      **({"activity": active[thread["id"]]} if active.get(thread["id"]) else {})}
                     for thread in threads],
                 "messages": messages, "actions": list(state["actions"].values()),
-                "jobs": state["jobs"], "reminders": state["reminders"], "routing": state.get("routing", []),
+                "jobs": state["jobs"], "reminders": state["reminders"], "routing": state.get("routing", [])[-50:],
                 "whisper_available": bool(self.memory_index.hf_entry(self.agent.config)),
                 "voice_call_available": voice_call.PROVIDER in self.connections.selected,
                 "restore": self.restore,
@@ -217,6 +221,21 @@ class Application:
                      "thread_id": action.get("thread_id", MAIN), "thread_title": action.get("thread_title", "Main")}
                      for action in actions if action.get("checkpoint")}
         return [known.get(item["id"], item) for item in self.checkpoints.list()]
+
+    def timeline_info(self):
+        entries = timeline.entries(self.storage, self.threads, self.agent.can_undo)
+        represented = {row["data"]["checkpoint"]["id"] for row in entries
+                       if row.get("action_id") and row["data"].get("checkpoint")}
+        try:
+            checkpoints = self.timeline()
+        except HearthError as error:
+            return {"entries": scrub(entries), "checkpoint_notice": str(error)}
+        entries.extend(timeline.entry(
+            "checkpoint", redact_text(item["comment"]), {**item, "thread_id": item.get("thread_id", ""),
+                                                          "thread_title": item.get("thread_title", "Workspace")},
+            id=f"checkpoint:{item['id']}", at=item["created_at"], data={"checkpoint": item},
+        ) for item in checkpoints if item["id"] not in represented)
+        return {"entries": scrub(entries)}
 
     def call_status(self):
         provider = voice_call.PROVIDER
@@ -284,6 +303,13 @@ class Application:
                 if name == "done" and self.agent is agent:
                     self.brain = data["provider"]
                     self.brain_reply = (self.brain, data["model"])
+                if name == "error":
+                    try:
+                        timeline.record(self.storage, "tool", "Chat interrupted",
+                                        {"thread_id": thread_id, "source": source},
+                                        error=True, data={"detail": data["message"]})
+                    except OSError:
+                        pass
                 events.put((name, data))
 
             try:
@@ -433,6 +459,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.json(self.app.connections.brain_models(provider))
             elif url.path == "/api/checkpoints":
                 self.json({"checkpoints": self.app.timeline()})
+            elif url.path == "/api/timeline":
+                self.json(self.app.timeline_info())
+            elif url.path == "/api/timeline/events":
+                origin = self.headers.get("Origin")
+                if self.headers.get("Sec-Fetch-Site") not in (None, "none", "same-origin") or (
+                    origin and not self.same_origin(origin)
+                ):
+                    raise HearthError("Open Timeline from Hearth.")
+                with self.app.activity.subscribe() as events:
+                    self.stream_events(events)
             elif url.path == "/api/memory/settings":
                 self.json(self.app.memory_info())
             elif url.path == "/api/search/settings":
@@ -604,10 +640,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_voice(self):
         url = urlsplit(self.path)
+        params = parse_qs(url.query)
+        thread_id = params.get("thread", [None])[0]
+        whisper = url.path == "/api/voice/transcribe"
         try:
             if self.headers.get("Sec-Fetch-Site") == "cross-site":
                 raise voice.VoiceError("Send this request from Hearth.", 403)
-            if url.path == "/api/voice/redact":
+            if not whisper:
                 body = self.body()
                 text = voice.clean_transcript(require_text(body.get("text"), 4000))
             else:
@@ -623,7 +662,7 @@ class Handler(BaseHTTPRequestHandler):
                 if length <= 0:
                     raise voice.VoiceError("No audio recording was received.")
                 connection = self.app.memory_index.hf_entry(self.app.agent.config)
-                language = parse_qs(url.query).get("language", ["auto"])[0]
+                language = params.get("language", ["auto"])[0]
                 self.connection.settimeout(15)
                 try:
                     data = self.rfile.read(length)
@@ -637,6 +676,17 @@ class Handler(BaseHTTPRequestHandler):
         except HearthError as error:
             self.json({"error": str(error)}, 400)
         else:
+            if thread_id is not None:
+                try:
+                    with self.app.storage.lock():
+                        thread = self.app.threads.describe(thread_id)
+                    timeline.record(self.app.storage, "voice", "Voice input transcribed",
+                                    {"thread_id": thread["id"], "thread_title": thread["title"]},
+                                    provider="huggingface" if whisper else None,
+                                    data={"engine": "Whisper" if whisper else "Browser"})
+                except (HearthError, OSError):
+                    # Dictation still returns text if its chat was removed or logging failed.
+                    pass
             self.json({"text": text})
 
     def update_connections(self, body):
@@ -709,16 +759,27 @@ class Handler(BaseHTTPRequestHandler):
         raise HearthError("Invalid settings request.")
 
     def stream_chat(self, events):
-        try:
-            self.response_headers(200, "text/event-stream")
+        def packets():
             while True:
                 try:
                     packet = events.get(timeout=12)
                 except Empty:
-                    self.wfile.write(b": Hearth is working\n\n")
+                    yield None
                 else:
                     if packet is None:
                         return
+                    yield packet
+
+        self.stream_events(packets())
+
+    def stream_events(self, packets):
+        try:
+            self.response_headers(200, "text/event-stream")
+            self.wfile.flush()
+            for packet in packets:
+                if packet is None:
+                    self.wfile.write(b": Hearth is working\n\n")
+                else:
                     name, data = packet
                     self.wfile.write(f"event: {name}\ndata: {json.dumps(data)}\n\n".encode("utf-8"))
                 self.wfile.flush()

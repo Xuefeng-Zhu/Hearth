@@ -6,7 +6,7 @@ from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 
-from . import recall, router, search
+from . import recall, router, search, timeline
 from .connections import catalog_entry, with_model
 from .connectors import ConnectorError, Integrations, model_error
 from .gateway_tools import METHODS, gateway_read, gateway_result, redact_text, validate_request
@@ -258,8 +258,11 @@ class Agent:
     def log_routing(self, plan):
         with self.storage.lock():
             state = self.storage.load()
-            state["routing"] = [*state.get("routing", [])[-49:], {**plan, **CHAT_ORIGIN.get(), "at": iso()}]
+            state["routing"] = [*state.get("routing", []), {**plan, **CHAT_ORIGIN.get(), "id": new_id(), "at": iso()}]
             self.storage.save(state)
+
+    def log_activity(self, kind, title, **fields):
+        timeline.record(self.storage, kind, title, CHAT_ORIGIN.get(), **fields)
 
     def record_brain_attempt(self, model, ok, started):
         try:
@@ -393,7 +396,8 @@ class Agent:
             message += f" Trying {next_name}."
         with self.storage.lock():
             self.add_action("brain", "Brain fallback" if next_model else "Brain interrupted",
-                            status="complete", detail=message)
+                            status="complete", detail=message, model=model["model"] if model else None,
+                            provider=provider)
         notices.append(message)
         event("reset", {})
         event("model_warning", {"message": message})
@@ -505,7 +509,7 @@ class Agent:
                     touched_state |= name not in READ_ONLY_TOOLS and not (
                         name == "gateway_request" and isinstance(arguments, dict) and arguments.get("method") == "GET"
                     )
-                    if name in ("web_search", "memory_search") or (name == "gateway_request" and isinstance(arguments, dict)
+                    if name in ("web_search", "memory_search", "memory_read") or (name == "gateway_request" and isinstance(arguments, dict)
                                                                     and arguments.get("method") == "GET"):
                         result = self.execute(name, arguments)
                     else:
@@ -518,6 +522,8 @@ class Agent:
                 finally:
                     event("tool_finished", {})
                 if "error" in result:
+                    self.log_activity("tool", TOOL_TITLES.get(name, "Tool request"),
+                                      error=True, data={"detail": result["error"]})
                     event("tool_warning", {})
                 if "action" in result:
                     action = result["action"]
@@ -546,7 +552,11 @@ class Agent:
         config = self.gateway_connections[provider]
         method, path = validate_request(provider, method, path, body)
         if method == "GET":
-            return gateway_read(self.tools.gateway, config, path)
+            request = {"method": method, "path": "/" + path}
+            result = gateway_read(self.tools.gateway, config, path)
+            self.log_activity("gateway", f"{method} /{path}", provider=provider,
+                              data={"request": request, "http_status": result["status"]})
+            return result
         request = {"provider": provider, "method": method, "path": "/" + path, "body": body}
         return {"action": self.add_action("gateway", "Connector request", status="pending", request=request,
                                           target=self.gateway_target(config))}
@@ -591,20 +601,24 @@ class Agent:
             data = result.get("data")
             failed = isinstance(data, dict) and (data.get("error") or data.get("errors") or data.get("ok") is False)
             action["status"] = "request_unknown" if failed else "complete"
+        action["updated_at"] = iso()
         self.storage.save(state)
         # Return the filtered response to the browser without saving it in action history.
         return {**action, "response": result}
 
     def memory_read(self, path):
-        self.storage.memory_path(path)
-        if not recall.folder_allowed(path, self.memory):
-            raise HearthError("This note is outside your recall scope.")
-        content = redact_text(self.storage.read(path))
+        with self.storage.lock():
+            self.storage.memory_path(path)
+            if not recall.folder_allowed(path, self.memory):
+                raise HearthError("This note is outside your recall scope.")
+            content = redact_text(self.storage.read(path))
         result = {"path": path, "content": content}
         if content.strip():
             item = recall.chunk(path, 1, max(1, len(content.splitlines())), content)
             self.track_citations([item])
             result["citation"] = f"[[memory:{item['id']}]]"
+        self.log_activity("recall", f"Read memory · {path}", data={"path": path, "excerpt": content[:550]},
+                          message_id=turn["message_id"] if (turn := TURN_MEMORY.get()) else None)
         return result
 
     @staticmethod
@@ -622,6 +636,13 @@ class Agent:
         self.track_citations(result["results"])
         if turn:
             turn["queries"][query] = result
+        if result["results"] or not turn or result["backend"] != "keyword":
+            count = len(result["results"])
+            self.log_activity("recall", f"Recalled {count} {'memory' if count == 1 else 'memories'}",
+                              provider=None if result["backend"] == "keyword" else result["backend"],
+                              message_id=turn["message_id"] if turn else None,
+                              data={key: result[key] for key in ("results", "warnings", "backend", "latency_ms")}
+                              | {"query": query})
         return result
 
     def memory_sync_checkpoint(self, comment):
@@ -657,7 +678,7 @@ class Agent:
         fields = {"status": "complete", "checkpoint": checkpoint, "paths": [path], "fact": fact}
         if action is None:
             return self.add_action("remember", "Fact remembered", **fields)
-        action.update(title="Fact remembered", **fields)
+        action.update(title="Fact remembered", updated_at=iso(), **fields)
         self.save_action(action)
         return action
 
@@ -713,15 +734,21 @@ class Agent:
                 detail += f" Trying {catalog_entry(next_provider)['name']}."
             with self.storage.lock():
                 self.add_action("search", "Search fallback" if next_provider else "Search failed",
-                                status="complete", detail=detail)
+                                status="complete", detail=detail, provider=provider)
             return detail
 
-        return search.search(self.tools.gateway, self.config, selection,
-                             redact_text(require_text(query, 800)), failure)
+        query = redact_text(require_text(query, 800))
+        result = search.search(self.tools.gateway, self.config, selection, query, failure)
+        self.log_activity("search", f"Searched the web · {query}", provider=result["provider"],
+                          data={**result, "query": query, "results": [
+                              {key: item[key] for key in ("title", "snippet")} for item in result["results"]
+                          ]})
+        return result
 
     def schedule(self, message, at=None, cron=None):
         state = self.storage.load()
-        job = add_job(state, message, at=at, cron=cron, origin=CHAT_ORIGIN.get())
+        job = add_job(state, redact_text(message) if isinstance(message, str) else message,
+                      at=at, cron=cron, origin=CHAT_ORIGIN.get())
         self.storage.save(state)
         return {"action": self.add_action("reminder", "Reminder scheduled", status="complete", job=job)}
 
@@ -789,5 +816,6 @@ class Agent:
                     action["status"] = "unknown"
                 else:
                     action["status"] = "sent"
+            action["updated_at"] = iso()
             self.storage.save(state)
             return action

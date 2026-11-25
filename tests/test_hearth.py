@@ -15,6 +15,7 @@ from hearth.connectors import ConnectorError, Gateway, read_config
 from hearth.scheduler import add_job, next_cron, run_due
 from hearth.server import Application, HTTPServer
 from hearth.storage import HearthError, Storage
+from hearth.timeline import record
 
 
 class Recorder:
@@ -244,6 +245,12 @@ class HearthTest(unittest.TestCase):
         body, _ = request("/api/chat", {"message": "Wipe topics/thanksgiving.md"})
         self.assertIn("event: token", body)
         action = get("/api/state")["actions"][-1]
+        timeline = get("/api/timeline")["entries"]
+        card, = [row for row in timeline if row.get("action_id") == action["id"]]
+        self.assertTrue(card["undoable"])
+        self.assertIn("topics/thanksgiving.md", card["title"])
+        self.assertFalse(any(row["kind"] == "checkpoint" for row in timeline))
+        self.assertTrue(any(row["kind"] == "chat" for row in timeline))
         self.assertEqual(get(path)["content"], "")
         self.assertEqual(get("/api/checkpoints")["checkpoints"][0]["id"], action["checkpoint"]["id"])
         self.assertEqual(request("/api/undo", {"id": action["id"]})[1], 202)
@@ -252,6 +259,45 @@ class HearthTest(unittest.TestCase):
                 break
             time.sleep(.08)
         self.assertEqual(get(path)["content"], original)
+        self.assertNotIn(card["id"], [row["id"] for row in get("/api/timeline")["entries"]])
+
+    def test_timeline_stream_signals_scheduler_writes_and_projects_redacted_history(self):
+        app = Application(self.storage, self.checkpoints, self.config)
+        with HTTPServer(("127.0.0.1", 0), app) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base = f"http://127.0.0.1:{server.server_port}"
+                opener = build_opener(ProxyHandler({}))
+                events = base + "/api/timeline/events"
+                with self.assertRaises(HTTPError):
+                    opener.open(Request(events, headers={"Origin": "https://elsewhere.example"}), timeout=5)
+                with opener.open(events, timeout=5) as stream:
+                    self.assertEqual(stream.headers.get_content_type(), "text/event-stream")
+                    for expected in (b"event: activity\n", b"data: {}\n", b"\n"):
+                        self.assertEqual(stream.readline(), expected)
+                    now = datetime.now(timezone.utc)
+                    with self.storage.lock():
+                        state = self.storage.load()
+                        add_job(state, "Check the oven", now - timedelta(seconds=30), at=(now - timedelta(seconds=2)).isoformat())
+                        state["messages"] = [
+                            {"role": "user", "content": "password: demo-private-value", "at": now.isoformat()},
+                            {"role": "assistant", "content": "Hello", "at": now.isoformat()},
+                        ]
+                        self.storage.save(state)
+                    self.assertEqual(run_due(Storage(self.storage.root), now), 1)
+                    self.assertEqual(stream.readline(), b"event: activity\n")
+                record(self.storage, "gateway", "Connector response", {}, provider="exa",
+                       data={"authorization": "demo-private-value"})
+                with opener.open(base + "/api/timeline", timeout=5) as response:
+                    raw = response.read().decode()
+                self.assertNotIn("demo-private-value", raw)
+                rows = {row["kind"]: row for row in json.loads(raw)["entries"]}
+                self.assertEqual(rows["chat"]["data"]["reply"], "Hello")
+                self.assertEqual(rows["reminder"]["data"]["message"], "Check the oven")
+                self.assertEqual(rows["gateway"]["connector"], "Exa")
+            finally:
+                server.shutdown()
 
 
 class GatewayTest(unittest.TestCase):
