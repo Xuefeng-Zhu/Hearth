@@ -166,24 +166,32 @@ class HearthTest(unittest.TestCase):
 
     def test_semantic_index_is_written_after_checkpoint_and_reused_for_recall(self):
         class PineconeGateway(Recorder):
-            def json(inner, config, path, body, headers=None):
+            def json(inner, config, path, body=None, headers=None):
                 inner.requests.append((path, body))
+                if path == "indexes/hearth-memory":
+                    return {"dimension": 2, "metric": "cosine"}
                 if path == "embed":
-                    return {"data": [{"values": [0.1, 0.2]} for _ in body["inputs"]]}
+                    return {"data": [{"values": [1, 0] if "vegetarian" in item["text"] or
+                                     body["parameters"]["input_type"] == "query" else [0, 1]}
+                                    for item in body["inputs"]]}
                 if path.endswith("/vectors/upsert"):
                     self.assertEqual(len(self.checkpoints.list()), 1)
-                    self.assertTrue(any(vector["metadata"]["path"] == "people/maya.md" for vector in body["vectors"]))
-                    return {"upsertedCount": len(body["vectors"])}
+                    inner.vectors = body["vectors"]
+                    return {"upsertedCount": len(inner.vectors)}
                 if path.endswith("/query"):
-                    return {"matches": [{"metadata": {"path": "people/maya.md", "excerpt": "Vegetarian guest."}}]}
+                    self.assertEqual(body["vector"], [1, 0])
+                    return {"matches": [{"id": item["id"], "score": item["values"][0]}
+                                        for item in inner.vectors]}
                 self.fail("Unexpected Pinecone API path.")
 
         self.config["pinecone"]["connection_id"] = "test-id"
         gateway = PineconeGateway()
         agent = Agent(self.storage, self.checkpoints, self.config, gateway)
         for _ in range(2):
-            self.assertEqual(agent.memory_search("dietary preferences")["results"],
-                             [{"path": "people/maya.md", "excerpt": "Vegetarian guest."}])
+            result = agent.memory_search("dietary preferences")
+            self.assertEqual(result["backend"], "pinecone")
+            hit = result["results"][0]
+            self.assertEqual((hit["path"], hit["line"], hit["similarity"]), ("people/maya.md", 3, 1.0))
         paths = [path for path, _ in gateway.requests]
         self.assertEqual(paths.count("indexes/hearth-memory/vectors/upsert"), 1)
         self.assertEqual(paths.count("indexes/hearth-memory/query"), 2)

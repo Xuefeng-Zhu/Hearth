@@ -117,6 +117,7 @@ class ThreadTest(unittest.TestCase):
 
     def test_separate_context_with_memory_main_excerpt_and_side_summary(self):
         calls = []
+        self.storage.write("USER.md", "# Frank\n\nI keep a garden plan.")
 
         class Gateway:
             def completion(self, model, messages, tools, emit):

@@ -6,6 +6,7 @@ from urllib.parse import quote
 from .connectors import CORE_PROVIDERS, GATEWAY_SEGMENT, MODELS_PATHS, MODEL_PATHS, ConnectorError, valid_provider
 from .gateway_tools import redact_text
 from .storage import HearthError, ROOT, atomic_write, iso
+from . import recall, search
 
 CATALOG = {entry["slug"]: entry for entry in json.loads((ROOT / "config/catalog.json").read_text(encoding="utf-8"))}
 DASHBOARD = "https://fly.io/dashboard/xuefeng-zhu/sprites/connectors"
@@ -135,6 +136,8 @@ class Connections:
         config = deepcopy(self.defaults)
         config["gateway"] = {}
         config.setdefault("brain", {"provider": "auto", "model": ""})
+        config["memory"] = recall.settings(config.get("memory", {}))
+        config["search"] = search.settings(config.get("search", {}))
         if not self.path.is_file():
             return config
         try:
@@ -168,7 +171,22 @@ class Connections:
                 config["brain"] = {"provider": provider, "model": model}
             elif provider in ("auto", "mock"):
                 config["brain"] = {"provider": provider, "model": ""}
+        for key, validate in (("memory", recall.settings), ("search", search.settings)):
+            if key in data:
+                try:
+                    config[key] = validate(data[key])
+                except HearthError:
+                    pass
         return config
+
+    def save_preferences(self, key, selection):
+        config = self.load()
+        if config != self.config:
+            raise HearthError("Saved connection settings changed. Re-scan and try again.")
+        if selection != config[key]:
+            config[key] = selection
+            self.persist(config, f"Before saving Hearth {key} settings")
+            self.config = config
 
     @staticmethod
     def merge(config, saved):

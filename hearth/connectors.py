@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 import re
@@ -216,67 +215,3 @@ class Integrations:
         )
         if not data.get("message_id"):
             raise ConnectorError("AgentMail returned an unknown delivery status.")
-
-    def search_web(self, query):
-        if not self.configured("tavily"):
-            raise HearthError("Web search needs a Tavily connector.")
-        data = self.gateway.json(self.config["tavily"], "search", {"query": query, "max_results": 4})
-        return [{key: str(result.get(key, ""))[:650] for key in ("title", "url", "content")}
-                for result in data.get("results", [])[:4]]
-
-    def recall(self, storage, checkpoint, query):
-        if not self.configured("pinecone"):
-            return storage.search(query)
-        config = self.config["pinecone"]
-        notes = {path: storage.read(path) for path in storage.files()}
-        if not any(notes.values()):
-            return storage.search(query)
-        corpus = json.dumps(notes, ensure_ascii=False, sort_keys=True)
-        revision = hashlib.sha256(corpus.encode("utf-8")).hexdigest()[:20]
-        namespace = f"{config['namespace']}-{revision}"
-        index = quote(config["index"], safe="")
-        key = [config["connection_id"], config["index"], config["model"], namespace]
-        state = storage.load()
-        try:
-            if key not in state["indexed"]:
-                self.index_notes(config, checkpoint, notes, namespace, index)
-                state["indexed"].append(key)
-                storage.save(state)
-            vector, = self.embed(config, [query], "query")
-            data = self.gateway.json(config, f"indexes/{index}/query", {
-                "namespace": namespace, "vector": vector, "topK": 12, "includeMetadata": True,
-            }, PINECONE_HEADERS)
-            hits = {}
-            for match in data.get("matches", []):
-                metadata = match.get("metadata", {})
-                path = metadata.get("path")
-                if path in notes:
-                    hits.setdefault(path, {"path": path, "excerpt": metadata["excerpt"][:550]})
-            return list(hits.values())[:5] or storage.search(query)
-        except (HearthError, KeyError, TypeError, ValueError):
-            return storage.search(query)
-
-    def index_notes(self, config, checkpoint, notes, namespace, index):
-        chunks = [
-            (path, offset, content[offset:offset + 1200])
-            for path, content in notes.items()
-            for offset in range(0, len(content), 1200)
-        ]
-        checkpoint("Before syncing memory to Pinecone")
-        for start in range(0, len(chunks), 32):
-            batch = chunks[start:start + 32]
-            vectors = self.embed(config, [text for _, _, text in batch], "passage")
-            self.gateway.json(config, f"indexes/{index}/vectors/upsert", {
-                "namespace": namespace,
-                "vectors": [
-                    {"id": f"{path}:{offset}", "values": vector, "metadata": {"path": path, "excerpt": text}}
-                    for (path, offset, text), vector in zip(batch, vectors, strict=True)
-                ],
-            }, PINECONE_HEADERS)
-
-    def embed(self, config, texts, input_type):
-        result = self.gateway.json(config, "embed", {
-            "model": config["model"], "inputs": [{"text": text} for text in texts],
-            "parameters": {"input_type": input_type, "truncate": "END"},
-        }, PINECONE_HEADERS)
-        return [record["values"] for record in result["data"]]
