@@ -1,0 +1,55 @@
+name: Test and deploy Hearth
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hearth-deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python tests
+        run: python3 -m unittest discover -s tests
+      - name: Node tests
+        run: node --test tests/*.test.mjs
+      - name: JavaScript syntax
+        run: for f in web/*.js; do node --check "$f"; done
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SPRITES_TOKEN: ${{ secrets.SPRITES_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip when no Sprites token is set
+        if: env.SPRITES_TOKEN == ''
+        run: echo "::notice::Add the SPRITES_TOKEN repository secret to enable deploys."
+      - name: Install the Sprites CLI
+        if: env.SPRITES_TOKEN != ''
+        run: |
+          curl -fsSL https://sprites.dev/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Authenticate
+        if: env.SPRITES_TOKEN != ''
+        run: sprite auth setup --token "$SPRITES_TOKEN" > /dev/null
+      - name: Deploy to the Hearth Sprite
+        if: env.SPRITES_TOKEN != ''
+        run: scripts/deploy.sh
