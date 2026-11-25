@@ -1,4 +1,5 @@
 {
+  "brain": {"provider": "auto", "model": ""},
   "llm": [
     {"provider": "meta", "connection_id": "", "model": "muse-spark-1.3"},
     {"provider": "openrouter", "connection_id": "", "model": "openai/gpt-4.1-mini"},
@@ -6,6 +7,13 @@
     {"provider": "anthropic", "connection_id": "", "model": "claude-sonnet-4-6"},
     {"provider": "gemini", "connection_id": "", "model": "gemini-3.5-flash-lite"},
     {"provider": "ollama", "connection_id": "", "model": "kimi-k3"},
+    {"provider": "huggingface", "connection_id": "", "model": "Qwen/Qwen3-Coder-Next:fastest"},
+    {"provider": "digitalocean", "connection_id": "", "model": "openai-gpt-oss-120b"},
+    {"provider": "fireworks", "connection_id": "", "model": "accounts/fireworks/models/muse-spark-open"},
+    {"provider": "nscale", "connection_id": "", "model": ""},
+    {"provider": "parasail", "connection_id": "", "model": ""},
+    {"provider": "zerogpu", "connection_id": "", "model": ""},
+    {"provider": "echo", "connection_id": "", "model": "echo"},
     {"provider": "mock", "connection_id": "", "model": "hearth-demo"}
   ],
   "pinecone": {"provider": "pinecone", "connection_id": "", "index": "hearth-memory", "namespace": "hearth", "model": "multilingual-e5-large"},

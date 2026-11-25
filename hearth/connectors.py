@@ -8,7 +8,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from .model_protocols import protocol, sse_packets
+from .model_protocols import json_tool_payload, json_tool_stream, protocol, sse_packets
 from .storage import HearthError, ROOT
 
 GATEWAY = "https://api.sprites.dev/v1/gateway"
@@ -18,7 +18,16 @@ MODEL_PATHS = {
     "meta": "v1/chat/completions", "openrouter": "api/v1/chat/completions",
     "openai": "v1/chat/completions", "anthropic": "v1/messages",
     "gemini": "v1beta/models/{model}:streamGenerateContent?alt=sse",
-    "ollama": "v1/chat/completions",
+    "ollama": "v1/chat/completions", "huggingface": "v1/chat/completions",
+    "digitalocean": "v1/chat/completions", "fireworks": "inference/v1/chat/completions",
+    "nscale": "v1/chat/completions", "parasail": "v1/chat/completions", "zerogpu": "v1/chat/completions",
+    "echo": "api/v1/chat/completions",
+}
+MODELS_PATHS = {
+    "meta": "v1/models", "openrouter": "api/v1/models", "openai": "v1/models",
+    "anthropic": "v1/models?limit=100", "gemini": "v1beta/models?pageSize=100",
+    "ollama": "api/tags", "huggingface": "v1/models", "digitalocean": "v1/models",
+    "nscale": "v1/models", "parasail": "v1/models", "echo": "api/v1/models",
 }
 PINECONE_HEADERS = {"X-Pinecone-Api-Version": "2025-10"}
 PROVIDER_HEADERS = {
@@ -34,6 +43,12 @@ class ConnectorError(HearthError):
     def __init__(self, message, status=None):
         super().__init__(message)
         self.status = status
+
+
+def model_error(error):
+    if error.status:
+        return f"The gateway returned HTTP {error.status}."
+    return "The gateway could not complete the model reply."
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -128,10 +143,25 @@ class Gateway:
 
     def completion(self, config, messages, tools, emit):
         provider, model = config["provider"], config["model"]
-        build_payload, parse_stream = protocol(provider)
         path = MODEL_PATHS[provider].format(model=quote(model.removeprefix("models/"), safe=""))
+        build_payload, parse_stream = protocol(provider)
+        if provider == "echo":
+            body = json_tool_payload(model, messages, tools) if tools else build_payload(model, messages, [])
+            body["persona"] = "Hearth"
+            return self.stream_completion(config, path, body, json_tool_stream if tools else parse_stream, emit)
+        try_json_tools = provider == "huggingface" and bool(tools)
+        if try_json_tools and any(message.get("json_tools") for message in messages):
+            return self.stream_completion(config, path, json_tool_payload(model, messages, tools), json_tool_stream, emit)
+        body = build_payload(model, messages, tools)
         try:
-            body = build_payload(model, messages, tools)
+            return self.stream_completion(config, path, body, parse_stream, emit)
+        except ConnectorError as error:
+            if not try_json_tools or error.status not in (400, 422, 501):
+                raise
+        return self.stream_completion(config, path, json_tool_payload(model, messages, tools), json_tool_stream, emit)
+
+    def stream_completion(self, config, path, body, parse_stream, emit):
+        try:
             with self.open(config, path, body, {"Accept": "text/event-stream"}) as response:
                 text, calls, native = parse_stream(sse_packets(response), emit)
         except (HTTPException, OSError, ValueError, TypeError, KeyError, AttributeError):

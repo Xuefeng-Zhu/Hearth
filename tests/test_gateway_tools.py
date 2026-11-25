@@ -2,6 +2,7 @@ import io
 import json
 import tempfile
 import unittest
+from urllib.error import HTTPError
 
 from hearth.agent import Agent
 from hearth.checkpoints import LocalCheckpoints
@@ -165,3 +166,53 @@ class TestNativeModelProtocols(unittest.TestCase):
         self.assertEqual(conversation[-1]["parts"],
                          [{"functionResponse": {"id": "fn_demo", "name": "memory_read",
                                                 "response": {"content": "sample"}}}])
+
+    def test_huggingface_streams_fragmented_tool_calls_and_text(self):
+        self.packets = [
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_demo",
+                 "function": {"name": "memory_read", "arguments": '{"path":'}}]}}]},
+            {"choices": [{"delta": {"tool_calls": [{"index": 0,
+                 "function": {"arguments": '"USER.md"}'}}]}, "finish_reason": "tool_calls"}]},
+        ]
+        reply = self.complete("huggingface")
+        url, headers, body = self.options
+        self.assertTrue(url.endswith("/huggingface/conn_test/v1/chat/completions"))
+        self.assertNotIn("Authorization", headers)
+        self.assertTrue(body["stream"])
+        self.assertEqual(body["tools"], self.tools)
+        call, = reply["tool_calls"]
+        self.assertEqual(json.loads(call["function"]["arguments"]), {"path": "USER.md"})
+        self.history += [reply, {"role": "tool", "tool_call_id": "call_demo", "content": "{}"}]
+        self.packets = [{"choices": [{"delta": {"content": "Read"}}]},
+                        {"choices": [{"delta": {"content": "."}, "finish_reason": "stop"}]}]
+        self.assertEqual(self.complete("huggingface")["content"], "Read.")
+        self.assertEqual(self.emitted, ["Read", "."])
+        self.assertEqual(self.options[2]["messages"][-1]["tool_call_id"], "call_demo")
+
+    def test_huggingface_retries_without_native_tools_and_continues_in_json_mode(self):
+        payloads = []
+
+        def open_request(request, timeout):
+            body = json.loads(request.data)
+            payloads.append(body)
+            if "tools" in body:
+                raise HTTPError(request.full_url, 400, "Bad request", {}, io.BytesIO(b"private provider details"))
+            return self.open(request, timeout)
+
+        self.gateway.opener = type("Opener", (), {"open": staticmethod(open_request)})()
+        self.packets = [{"choices": [{"delta": {"content":
+            '{"tool_calls":[{"name":"memory_read","arguments":{"path":"USER.md"}}]}'}, "finish_reason": "stop"}]}]
+        reply = self.complete("huggingface")
+        call, = reply["tool_calls"]
+        self.assertEqual(call["function"]["name"], "memory_read")
+        self.assertEqual(self.emitted, [])
+        self.assertNotIn("tools", payloads[-1])
+        self.assertIn("memory_read", payloads[-1]["messages"][0]["content"])
+        self.history += [reply, {"role": "tool", "tool_call_id": call["id"], "content": '{"note":"sample"}'}]
+        self.packets = [{"choices": [{"delta": {"content": '{"reply":"Read it."}'}, "finish_reason": "stop"}]}]
+        self.assertEqual(self.complete("huggingface")["content"], "Read it.")
+        self.assertEqual(self.emitted, ["Read it."])
+        self.assertEqual(len(payloads), 3)
+        self.assertNotIn("tools", payloads[-1])
+        self.assertEqual(payloads[-1]["messages"][-1]["role"], "user")
+        self.assertIn('{"note":"sample"}', payloads[-1]["messages"][-1]["content"])
