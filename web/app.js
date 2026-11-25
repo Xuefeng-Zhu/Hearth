@@ -2,6 +2,7 @@ import { avatarEvent, avatarPose, newAvatar } from "./avatar-state.js";
 import { announcePose, looks, mascot, poseLabel, setLook, setPose } from "./avatar.js";
 import { createVoiceInput } from "./voice.js";
 import { callDuration, captionLine, createVoiceCall } from "./voice-call.js";
+import { createTimeline } from "./timeline.js";
 
 const byId = (id) => document.getElementById(id);
 const nav = [...document.querySelectorAll("[data-view]")];
@@ -42,7 +43,6 @@ let selectedSource;
 let fileRequest = 0;
 let memoryFindRequest = 0;
 let busy = false;
-let timelineTimer;
 let connectionState;
 let connectionRequest;
 let connectionTabPreference = localStorage.getItem(connectionTabStorage);
@@ -58,6 +58,7 @@ let poolDirty = false;
 let settingsSection = "brain";
 let reindexPoll;
 const preferences = { memory: {}, search: {} };
+const timeline = createTimeline({ api, approve, undo, gatewayResults, isBusy: () => busy });
 const memoryNames = { auto: "Auto", keyword: "Keyword", huggingface: "Hugging Face embeddings", pinecone: "Pinecone" };
 const folderNames = { root: "Root · USER.md", people: "people/", topics: "topics/", daily: "daily/" };
 const brainProvider = byId("brain-provider");
@@ -343,9 +344,10 @@ function date(value) {
 function setBusy(value) {
   busy = value;
   send.disabled = value;
-  for (const item of document.querySelectorAll(".cards button, #timeline .card button, [data-prompt]")) {
+  for (const item of document.querySelectorAll(".cards button, [data-prompt]")) {
     item.disabled = value;
   }
+  timeline.setBusy();
   renderThreads();
   setBrainControls();
 }
@@ -721,73 +723,13 @@ async function findMemory() {
   }
 }
 
-function timelineSection(title, items, fallback) {
-  const section = node("section", "timeline-section");
-  section.append(node("h3", "", title));
-  section.append(...(items.length ? items : [node("p", "empty", fallback)]));
-  return section;
-}
-
-function timelineItem(title, detail, origin) {
-  const item = node("article", "card");
-  item.append(node("h4", "", title), node("p", "meta", detail), node("p", "thread-source", `From ${origin}`));
-  return item;
-}
-
-async function renderTimeline() {
-  clearTimeout(timelineTimer);
-  const timeline = byId("timeline");
-  let checkpoints = [];
-  let checkpointStatus = "No checkpoints yet.";
-  try {
-    ({ checkpoints } = await api("/api/checkpoints", undefined, AbortSignal.timeout(8000)));
-  } catch (error) {
-    checkpointStatus = error.message;
-  }
-  if (view !== "timeline") return;
-  const reminderCard = (item, detail) => {
-    const card = timelineItem(item.message, detail, timelineSource(item));
-    card.dataset.reminderId = item.id;
-    card.dataset.reminderMessage = item.message;
-    return card;
-  };
-  const reminders = state.reminders.slice().reverse().map((item) => reminderCard(item, `Due ${date(item.scheduled_at)}`));
-  const scheduled = state.jobs.filter((job) => job.status === "scheduled")
-    .sort((a, b) => a.next_at.localeCompare(b.next_at));
-  reminders.push(...scheduled.map((job) => reminderCard(job,
-    `Scheduled for ${date(job.next_at)}${job.cron ? ` · ${job.cron} UTC` : ""}`)));
-  timeline.replaceChildren(
-    timelineSection("Reminders", reminders, "No reminders scheduled."),
-    timelineSection("Checkpoints", checkpoints.map((item) => timelineItem(
-      item.comment || "Sprite checkpoint", [item.id, date(item.created_at)].filter(Boolean).join(" · "),
-      threadSource(item, "Workspace"))), checkpointStatus),
-    timelineSection("Actions", state.actions.slice().reverse().map(actionCard), "No actions yet."),
-    timelineSection("Routing", (state.routing || []).slice().reverse().map((route) => timelineItem(
-      route.label, `${route.order.map(routedModel).join(" → ")} — ${route.reason} · ${date(route.at)}`,
-      timelineSource(route))), "No turns routed yet."),
-  );
-  if (scheduled.length && !document.hidden) {
-    const untilDue = new Date(scheduled[0].next_at).getTime() - Date.now();
-    timelineTimer = setTimeout(() => {
-      if (view === "timeline" && !busy && !document.hidden) {
-        refreshState().then(renderTimeline).catch((error) => showNotice(error.message));
-      }
-    }, Math.max(3_000, Math.min(2_147_480_000, untilDue + 2_500)));
-  }
-}
-
 async function openVoiceAction(action, payload) {
   await openView("timeline");
   if (view !== "timeline") return;
-  const cards = [...byId("timeline").querySelectorAll("[data-reminder-id]")];
-  const target = action === "show_reminder"
-    ? cards.find((card) => card.dataset.reminderId === payload?.id || card.dataset.reminderMessage === payload?.message)
-      || cards[0] : null;
-  const focus = target || byId("timeline-view").querySelector("h2");
-  if (focus) {
-    focus.tabIndex = -1;
-    focus.focus();
-  }
+  if (action === "show_reminder" && timeline.focusReminder(payload)) return;
+  const heading = byId("timeline-view").querySelector("h2");
+  heading.tabIndex = -1;
+  heading.focus();
 }
 
 function externalLink(label, url) {
@@ -1581,10 +1523,10 @@ async function changePreferences(feature, operation) {
 }
 
 async function refreshView() {
+  if (view === "timeline") return timeline.show();
   if (!await refreshState()) return;
   if (view === "chat") renderChat();
   else if (view === "memory") await renderMemory();
-  else if (view === "timeline") await renderTimeline();
 }
 
 async function openView(nextView, updateHistory = true) {
@@ -1595,8 +1537,8 @@ async function openView(nextView, updateHistory = true) {
   } else if (updateHistory && nextView !== "connections" && isConnectionsRoute()) {
     history.pushState({ hearthView: nextView }, "", location.pathname + location.search);
   }
+  if (view === "timeline" && nextView !== view) timeline.hide();
   view = nextView;
-  clearTimeout(timelineTimer);
   clearTimeout(reindexPoll);
   for (const item of nav) {
     const active = item.dataset.view === view;
@@ -1818,8 +1760,8 @@ async function approve(action) {
   }
 }
 
-async function undo(action) {
-  if (busy || !window.confirm(`Restore checkpoint ${action.checkpoint.id}? This rolls back the workspace, including newer chat, memory, and reminders. Delivered email stays delivered.`)) return;
+async function undo(action, { confirmed = false } = {}) {
+  if (busy || (!confirmed && !window.confirm(`Restore checkpoint ${action.checkpoint.id}? This rolls back the workspace, including newer chat, memory, and reminders. Delivered email stays delivered.`))) return;
   setBusy(true);
   showNotice("Restoring checkpoint. Hearth may reconnect…");
   try {
@@ -1832,7 +1774,7 @@ async function undo(action) {
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 850));
       try {
-        await refreshState();
+        if (!await refreshState()) continue;
       } catch {
         continue;
       }
@@ -1840,6 +1782,7 @@ async function undo(action) {
         throw new Error("The checkpoint could not be restored.");
       }
       if (!state.actions.some((item) => item.id === action.id && item.checkpoint?.id === action.checkpoint.id)) {
+        timeline.restored(action);
         await refreshView();
         showNotice(`Restored checkpoint ${action.checkpoint.id}.`);
         return;
@@ -2073,8 +2016,9 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     spaceHeld = false;
     voice.cancel();
+    if (view === "timeline") timeline.hide();
   }
-  if ((view === "chat" || view === "timeline") && !document.hidden && !busy) {
+  if (!document.hidden && (view === "timeline" || (view === "chat" && !busy))) {
     refreshView().catch((error) => showNotice(error.message));
   }
 });

@@ -28,6 +28,7 @@ STATIC = {
     "/voice-call.js": ("voice-call.js", "text/javascript; charset=utf-8"),
     "/vendor/vocalbridge.mjs": ("vendor/vocalbridge.mjs", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
+    "/timeline.js": ("timeline.js", "text/javascript; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
     "/icons/icon.svg": ("icons/icon.svg", "image/svg+xml"),
     "/icons/favicon.svg": ("icons/favicon.svg", "image/svg+xml"),

@@ -112,7 +112,8 @@ export function createVoiceInput({ update, meter, deliver }) {
         return;
       }
       const language = session.language.split("-")[0];
-      transcribe(session, `/api/voice/transcribe?language=${encodeURIComponent(language)}`, {
+      const params = new URLSearchParams({ language, thread: session.thread });
+      transcribe(session, `/api/voice/transcribe?${params}`, {
         body: recording, headers: { "Content-Type": recording.type },
       });
     };
@@ -148,7 +149,7 @@ export function createVoiceInput({ update, meter, deliver }) {
         finish(session, { message: recognitionErrors["no-speech"] });
         return;
       }
-      transcribe(session, "/api/voice/redact", {
+      transcribe(session, `/api/voice/redact?thread=${encodeURIComponent(session.thread)}`, {
         body: JSON.stringify({ text: final.trim().slice(0, 4000) }), headers: { "Content-Type": "application/json" },
       });
     };
