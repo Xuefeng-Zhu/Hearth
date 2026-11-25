@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/mobile.css">
   <link rel="stylesheet" href="/theme.css">
   <link rel="stylesheet" href="/home.css">
+  <link rel="stylesheet" href="/pages.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -26,6 +27,7 @@
         <button type="button" class="nav-link" data-view="chat"><span data-icon="message"></span> Chat</button>
         <button type="button" class="nav-link" data-view="timeline"><span data-icon="clock"></span> Timeline</button>
         <button type="button" class="nav-link" data-view="artifacts"><span data-icon="files"></span> Artifacts</button>
+        <button type="button" class="nav-link" data-view="pages"><span data-icon="page"></span> Pages</button>
         <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>
         <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
         <button type="button" class="nav-link" data-view="connections"><span data-icon="plug"></span> Connections</button>
@@ -212,6 +214,20 @@
             <span class="artifact-kind-icon" aria-hidden="true"><span data-icon="files"></span></span>
             <h3 id="artifact-empty-title">No artifacts yet</h3>
             <p id="artifact-empty-hint">Ask Hearth to create a Word document, PDF, spreadsheet, or slide deck.</p>
+          </div>
+        </div>
+      </section>
+      <section class="view panel" id="pages-view" aria-labelledby="view-title" hidden>
+        <div class="pages-library">
+          <div class="pages-heading">
+            <p id="pages-status" role="status">Loading pages…</p>
+            <button type="button" id="pages-chat"><span data-icon="message" data-icon-size="16"></span> Build in Chat</button>
+          </div>
+          <div id="pages-grid" class="pages-grid"></div>
+          <div class="pages-empty" id="pages-empty" hidden>
+            <span data-icon="page" data-icon-size="32"></span>
+            <h2>No pages yet</h2>
+            <p>Ask Hearth to make a trip itinerary, dinner invite, or one-page plan.</p>
           </div>
         </div>
       </section>
@@ -686,6 +702,7 @@
         <button type="button" class="nav-link" data-view="chat"><span data-icon="message"></span> Chat</button>
         <button type="button" class="nav-link" data-view="timeline"><span data-icon="clock"></span> Timeline</button>
         <button type="button" class="nav-link" data-view="artifacts"><span data-icon="files"></span> Artifacts</button>
+        <button type="button" class="nav-link" data-view="pages"><span data-icon="page"></span> Pages</button>
         <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>
         <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
         <button type="button" class="nav-link" data-view="connections"><span data-icon="plug"></span> Connections</button>
@@ -734,6 +751,38 @@
         <button class="call-end" id="call-end" type="button" autofocus>Cancel</button>
         <button class="call-quiet" id="call-retry-save" type="button" hidden>Retry save</button>
         <button class="call-button" id="call-done" type="button" hidden>Done</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog class="page-dialog" id="page-dialog" aria-labelledby="page-dialog-title">
+    <div class="page-dialog-shell">
+      <header class="page-dialog-head">
+        <div>
+          <p class="page-dialog-version" id="page-dialog-version"></p>
+          <h2 id="page-dialog-title">Page preview</h2>
+        </div>
+        <button type="button" class="icon-button" id="page-close" aria-label="Close page preview"><span data-icon="x"></span></button>
+        <div class="page-actions" id="page-actions"></div>
+      </header>
+      <p class="page-feedback" id="page-feedback" role="status"></p>
+      <section class="page-approval" id="page-approval" aria-label="Share approval" hidden></section>
+      <div class="page-workspace" id="page-workspace" hidden>
+        <section class="page-preview" aria-label="Page preview">
+          <div class="page-preview-bar">
+            <span id="page-size" class="page-size"></span>
+            <div class="page-devices" role="group" aria-label="Preview device">
+              <button type="button" id="page-phone" aria-pressed="true"><span data-icon="device-phone" data-icon-size="16"></span> Phone</button>
+              <button type="button" id="page-desktop" aria-pressed="false"><span data-icon="monitor" data-icon-size="16"></span> Desktop</button>
+            </div>
+          </div>
+          <div class="page-preview-stage" id="page-preview-stage">
+            <div class="page-preview-fit" id="page-preview-fit"></div>
+          </div>
+        </section>
+        <section class="page-history" aria-labelledby="page-history-title">
+          <h3 id="page-history-title">Version history</h3>
+          <ol id="page-versions"></ol>
+        </section>
       </div>
     </div>
   </dialog>

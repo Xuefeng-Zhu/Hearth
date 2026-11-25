@@ -12,6 +12,7 @@ const kinds = {
   reminder: ["Reminder", "bell"], gateway: ["Connector", "plug"], search: ["Web search", "search"],
   browse: ["Web browsing", "monitor"], routing: ["Model routing", "route"], brain: ["Model fallback", "route"],
   voice: ["Voice", "mic"], artifact: ["Artifact", "file-text"], upload: ["Attachment", "paperclip"],
+  page: ["Page", "page"], page_share: ["Page sharing", "share"],
   undo: ["Undo", "retry"], inbox: ["Inbox", "inbox"], email: ["Email", "mail"],
   panel: ["Home panel", "home"], checkpoint: ["Checkpoint", "history"], thread: ["Side chat", "message"], tool: ["Tool", "wrench"],
 };
@@ -78,7 +79,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice"]
+    action: ["artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -105,6 +106,8 @@ function detailFields(row, gatewayResponse) {
   const lines = [
     ["Request", data.prompt || data.query],
     ["Page URL", data.url],
+    ["Version", data.page_version && `v${data.page_version}`],
+    ["Change", row.kind === "page" && data.note],
     ["Session ID", data.session_id],
     ["Browse time", Number.isInteger(data.duration_ms) ? `${(data.duration_ms / 1000).toFixed(2)} s` : ""],
     ["Mode", row.kind === "browse" && data.mock && "Mock"],
@@ -242,8 +245,9 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
     const button = card.querySelector(".timeline-undo");
     button.setAttribute("aria-expanded", String(!target.hidden));
     if (!target.hidden && !target.firstElementChild) {
-      const itemChange = ["artifact", "inbox", "reminder"].includes(row.kind) || action.memory_change;
+      const itemChange = ["artifact", "inbox", "reminder", "page"].includes(row.kind) || action.memory_change;
       const message = row.redoable ? "Apply this memory change again?"
+        : row.kind === "page" ? "Undo this page change?"
         : row.kind === "artifact" ? "Undo this artifact change?"
           : row.kind === "inbox" ? "Undo the changes from this email?"
           : row.kind === "reminder" ? "Cancel this reminder?"

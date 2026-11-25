@@ -11,6 +11,7 @@ import { createAttachments } from "./attachments.js";
 import { icon, iconButton, mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
 import { createHome } from "./home.js";
+import { createPages } from "./pages.js";
 
 mountIcons();
 
@@ -91,6 +92,12 @@ const artifactLibrary = createArtifacts({
   api, showNotice, openThread: openArtifactThread,
   openConnections: () => openView("connections"),
   refreshChat: async () => { if (view === "chat") await refreshView(); },
+});
+const pagesLibrary = createPages({
+  api, openChat: async () => {
+    await openView("chat");
+    input.focus();
+  },
 });
 const homePage = createHome({
   api, openView, openWeatherSettings, openPanelChat, openDemo,
@@ -244,10 +251,12 @@ function renderFace(local, messages, actions, remoteBrowse) {
   const screenshots = !active && (reply?.browse_images || []);
   const browse = active?.browse || remoteBrowse;
   byId("face-browse").replaceChildren(...(browse ? [browseCard(browse)] : []));
-  details.hidden = !items.length && !linked?.length && !screenshots?.length;
+  const pageCards = !active && (reply?.pages || []);
+  details.hidden = !items.length && !linked?.length && !screenshots?.length && !pageCards?.length;
   if (details.hidden) details.open = false;
   details.querySelector(".cards").replaceChildren(...items.map((action) => actionCard(actions.get(action.id) || action)));
   if (linked?.length) details.querySelector(".cards").append(artifactLibrary.chatActions(linked));
+  if (pageCards?.length) details.querySelector(".cards").append(pagesLibrary.chatCards(pageCards));
   if (screenshots?.length) details.querySelector(".cards").append(...screenshots.map(browseScreenshot));
 }
 
@@ -669,6 +678,7 @@ function messageBubble(role, content, { message, status, prompt, working, attach
   if (role === "assistant" && message?.id) {
     const linked = message.artifacts || state?.message_artifacts?.[message.id] || [];
     if (linked.length) body.append(artifactLibrary.chatActions(linked));
+    if (message.pages?.length) body.append(pagesLibrary.chatCards(message.pages));
     if (message.browse_images?.length) body.append(...message.browse_images.map(browseScreenshot));
   }
   item.append(body);
@@ -2011,6 +2021,7 @@ async function refreshView() {
   if (view === "home") return homePage.load();
   if (view === "timeline") return timeline.show();
   if (view === "artifacts") return artifactLibrary.show();
+  if (view === "pages") return pagesLibrary.show();
   if (view === "reminders") return delivery.reminders();
   if (view === "inbox") return delivery.inbox();
   if (!await refreshState()) return;
@@ -2057,6 +2068,8 @@ async function openView(nextView, updateHistory = true) {
     await homePage.load();
   } else if (view === "artifacts") {
     await artifactLibrary.show();
+  } else if (view === "pages") {
+    await pagesLibrary.show();
   } else if (view === "reminders" || view === "inbox") {
     await refreshView();
     if (view === "inbox") delivery.poll();
@@ -2363,6 +2376,20 @@ async function undo(action, { confirmed = false, timelineTitle, redo = false } =
       await api(redo ? "/api/redo" : "/api/undo", { id: action.id });
       await refreshView();
       showNotice(redo ? "Memory change redone." : "Memory change undone.");
+    } catch (error) {
+      showNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+    return;
+  }
+  if (action.kind === "page") {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api("/api/undo", { id: action.id });
+      await refreshView();
+      showNotice("Page change undone.");
     } catch (error) {
       showNotice(error.message);
     } finally {
