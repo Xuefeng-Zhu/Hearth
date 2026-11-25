@@ -80,6 +80,17 @@ def catalog_entry(provider):
     }
 
 
+def connector_uses(provider):
+    uses = []
+    if provider in MODEL_PATHS:
+        uses.append("Brain")
+    if provider in search.PROVIDERS:
+        uses.append("Search")
+    if provider in recall.BACKENDS and provider != "keyword":
+        uses.append("Memory")
+    return [*uses, "Tools"]
+
+
 def probe(gateway, config):
     provider = config["provider"]
     path = CATALOG[provider]["test_path"]
@@ -295,7 +306,8 @@ class Connections:
             providers[provider] = {
                 **info, "status": status, "detail": detail, "test_status": test_status, "test_detail": test_detail,
                 "settings": {field: self.config[provider][field]} if field else {},
-                "can_test": provider in self.selected and bool(info["test_path"]),
+                "can_test": provider in self.selected,
+                "uses": connector_uses(provider),
                 "dashboard_url": DASHBOARD, "access_rule": ACCESS_RULE, "pinned": provider in CORE_PROVIDERS,
             }
         return {"providers": providers, "last_scan": self.last_scan, "scan_error": self.scan_error}
@@ -353,12 +365,23 @@ class Connections:
         return True
 
     def test(self, provider):
-        if not isinstance(provider, str) or provider not in CATALOG or not CATALOG[provider]["test_path"]:
-            raise HearthError("This connector has no read-only check in Hearth.")
-        if provider not in self.selected:
+        if not isinstance(provider, str) or provider not in self.selected:
             raise HearthError("Authorize this connector in Fly, then re-scan.")
-        config = {**self.config.get(provider, {}), **self.gateway_entry(provider, self.selected[provider])}
-        self.checks[provider] = probe(self.gateway, config)
+        connection_id = self.selected[provider]
+        if catalog_entry(provider)["test_path"]:
+            settings = self.config[provider] if provider in SETTINGS else {}
+            self.checks[provider] = probe(self.gateway, {**settings, **self.gateway_entry(provider, connection_id)})
+        else:
+            self.checks[provider] = self.test_authorization(provider, connection_id)
+
+    def test_authorization(self, provider, connection_id):
+        try:
+            authorized, _ = self.gateway.discover()
+        except ConnectorError:
+            return "failed", "Hearth could not check gateway authorization. Try again from the Sprite."
+        if connection_id not in authorized.get(provider, ()):
+            return "denied", "The gateway no longer lists this connection. Refresh to update the catalog."
+        return "passed", "The gateway confirmed this Sprite’s access."
 
     def save(self, provider, value):
         if not isinstance(provider, str) or provider not in SETTINGS or not isinstance(value, str):

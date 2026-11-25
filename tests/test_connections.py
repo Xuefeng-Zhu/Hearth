@@ -212,7 +212,7 @@ class ConnectionsTest(unittest.TestCase):
         self.assertEqual(providers["future_tools"]["status"], "not_set_up")
         self.assertEqual(providers["denied_tools"]["status"], "unauthorized")
         self.assertEqual(providers["extra_tools"]["access_rule"], "Name Prefix hearth")
-        self.assertFalse(providers["extra_tools"]["can_test"])
+        self.assertTrue(providers["extra_tools"]["can_test"])
         self.app.connections.test("notion")
         self.assertEqual(self.gateway.methods[-1], ("GET", {"Notion-Version": "2026-03-11"}))
         self.assertEqual(self.gateway.probes[-1][2:], ("v1/users/me", None))
@@ -222,6 +222,36 @@ class ConnectionsTest(unittest.TestCase):
         self.app.scan_connections()
         self.assertEqual(self.app.connection_info()["providers"]["extra_tools"]["status"], "unauthorized")
         self.assertNotIn("extra_tools", self.app.agent.tools.config["gateway"])
+
+    def test_configured_connectors_report_uses_and_keep_failed_tests_in_configured(self):
+        self.app.scan_connections()
+        self.assertEqual(self.app.connection_info()["providers"]["huggingface"]["status"], "not_set_up")
+        for provider in ("huggingface", "exa", "pinecone", "agentmail", "codex"):
+            self.gateway.add(provider, f"conn_{provider}")
+        self.app.scan_connections()
+        rows = self.app.connection_info()["providers"]
+        self.assertEqual({provider: row["uses"] for provider, row in rows.items() if row["status"] == "connected"}, {
+            "huggingface": ["Brain", "Memory", "Tools"], "exa": ["Search", "Tools"],
+            "pinecone": ["Memory", "Tools"], "agentmail": ["Tools"], "codex": ["Tools"],
+        })
+        self.assertTrue(all(row["can_test"] for row in rows.values() if row["status"] == "connected"))
+        self.assertIsNone(rows["huggingface"]["test_status"])
+        self.app.connections.test("huggingface")
+        self.app.connections.test("exa")
+        self.assertEqual(self.gateway.probes, [("huggingface", "conn_huggingface", "v1/models", None)])
+        self.assertEqual(self.app.connections.report()["providers"]["exa"]["test_status"], "passed")
+
+        self.gateway.denied.add("huggingface")
+        self.app.connections.test("huggingface")
+        self.gateway.entries = [entry for entry in self.gateway.entries if entry["provider"] != "exa"]
+        self.app.connections.test("exa")
+        self.gateway.add("exa", "conn_replacement")
+        rows = self.app.connections.report()["providers"]
+        for provider in ("huggingface", "exa"):
+            self.assertEqual((rows[provider]["status"], rows[provider]["test_status"]), ("connected", "denied"))
+        self.app.scan_connections()
+        self.assertEqual(self.app.connection_info()["providers"]["huggingface"]["test_status"], "denied")
+        self.assertIsNone(self.app.connection_info()["providers"]["exa"]["test_status"])
 
     def test_llm_selection_uses_discovery_and_preserves_successful_fallback_on_rescan(self):
         for provider in ("ollama", "gemini", "anthropic", "openai", "openrouter", "meta"):
