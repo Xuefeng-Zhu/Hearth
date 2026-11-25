@@ -1,6 +1,8 @@
 import json
 from collections import deque
 
+from .gateway_tools import redact_text
+from .reply_text import clean_reply
 from .storage import HearthError, atomic_write, iso, new_id
 
 MAIN = "main"
@@ -45,12 +47,18 @@ class Threads:
         path = self.path(thread_id)
         if not path.is_file():
             legacy = self.storage.load().get("messages", []) if thread_id == MAIN else []
-            return legacy if limit is None else legacy[-limit:]
-        with path.open(encoding="utf-8") as stream:
-            messages = (json.loads(line) for line in stream)
-            if dialogue_only:
-                messages = (message for message in messages if message["role"] != "call")
-            return list(messages if limit is None else deque(messages, maxlen=limit))
+            messages = (message for message in legacy if not dialogue_only or message["role"] != "call")
+            rows = list(messages if limit is None else deque(messages, maxlen=limit))
+        else:
+            with path.open(encoding="utf-8") as stream:
+                messages = (json.loads(line) for line in stream)
+                if dialogue_only:
+                    messages = (message for message in messages if message["role"] != "call")
+                rows = list(messages if limit is None else deque(messages, maxlen=limit))
+        for message in rows:
+            clean = clean_reply if message["role"] == "assistant" else redact_text
+            message["content"] = clean(message["content"])
+        return rows
 
     def append(self, thread_id, role, content, **fields):
         self.require(thread_id)

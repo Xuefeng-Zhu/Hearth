@@ -181,6 +181,42 @@ class HearthTest(unittest.TestCase):
         stream.finish()
         self.assertEqual(emitted, ["Hello ", "[redacted] "])
 
+    def test_self_closing_and_stray_tool_tags_preserve_following_text(self):
+        from hearth.reply_text import ReplyStream, clean_reply
+
+        chunks = ["Dinner ", "<func", 'tion name="lookup"/>\n', "starts here. ",
+                  "<tool_calls><function=lookup>private work</function></tool_calls>",
+                  "< / tool_call >", "**Bring a dish.** ", "</function incomplete"]
+        expected = "Dinner \nstarts here. **Bring a dish.** "
+        emitted = []
+        stream = ReplyStream(emitted.append)
+        for chunk in chunks:
+            stream.write(chunk)
+        stream.finish()
+        self.assertEqual("".join(emitted), expected)
+        self.assertEqual(clean_reply("".join(chunks)), expected)
+
+    def test_mock_reply_stream_sanitizes_note_excerpt(self):
+        self.storage.write("topics/round-two.md", "Start </function> here. <tool_call>internal work</tool_call> Done.")
+        events = self.chat("Read topics/round-two.md")
+        text = "".join(data["text"] for name, data in events if name == "token")
+        self.assertIn("Start  here.", text)
+        self.assertIn("Done.", text)
+        self.assertNotRegex(text, "function|tool_call|internal work")
+
+    def test_old_replies_are_sanitized_on_read_without_rewriting_history(self):
+        threads = self.agent.threads
+        raw = "Dinner </function>starts at five. <tool_call>private work</tool_call>"
+        with self.storage.lock():
+            state = self.storage.load()
+            state["messages"] = [{"role": "assistant", "content": raw}]
+            self.storage.save(state)
+            self.assertEqual(threads.messages("main")[0]["content"], "Dinner starts at five. ")
+            self.assertEqual(self.storage.load()["messages"][0]["content"], raw)
+            threads.append("main", "user", "Thanks")
+            self.assertEqual(threads.messages("main")[0]["content"], "Dinner starts at five. ")
+            self.assertIn(raw, threads.path("main").read_text())
+
     def test_scheduler_persists_and_catches_up_once(self):
         now = datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc)
         state = self.storage.load()
@@ -250,6 +286,7 @@ class HearthTest(unittest.TestCase):
                     request(route, {}, headers)
                 self.assertEqual(error.exception.code, 403)
         for raw in (b'{"message":"' + b"x" * 24_000 + b'"}', b'{"message":"\\ud800"}',
+                    b'{"message":"Hello","extra":NaN}', b'{"message":"Hello","extra":1e999}',
                     b'{"data":' + b"[" * 1500 + b"]" * 1500 + b"}"):
             with self.assertRaises(HTTPError) as error:
                 opener.open(Request(base + "/api/chat", data=raw, headers={"Content-Type": "application/json"}))

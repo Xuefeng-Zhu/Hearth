@@ -3,11 +3,13 @@ import re
 from .gateway_tools import redact_text
 
 
+TOOL_TAG = r"function(?:_call)?|tool_calls?|tool_response"
 TOOL_MARKUP = re.compile(
-    r"<(?P<tag>function(?:_call)?|tool_calls?|tool_response)(?=[\s=>])[^>]*>"
-    r".*?(?:</(?P=tag)\s*>|\Z)"
-    r"|</(?:function(?:_call)?|tool_calls?|tool_response)\s*>"
-    r"|</?(?:function(?:_call)?|tool_calls?|tool_response)(?=[\s=]|\Z)[^>]*\Z"
+    rf"<\s*(?:{TOOL_TAG})(?=[\s=/])[^>]*?/>"
+    rf"|<\s*(?P<tag>{TOOL_TAG})(?=[\s=>])[^>]*>"
+    r".*?(?:<\s*/\s*(?P=tag)\s*>|\Z)"
+    rf"|<\s*/\s*(?:{TOOL_TAG})(?=[\s=>])[^>]*>"
+    rf"|<\s*/?\s*(?:{TOOL_TAG})(?=[\s=/]|\Z)[^>]*\Z"
     r"|<\|(?:im_start|im_end|eot_id|end_of_text|start_header_id|end_header_id)\|>",
     re.I | re.S,
 )

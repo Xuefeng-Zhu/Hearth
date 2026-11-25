@@ -5,6 +5,7 @@ import { callDuration, captionLine, createVoiceCall } from "./voice-call.js";
 import { createTimeline } from "./timeline.js";
 import { createArtifacts, markdown } from "./artifacts.js";
 import { channelChip, createReminders } from "./reminders.js";
+import { reconcileChildren } from "./dom.js";
 
 const byId = (id) => document.getElementById(id);
 const nav = [...document.querySelectorAll("[data-view]")];
@@ -38,6 +39,7 @@ let selectionVersion = 0;
 let stateRequest = 0;
 let threadSignature;
 let chatSignature;
+let chatRows = new Map();
 let threadBusy = false;
 let state;
 let view = "chat";
@@ -428,8 +430,7 @@ function messageBubble(role, content, { message, status } = {}) {
     body.append(artifactLibrary.chatActions(message, currentThread, linked));
   }
   item.append(body);
-  transcript.append(item);
-  return { avatar, cards, notices, text };
+  return { item, avatar, cards, notices, text };
 }
 
 function threadSource(item, fallback = "Main") {
@@ -581,38 +582,51 @@ function renderChat(force = false) {
   const actions = new Map((state?.actions || []).map((action) => [action.id, action]));
   const messages = state?.thread_id === currentThread ? state.messages : [];
   const local = [...turns].filter((turn) => turn.threadId === currentThread);
-  const signature = JSON.stringify([currentThread, messages, threadList.map((thread) => thread.title), busy,
+  const signature = JSON.stringify([currentThread, messages, threadList.map((thread) => thread.title),
+    avatarLook, avatarColor, busy,
     state?.message_artifacts,
     messages.flatMap((message) => (message.action_ids || []).map((id) => actions.get(id)))]);
   if (!force && signature === chatSignature) return;
   chatSignature = signature;
   const follow = nearBottom();
   const saved = new Set(messages.map((message) => message.id));
-  transcript.replaceChildren();
+  const rows = [];
+  const nextRows = new Map();
   byId("welcome").hidden = currentThread !== mainThread.id || !!(messages.length || local.length);
   byId("side-welcome").hidden = currentThread === mainThread.id || !!(messages.length || local.length);
   for (const [index, stored] of messages.entries()) {
     const message = stored.id ? stored : { ...stored, id: `${currentThread}:${index + 1}` };
-    if (message.role === "call") {
-      transcript.append(callCard(message));
-      continue;
+    const cards = [...new Set(message.action_ids || [])].map((id) => actions.get(id)).filter(Boolean);
+    const rowSignature = JSON.stringify([currentThread, message, cards, cards.map((action) => threadSource(action)),
+      cards.length ? busy : false,
+      state?.message_artifacts?.[message.id], avatarLook, avatarColor]);
+    let row = chatRows.get(message.id);
+    if (row?.signature !== rowSignature) {
+      let item;
+      if (message.role === "call") {
+        item = callCard(message);
+      } else {
+        const bubble = messageBubble(message.role, message.content, { message });
+        for (const notice of message.notices || []) bubble.notices.append(node("p", "model-warning", notice));
+        for (const action of cards) bubble.cards.append(actionCard(action));
+        item = bubble.item;
+      }
+      row = { item, signature: rowSignature };
     }
-    const bubble = messageBubble(message.role, message.content, { message });
-    for (const notice of message.notices || []) bubble.notices.append(node("p", "model-warning", notice));
-    for (const id of new Set(message.action_ids || [])) {
-      if (actions.has(id)) bubble.cards.append(actionCard(actions.get(id)));
-    }
+    nextRows.set(message.id, row);
+    rows.push(row.item);
   }
   for (const turn of local) {
     turn.bubble = undefined;
     if (!saved.has(turn.user?.id)) {
-      messageBubble("user", turn.user?.content || turn.prompt, {
+      rows.push(messageBubble("user", turn.user?.content || turn.prompt, {
         message: turn.user, status: turn.user ? undefined : "Queued",
-      });
+      }).item);
     }
     if (saved.has(turn.reply?.id) || (!turn.user && !turn.error)) continue;
     const content = turn.reply?.content || turn.text || turn.error || turnProgress(turn);
     turn.bubble = messageBubble("assistant", content, { message: turn.reply });
+    rows.push(turn.bubble.item);
     for (const warning of turn.warnings) turn.bubble.notices.append(node("p", "model-warning", warning));
     for (const action of turn.actions.values()) turn.bubble.cards.append(actionCard(actions.get(action.id) || action));
     if (turn.error) {
@@ -630,6 +644,8 @@ function renderChat(force = false) {
       turn.bubble.cards.append(retry);
     }
   }
+  reconcileChildren(transcript, rows);
+  chatRows = nextRows;
   renderFace(local, messages, actions);
   paintAvatars();
   if (follow) scrollDown();

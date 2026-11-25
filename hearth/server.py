@@ -25,6 +25,7 @@ from .threads import MAIN, Threads, compact
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/dom.js": ("dom.js", "text/javascript; charset=utf-8"),
     "/reminders.js": ("reminders.js", "text/javascript; charset=utf-8"),
     "/reminder-action": ("reminder-action.html", "text/html; charset=utf-8"),
     "/reminder-action.js": ("reminder-action.js", "text/javascript; charset=utf-8"),
@@ -617,9 +618,12 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < length <= limit:
                 raise ValueError
             self.connection.settimeout(15)
-            body = json.loads(self.rfile.read(length))
+            raw = self.rfile.read(length)
+            if len(raw) != length:
+                raise ValueError
+            body = json.loads(raw)
             # JSON escapes can represent lone surrogates, which Hearth cannot store as UTF-8.
-            json.dumps(body, ensure_ascii=False).encode("utf-8")
+            json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8")
         except TimeoutError:
             raise HearthError("The request timed out.") from None
         except (ValueError, RecursionError):
@@ -734,7 +738,7 @@ class Handler(BaseHTTPRequestHandler):
             operation = self.path.rsplit("/", 1)[-1]
             if self.path.startswith("/api/inbox/"):
                 if operation == "poll" and (not body or (body.keys() == {"force"} and body["force"] is True)):
-                    result = {"processed": self.app.inbox.poll(force=bool(body))}
+                    result = {"processed": self.app.inbox.poll(force=bool(body), manual=bool(body))}
                 elif operation in {"accept", "edit", "dismiss", "undo"}:
                     result = self.app.inbox.update(operation, body)
                 else:

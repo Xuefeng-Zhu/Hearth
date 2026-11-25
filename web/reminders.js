@@ -1,3 +1,5 @@
+import { reconcileChildren } from "./dom.js";
+
 const channels = { app: "In app", email: "Email", both: "Both" };
 const icons = { app: "◴", email: "✉", both: "◴ + ✉" };
 const statuses = { queued: "Queued", sent: "Sent", failed: "Failed", canceled: "Canceled" };
@@ -70,8 +72,16 @@ function option(label, value) {
 export function createReminders({ api, openView, openSettings, startSending, stopSending, currentView, currentSettings }) {
   const form = get("reminder-settings-form");
   const options = get("inbox-auto-kinds");
-  let polling = false;
-  let inboxSignature;
+  let backgroundPoll;
+  let manualPending = false;
+  let inboxRequest = 0;
+  let inboxConnection;
+  const inboxTarget = get("inbox-content");
+  const reviewGroup = heading(inboxTarget, "Review", 0);
+  const processedGroup = heading(inboxTarget, "Processed", 0);
+  processedGroup.hidden = true;
+  const reviewEmpty = el("p", "delivery-empty", "No email waiting for review.");
+  let inboxRows = new Map();
   const editing = new Set();
 
   for (const [value, label] of Object.entries(kinds)) {
@@ -316,7 +326,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
       const result = await api(`/api/inbox/${operation}`, { id: card.id, ...fields });
       editing.delete(card.id);
       feedback.textContent = inboxStatuses[result.status] + ".";
-      await inbox(true);
+      await inbox();
     } catch (error) {
       feedback.textContent = error.message;
     }
@@ -348,6 +358,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
       form.remove();
       target.hidden = false;
       target.querySelectorAll("button")[1].focus();
+      inbox();
     }));
     form.append(field("Title", title), field("Proposal type", kind), field("Date and time", date),
       field("Summary", summary), actions);
@@ -405,33 +416,43 @@ export function createReminders({ api, openView, openSettings, startSending, sto
     return article;
   }
 
-  async function inbox(force = false) {
-    if (editing.size && !force) return;
+  async function inbox() {
+    const request = ++inboxRequest;
     try {
       const result = await api("/api/inbox");
-      if (currentView() !== "inbox" || (editing.size && !force)) return;
-      const signature = JSON.stringify(result);
-      if (signature === inboxSignature) return;
-      inboxSignature = signature;
-      emailCard(get("inbox-address"), result);
-      const target = get("inbox-content");
-      target.replaceChildren();
-      const review = result.cards.filter((card) => card.status === "review");
-      const processed = result.cards.filter((card) => card.status !== "review");
-      const queue = heading(target, "Review", review.length);
-      if (review.length) queue.append(...review.map(inboxCard));
-      else queue.append(el("p", "delivery-empty", "No email waiting for review."));
-      if (processed.length) heading(target, "Processed", processed.length).append(...processed.map(inboxCard));
+      if (request !== inboxRequest || currentView() !== "inbox") return;
+      const connection = JSON.stringify([result.connected, result.inbox_address, result.inbox_error, result.connection_message]);
+      if (connection !== inboxConnection) {
+        inboxConnection = connection;
+        emailCard(get("inbox-address"), result);
+      }
+      const next = new Map();
+      const review = [];
+      const processed = [];
+      for (const card of result.cards) {
+        const signature = JSON.stringify(card);
+        let row = inboxRows.get(card.id);
+        if (!row || (row.signature !== signature && !editing.has(card.id))) {
+          row = { signature, element: inboxCard(card), status: card.status };
+        }
+        next.set(card.id, row);
+        (row.status === "review" ? review : processed).push(row.element);
+      }
+      for (const id of editing) if (!next.has(id)) editing.delete(id);
+      inboxRows = next;
+      processedGroup.hidden = !processed.length;
+      for (const [group, rows] of [[reviewGroup, review], [processedGroup, processed]]) {
+        const title = group.firstElementChild;
+        title.firstElementChild.textContent = rows.length;
+        reconcileChildren(group, [title, ...(group === reviewGroup && !rows.length ? [reviewEmpty] : rows)]);
+      }
     } catch (error) {
-      get("inbox-feedback").textContent = error.message;
+      if (request === inboxRequest) get("inbox-feedback").textContent = error.message;
     }
   }
 
-  async function poll(manual = false) {
-    if (polling) return;
-    polling = true;
+  async function checkMail(manual) {
     const feedback = get("inbox-feedback");
-    if (manual) feedback.textContent = "Checking for forwarded email…";
     try {
       const result = await api("/api/inbox/poll", manual ? { force: true } : {});
       if (currentView() === "inbox") {
@@ -442,11 +463,27 @@ export function createReminders({ api, openView, openSettings, startSending, sto
       if (currentView() === "settings" && currentSettings() === "reminders") wakeStatus(await api("/api/reminders/settings"));
     } catch (error) {
       if (manual) feedback.textContent = error.message;
-    } finally {
-      polling = false;
     }
   }
 
-  get("inbox-poll").addEventListener("click", () => poll(true));
+  function poll() {
+    if (manualPending || backgroundPoll) return;
+    backgroundPoll = checkMail(false).finally(() => { backgroundPoll = undefined; });
+  }
+
+  const manualCheck = get("inbox-poll");
+  manualCheck.addEventListener("click", async () => {
+    if (manualPending) return;
+    manualPending = true;
+    manualCheck.setAttribute("aria-disabled", "true");
+    get("inbox-feedback").textContent = "Checking for forwarded email…";
+    try {
+      await backgroundPoll;
+      await checkMail(true);
+    } finally {
+      manualPending = false;
+      manualCheck.removeAttribute("aria-disabled");
+    }
+  });
   return { settings, reminders, inbox, connections, poll };
 }

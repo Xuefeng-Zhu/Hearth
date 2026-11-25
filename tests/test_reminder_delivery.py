@@ -2,6 +2,7 @@ import json
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
@@ -325,3 +326,31 @@ Appointment 2030-01-10T10:00:00Z.
             finally:
                 server.shutdown()
                 task.join(2)
+
+    def test_manual_inbox_check_waits_for_poll_lock_and_reports_provider_error(self):
+        self.connect()
+        now = datetime.now(timezone.utc)
+        self.assertEqual(self.app.inbox.poll(clock=now), 0)
+        started = threading.Event()
+        returned = threading.Event()
+        errors = []
+
+        def check_mail():
+            started.set()
+            try:
+                self.app.inbox.poll(force=True, manual=True)
+            except HearthError as error:
+                errors.append(str(error))
+            finally:
+                returned.set()
+
+        with patch.object(self.app.inbox, "read_page", side_effect=ConnectorError("Provider offline", 503)):
+            with self.app.reminders.exclusive("inbox-poll"):
+                task = threading.Thread(target=check_mail)
+                task.start()
+                self.assertTrue(started.wait(1))
+                self.assertFalse(returned.wait(0.1))
+            task.join(2)
+        self.assertTrue(returned.is_set())
+        self.assertEqual(errors, ["AgentMail returned HTTP 503."])
+        self.assertEqual(self.app.reminders.info()["inbox_error"], errors[0])

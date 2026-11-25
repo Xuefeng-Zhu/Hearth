@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from . import artifacts, mail_content, scheduler, timeline
 from .connectors import ConnectorError
-from .reminder_config import KINDS, saved
+from .reminder_config import KINDS, NOT_CONNECTED, saved
 from .reminders import cancel, change_occurrence
 from .scheduler import can_cancel
 from .storage import HearthError, iso, new_id
@@ -70,11 +70,13 @@ class Inbox:
             entries = sorted((public(card) for card in cards), key=lambda card: card["received_at"], reverse=True)
         return {"cards": entries, **self.reminders.info()}
 
-    def poll(self, *, force=False, wait=False, clock=None):
+    def poll(self, *, force=False, manual=False, clock=None):
         now = clock or datetime.now(timezone.utc)
         if not self.reminders.config().get("connection_id"):
+            if manual:
+                raise HearthError(NOT_CONNECTED)
             return 0
-        with self.reminders.exclusive("inbox-poll", wait=wait) as acquired:
+        with self.reminders.exclusive("inbox-poll", wait=manual) as acquired:
             if not acquired:
                 return 0
             with self.storage.lock():
@@ -101,6 +103,8 @@ class Inbox:
                         "inbox", "AgentMail inbox poll failed", ORIGIN, id=new_id(), at=iso(now),
                         provider="agentmail", error=True, data={"reason": error}))
                 self.storage.save(state)
+            if manual and error:
+                raise HearthError(error)
             return count
 
     def read_page(self, client, mailbox, now):

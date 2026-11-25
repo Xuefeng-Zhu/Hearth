@@ -1,4 +1,5 @@
 import { mascot, setPose } from "./avatar.js";
+import { reconcileChildren } from "./dom.js";
 
 const get = (id) => document.getElementById(id);
 const categories = {
@@ -196,19 +197,6 @@ function expandedBody(row, gatewayResponse) {
   });
   body.append(raw);
   return body;
-}
-
-function reconcile(parent, children) {
-  let current = parent.firstElementChild;
-  for (const child of children) {
-    if (child === current) current = current.nextElementSibling;
-    else parent.insertBefore(child, current);
-  }
-  while (current) {
-    const next = current.nextElementSibling;
-    current.remove();
-    current = next;
-  }
 }
 
 function readReceipts() {
@@ -500,10 +488,10 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
       const group = groups.get(key);
       const label = dayLabel(value, now);
       if (group.label.textContent !== label) group.label.textContent = label;
-      reconcile(group.list, items);
+      reconcileChildren(group.list, items);
       sections.push(group.section);
     }
-    reconcile(feed, sections.length ? sections : [emptyState(rows.length > 0)]);
+    reconcileChildren(feed, sections.length ? sections : [emptyState(rows.length > 0)]);
     for (const id of cards.keys()) if (!known.has(id) && !receipts.some((row) => row.id === id)) {
       cards.delete(id);
       openCards.delete(id);

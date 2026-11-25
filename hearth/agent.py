@@ -605,9 +605,11 @@ class Agent:
                         # Preview the warning pose without recording a fake provider outage in Timeline.
                         event("demo_warning", {})
                         time.sleep(1.8)
-                    reply = mock_completion(messages, emit, clock, demo=demo,
+                    stream = ReplyStream(emit)
+                    reply = mock_completion(messages, stream.write, clock, demo=demo,
                                             tool_names={tool["function"]["name"] for tool in tools},
                                             artifact_format=self.artifacts.config()["format"] if self.artifacts else "md")
+                    stream.finish()
                 else:
                     reply = self.model_completion(model, messages, tools, emit)
             except ConnectorError as error:
