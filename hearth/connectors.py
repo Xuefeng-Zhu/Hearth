@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+from http.client import HTTPException
 from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import quote
@@ -12,6 +13,7 @@ from .storage import HearthError, ROOT
 GATEWAY = "https://api.sprites.dev/v1/gateway"
 MODEL_PATHS = {"meta": "v1/chat/completions", "ollama": "v1/chat/completions",
                "openrouter": "api/v1/chat/completions"}
+PINECONE_HEADERS = {"X-Pinecone-Api-Version": "2025-10"}
 
 
 class ConnectorError(HearthError):
@@ -46,7 +48,7 @@ class Gateway:
         try:
             with self.open(config, path, body, headers) as response:
                 data = json.loads(response.read(8 * 1024 * 1024))
-        except (OSError, ValueError):
+        except (HTTPException, OSError, ValueError):
             raise ConnectorError("The connector returned an unreadable response.") from None
         if not isinstance(data, dict):
             raise ConnectorError("The connector returned an unexpected response.")
@@ -70,13 +72,13 @@ class Gateway:
                     packet = json.loads(line[5:])
                     if packet.get("error"):
                         raise ConnectorError("The model connector returned an error.")
-                    for choice in packet.get("choices", [])[:1]:
+                    for choice in (packet.get("choices") or [])[:1]:
                         finished |= choice.get("finish_reason") is not None
-                        delta = choice.get("delta", {})
+                        delta = choice.get("delta") or {}
                         if delta.get("content"):
                             text.append(delta["content"])
                             emit(delta["content"])
-                        for part in delta.get("tool_calls", []):
+                        for part in delta.get("tool_calls") or ():
                             call = calls.setdefault(part["index"], {
                                 "id": "", "type": "function", "function": {"name": "", "arguments": ""}
                             })
@@ -84,7 +86,7 @@ class Gateway:
                             fragment = part.get("function") or {}
                             for key in ("name", "arguments"):
                                 call["function"][key] += fragment.get(key) or ""
-        except (OSError, ValueError, TypeError, KeyError):
+        except (HTTPException, OSError, ValueError, TypeError, KeyError):
             raise ConnectorError("The model stream was interrupted.") from None
         if not finished or not (text or calls):
             raise ConnectorError("The model connector returned an incomplete reply.")
@@ -147,7 +149,7 @@ class Integrations:
             vector, = self.embed(config, [query], "query")
             data = self.gateway.json(config, f"indexes/{index}/query", {
                 "namespace": namespace, "vector": vector, "topK": 12, "includeMetadata": True,
-            })
+            }, PINECONE_HEADERS)
             hits = {}
             for match in data.get("matches", []):
                 metadata = match.get("metadata", {})
@@ -174,11 +176,11 @@ class Integrations:
                     {"id": f"{path}:{offset}", "values": vector, "metadata": {"path": path, "excerpt": text}}
                     for (path, offset, text), vector in zip(batch, vectors, strict=True)
                 ],
-            })
+            }, PINECONE_HEADERS)
 
     def embed(self, config, texts, input_type):
         result = self.gateway.json(config, "embed", {
             "model": config["model"], "inputs": [{"text": text} for text in texts],
             "parameters": {"input_type": input_type, "truncate": "END"},
-        })
+        }, PINECONE_HEADERS)
         return [record["values"] for record in result["data"]]
