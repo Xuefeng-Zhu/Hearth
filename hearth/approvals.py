@@ -24,6 +24,7 @@ LOCAL_TOOLS = frozenset({
     "remember_fact", "schedule", "checkpoint", "create_panel", "update_panel", "create_recurring_task",
     "update_recurring_task", "pause_recurring_task", "create_document", "create_pdf", "create_spreadsheet",
     "create_presentation", "update_document", "update_pdf", "update_spreadsheet", "update_presentation",
+    "spawn_workers",
 })
 DELETE_TOOLS = frozenset({"delete_panel", "delete_recurring_task", "delete_memory", "delete_artifact"})
 SAFE_HTTP = {"GET", "HEAD", "OPTIONS"}
@@ -240,6 +241,9 @@ def decide(agent, identity, operation, changes=None, *, clock=None):
 
 
 def append_result(agent, row):
+    worker = agent.storage.load().get("workers", {}).get(row.get("worker_id"))
+    if worker and worker["status"] in {"queued", "running", "waiting_approval"}:
+        return
     thread = row.get("thread_id", MAIN)
     if thread not in agent.threads.load_index():
         return

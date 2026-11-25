@@ -213,8 +213,10 @@ def protocol(provider):
     return PROTOCOLS.get(provider, (chat_payload, chat_stream))
 
 
-def sse_packets(response):
+def sse_packets(response, check=None):
     for line in response:
+        if check:
+            check()
         line = line.strip()
         if line == b"data: [DONE]":
             yield "[DONE]"

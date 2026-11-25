@@ -14,7 +14,7 @@ def connector_fields(provider):
 
 def entry(kind, title, origin, **fields):
     return {"kind": kind, "title": title, **MAIN_ORIGIN,
-            **{key: origin[key] for key in ("thread_id", "thread_title", "source") if key in origin},
+            **{key: origin[key] for key in ("thread_id", "thread_title", "source", "worker_id", "worker_title") if key in origin},
             **fields, **connector_fields(fields.get("provider"))}
 
 
@@ -154,6 +154,10 @@ def entries(storage, threads, can_undo, *, pinecone=None, mail_connected=False):
         thread_list = threads.list()
         titles = {thread["id"]: thread["title"] for thread in thread_list}
         rows = [*activity, *chat_entries(threads, thread_list, recall_messages)]
+        for worker in state.get("workers", {}).values():
+            rows.append(entry("worker", worker["title"], worker, id=f"worker:{worker['id']}",
+                              at=worker.get("finished_at") or worker.get("started_at") or worker["queued_at"],
+                              error=worker["status"] == "failed", data=worker))
         jobs = {job["id"]: job for job in state["jobs"]}
         def undoable(action):
             if action["kind"] == "page":

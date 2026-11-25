@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import approvals, artifacts, box, browserbase, home, inbox, memory_edits, page_policy, pages, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call
+from . import approvals, artifacts, box, browserbase, home, inbox, memory_edits, page_policy, pages, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -28,6 +28,8 @@ STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/home.js": ("home.js", "text/javascript; charset=utf-8"),
     "/home.css": ("home.css", "text/css; charset=utf-8"),
+    "/workers.js": ("workers.js", "text/javascript; charset=utf-8"),
+    "/workers.css": ("workers.css", "text/css; charset=utf-8"),
     "/pages.js": ("pages.js", "text/javascript; charset=utf-8"),
     "/pages.css": ("pages.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -76,6 +78,9 @@ class Application:
             *((checkpoints.root,) if checkpoints.mode == "local" else ()),
         )
         self.operation = threading.RLock()
+        self.workers = workers.Pool(storage)
+        self.workers.recover()
+        self.browser_slots = browserbase.SessionSlots()
         self.artifacts = artifacts.Artifacts(storage, self.connections, self.operation)
         self.uploads = uploads.Uploads(self)
         self.pages = pages.Pages(storage, self.artifacts, self.operation,
@@ -133,7 +138,9 @@ class Application:
 
     def reload_agent(self, *, reset_brain=True):
         self.agent = Agent(self.storage, self.checkpoints, self.connections.active_config(), self.gateway,
-                           self.memory_index, self.artifacts, self.uploads, self.pages)
+                           self.memory_index, self.artifacts, self.uploads, self.pages,
+                           worker_pool=self.workers, browser_slots=self.browser_slots)
+        self.workers.configure(self.agent.config.get("parallel_workers", workers.DEFAULT_CAP))
         self.agent.application = self
         if reset_brain:
             self.reset_brain_status()
@@ -324,6 +331,7 @@ class Application:
                      **({"activity": active[thread["id"]]} if active.get(thread["id"]) else {})}
                     for thread in threads],
                 "messages": messages, "actions": actions,
+                "workers": [row for row in state.get("workers", {}).values() if row["thread_id"] == thread_id],
                 "message_artifacts": artifacts.message_artifacts(state, thread_id),
                 "message_uploads": message_uploads, "timezone": saved(state)["timezone"],
                 "jobs": state["jobs"], "reminders": [reminders.public_item(item) for item in state["reminders"]],
@@ -544,6 +552,8 @@ class Application:
         return self.restore, 202
 
     def start_restore(self, action_id):
+        if self.workers.busy():
+            raise HearthError("Wait for worker tools to finish before restoring a checkpoint.")
         if self.task_runner.worker.locked():
             raise HearthError("Wait for recurring task processing to finish before restoring a checkpoint.")
         if self.reindex_running() or self.memory_sync.running:
@@ -815,6 +825,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path.startswith(("/api/approvals/", "/api/tasks/")):
             self.post_automation()
+            return
+        if self.path == "/api/workers/stop":
+            try:
+                body = self.body()
+                if body.keys() - {"turn_id", "id"}:
+                    raise HearthError("Choose a worker or a batch to stop.")
+                turn_id = require_text(body.get("turn_id"), 40)
+                identity = require_text(body["id"], 40) if "id" in body else None
+                self.json(self.app.workers.stop(turn_id, identity))
+            except HearthError as error:
+                self.json({"error": str(error)}, 400)
+            except OSError:
+                self.json({"error": "Hearth could not stop the worker."}, 500)
             return
         if self.path.startswith("/api/home/"):
             self.post_home()
@@ -1295,13 +1318,16 @@ class Handler(BaseHTTPRequestHandler):
         allowed = {"provider", "model", "pool"}
         if operation == "route":
             allowed.add("prompt")
+        if operation == "settings":
+            allowed.add("parallel_workers")
         if body.keys() - allowed or not {"provider", "model"} <= body.keys():
             raise HearthError("Invalid brain settings.")
         connections = self.app.connections
         selection = connections.brain_selection(body["provider"], body["model"])
         pool = validate_pool(body["pool"]) if "pool" in body else None
         if operation == "settings":
-            connections.save_brain(selection, pool)
+            cap = workers.validate_cap(body["parallel_workers"]) if "parallel_workers" in body else None
+            connections.save_brain(selection, pool, cap)
             self.app.reload_agent()
             return self.app.brain_info()
         agent = self.app.agent

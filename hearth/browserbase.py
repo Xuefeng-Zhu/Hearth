@@ -5,6 +5,7 @@ import hashlib
 import io
 import ipaddress
 import re
+import threading
 import time
 from functools import lru_cache
 from urllib.parse import parse_qsl, unquote, urlsplit
@@ -187,10 +188,48 @@ class CdpUnavailable(HearthError):
     pass
 
 
+class SessionSlots:
+    def __init__(self):
+        self.slots = threading.BoundedSemaphore(2)
+
+    def acquire(self, check):
+        deadline = time.monotonic() + SESSION_SECONDS
+        while time.monotonic() < deadline:
+            check()
+            if self.slots.acquire(timeout=0.15):
+                return
+        raise HearthError("Both Browserbase session slots are busy. Try again.")
+
+    def release(self, wait=0):
+        if wait > 0:
+            timer = threading.Timer(wait, self.slots.release)
+            timer.daemon = True
+            timer.start()
+        else:
+            self.slots.release()
+
+
+async def with_session_check(drive, check):
+    async def watch():
+        while True:
+            check()
+            await asyncio.sleep(0.15)
+
+    tasks = [asyncio.create_task(drive), asyncio.create_task(watch())]
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        return await (tasks[1] if tasks[1] in done else tasks[0])
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 class Browserbase:
-    def __init__(self, gateway, connection=None):
+    def __init__(self, gateway, connection=None, *, slots=None):
         self.gateway = gateway
         self.connection = connection
+        self.slots = slots or SessionSlots()
 
     def read_json(self, path, body=None, *, timeout, allow_array=False):
         if self.connection:
@@ -252,10 +291,12 @@ class Browserbase:
             return "Git together to build something fun. Bring a project or join a team at Fly.io’s sample Hacksgiving event."
         return f"This is a simulated read of {urlsplit(url).hostname}. The sample shows a successful page visit."
 
-    def session(self, url, steps, event, *, mock=False, approved=False):
+    def session(self, url, steps, event, *, mock=False, approved=False, check=None):
         if not approved and any(step["action"] in WRITE_STEPS for step in steps):
             raise HearthError("Ask the user to approve the browser actions first.")
-        started = time.monotonic()
+        check = check or (lambda: None)
+        slot_taken = False
+        hold_until = 0
         session_id = None
         detail = None
         failure = None
@@ -272,6 +313,11 @@ class Browserbase:
                 result = {"url": final_url, "text": self.demo_text(final_url), "mock": True}
                 screenshot = demo_image(urlsplit(final_url).hostname)
             else:
+                self.slots.acquire(check)
+                slot_taken = True
+                check()
+                # Until creation is confirmed, a failed request may still have created a session.
+                hold_until = time.monotonic() + SESSION_SECONDS + 10
                 try:
                     info = self.call("v1/sessions", {"timeout": SESSION_SECONDS}, timeout=10)
                     session_id = info.get("id")
@@ -282,7 +328,7 @@ class Browserbase:
                     endpoint = service_url(info.get("connectUrl"), "wss", cdp=True, connection_id=connection_id)
                     if not endpoint:
                         raise CdpUnavailable()
-                    deadline = started + SESSION_SECONDS - 6
+                    deadline = time.monotonic() + SESSION_SECONDS - 6
 
                     def ready(debug_url):
                         event("browse_active", {**active, "live_url": debug_url})
@@ -290,12 +336,13 @@ class Browserbase:
                     debug = live_view(info)
                     if debug:
                         ready(debug)
-                    result, screenshot = asyncio.run(self.drive(endpoint, url, steps, debug, session_id, deadline,
-                                                                 ready, approved=approved))
+                    drive = self.drive(endpoint, url, steps, debug, session_id, deadline, ready, approved=approved)
+                    result, screenshot = asyncio.run(with_session_check(drive, check))
                 finally:
                     if session_id:
                         try:
                             self.call(f"v1/sessions/{session_id}", {"status": "REQUEST_RELEASE"}, timeout=5)
+                            hold_until = 0
                         except HearthError:
                             detail = "Browserbase did not confirm release. The session expires automatically within 90 seconds."
         except CdpUnavailable:
@@ -310,6 +357,8 @@ class Browserbase:
         except (HearthError, TimeoutError) as error:
             failure = str(error) or "The browser session timed out."
         finally:
+            if slot_taken:
+                self.slots.release(hold_until - time.monotonic())
             event("browse_finished", {"id": active["id"]})
         if detail:
             result["warning"] = detail

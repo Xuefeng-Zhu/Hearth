@@ -9,7 +9,7 @@ from urllib.parse import quote
 from .connectors import CORE_PROVIDERS, GATEWAY_SEGMENT, MODELS_PATHS, MODEL_PATHS, ConnectorError, valid_provider
 from .gateway_tools import redact_text
 from .storage import HearthError, ROOT, atomic_write, iso
-from . import box, browserbase, pinecone, recall, router, search
+from . import box, browserbase, pinecone, recall, router, search, workers
 
 CATALOG = {entry["slug"]: entry for entry in json.loads((ROOT / "config/catalog.json").read_text(encoding="utf-8"))}
 DASHBOARD = "https://fly.io/dashboard"
@@ -190,6 +190,7 @@ class Connections:
         config["gateway"] = {}
         config.setdefault("brain", {"provider": "auto", "model": ""})
         config.setdefault("brain_pool", [])
+        config.setdefault("parallel_workers", workers.DEFAULT_CAP)
         config["memory"] = recall.settings(config.get("memory", {}))
         config["search"] = search.settings(config.get("search", {}))
         config["browsing"] = browserbase.settings(config.get("browsing", {}))
@@ -260,7 +261,7 @@ class Connections:
             except HearthError:
                 pass
         for key, validate in (("memory", recall.settings), ("search", search.settings), ("artifacts", box.settings),
-                              ("browsing", browserbase.settings)):
+                              ("browsing", browserbase.settings), ("parallel_workers", workers.validate_cap)):
             if key in data:
                 try:
                     config[key] = validate(artifact_preferences(data[key]) if key == "artifacts" else data[key])
@@ -364,6 +365,7 @@ class Connections:
             return [{**row, "tags": router.model_tags(row, defaults)} for row in rows]
 
         return {"selection": saved, "providers": providers, "pool": describe(pool),
+                "parallel_workers": self.config.get("parallel_workers", workers.DEFAULT_CAP),
                 "default_pool": describe(default_pool)}
 
     def brain_selection(self, provider, model=""):
@@ -394,14 +396,17 @@ class Connections:
                 "tags": {model: router.model_tags({"provider": provider, "model": model},
                                                  self.config.get("brain_tags", {})) for model in models}}
 
-    def save_brain(self, selection, pool):
+    def save_brain(self, selection, pool, parallel_workers=None):
         config = self.load()
         if config != self.config:
             raise HearthError("Saved connection settings changed. Re-scan and try again.")
-        if selection != config["brain"] or (pool is not None and pool != config["brain_pool"]):
+        if (selection != config["brain"] or (pool is not None and pool != config["brain_pool"]) or
+                (parallel_workers is not None and parallel_workers != config["parallel_workers"])):
             config["brain"] = selection
             if pool is not None:
                 config["brain_pool"] = pool
+            if parallel_workers is not None:
+                config["parallel_workers"] = parallel_workers
             self.persist(config, "Before saving Hearth brain settings")
             self.config = config
 

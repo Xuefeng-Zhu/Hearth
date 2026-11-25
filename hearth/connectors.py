@@ -177,30 +177,41 @@ class Gateway:
         # The available array is a provider catalog, not a list of organization connections.
         return authorized, found
 
-    def completion(self, config, messages, tools, emit, *, timeout=25):
+    def completion(self, config, messages, tools, emit, *, timeout=25, max_tokens=None, check=None):
         provider, model = config["provider"], config["model"]
         path = MODEL_PATHS[provider].format(model=quote(model.removeprefix("models/"), safe=""))
         build_payload, parse_stream = protocol(provider)
+
+        def complete(body, parser):
+            if max_tokens is not None:
+                if provider == "gemini":
+                    body.setdefault("generationConfig", {})["maxOutputTokens"] = max_tokens
+                else:
+                    key = "max_completion_tokens" if provider == "openai" else "max_tokens"
+                    body[key] = max_tokens
+            return self.stream_completion(config, path, body, parser, emit, timeout=timeout,
+                                          **({"check": check} if check else {}))
+
         if provider == "echo":
             body = json_tool_payload(model, messages, tools) if tools else build_payload(model, messages, [])
             body["persona"] = "Hearth"
-            return self.stream_completion(config, path, body, json_tool_stream if tools else parse_stream, emit, timeout=timeout)
+            return complete(body, json_tool_stream if tools else parse_stream)
         try_json_tools = provider == "huggingface" and bool(tools)
         if try_json_tools and any(message.get("json_tools") for message in messages):
-            return self.stream_completion(config, path, json_tool_payload(model, messages, tools), json_tool_stream, emit, timeout=timeout)
+            return complete(json_tool_payload(model, messages, tools), json_tool_stream)
         body = build_payload(model, messages, tools)
         try:
-            return self.stream_completion(config, path, body, parse_stream, emit, timeout=timeout)
+            return complete(body, parse_stream)
         except ConnectorError as error:
             if not try_json_tools or error.status not in (400, 422, 501):
                 raise
-        return self.stream_completion(config, path, json_tool_payload(model, messages, tools), json_tool_stream, emit, timeout=timeout)
+        return complete(json_tool_payload(model, messages, tools), json_tool_stream)
 
-    def stream_completion(self, config, path, body, parse_stream, emit, *, timeout=25):
+    def stream_completion(self, config, path, body, parse_stream, emit, *, timeout=25, check=None):
         try:
             options = {"timeout": timeout} if timeout != 25 else {}
             with self.open(config, path, body, {"Accept": "text/event-stream"}, **options) as response:
-                text, calls, native = parse_stream(sse_packets(response), emit)
+                text, calls, native = parse_stream(sse_packets(response, check), emit)
         except (HTTPException, OSError, ValueError, TypeError, KeyError, AttributeError):
             raise ConnectorError("The model stream was interrupted.") from None
         if not (text or calls):

@@ -1,6 +1,7 @@
 {
   "brain": {"provider": "auto", "model": ""},
   "brain_pool": [],
+  "parallel_workers": 4,
   "brain_tags": {
     "huggingface:moonshotai/Kimi-K3.1-Pro:fastest": {
       "speed": "balanced", "cost": "medium", "tools": "high", "context": 1000000, "multilingual": true
