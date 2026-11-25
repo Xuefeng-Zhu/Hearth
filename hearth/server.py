@@ -694,8 +694,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"error": str(error)}, 400)
             return
         accepting_chat = self.path == "/api/chat" or self.path.startswith("/api/threads/")
-        if self.path in {"/api/connections/rescan", "/api/memory/search"}:
-            # Background discovery and an immediate user search can overlap across tabs.
+        if self.path in {"/api/connections/rescan", "/api/connections/test", "/api/memory/search"}:
+            # Background discovery can overlap with a connector test or memory search.
             acquired = self.app.operation.acquire(timeout=5)
         else:
             acquired = self.app.operation.acquire(blocking=accepting_chat)

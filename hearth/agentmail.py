@@ -57,7 +57,8 @@ class AgentMail:
     def page(self, inbox, cursor, token):
         query = {"limit": 25, "ascending": "true"}
         if cursor:
-            query["after"] = cursor
+            # The list API requires UTC with a Z suffix. Existing cursors store +00:00.
+            query["after"] = cursor[:-6] + "Z" if cursor.endswith("+00:00") else cursor
         if token:
             query["page_token"] = token
         return self.call(self.path(inbox) + "?" + urlencode(query))

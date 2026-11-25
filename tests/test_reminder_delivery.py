@@ -269,7 +269,10 @@ Appointment 2030-01-10T10:00:00Z.
         self.assertEqual(len([call for call in self.gateway.calls if call[0].endswith("/reply")]), 1)
         self.assertEqual(state["jobs"][0]["channel"], "app")
         self.assertFalse(self.send_calls())
-        self.assertTrue(any(parse_qs(urlsplit(path).query).get("after") for path, _, _ in self.gateway.calls))
+        cursor_queries = [parse_qs(urlsplit(path).query)["after"][0] for path, _, _ in self.gateway.calls
+                          if "after=" in path]
+        self.assertTrue(cursor_queries)
+        self.assertTrue(all(cursor.endswith("Z") for cursor in cursor_queries))
         self.app.inbox.update("undo", {"id": cards["safe"]["id"]})
         self.assertEqual(self.storage.load()["jobs"][0]["status"], "canceled")
         self.assertFalse(any(row["title"].startswith("Event saved") and not row.get("undone")

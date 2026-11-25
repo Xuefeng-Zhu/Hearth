@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
+from unittest.mock import Mock
 
 from hearth.agent import Agent, tool_call
 from hearth.checkpoints import LocalCheckpoints
@@ -309,7 +310,9 @@ class HearthTest(unittest.TestCase):
             request("/api/state", headers={"If-None-Match": original_tag})
         self.assertEqual(cached.exception.code, 304)
         self.assertEqual(cached.exception.read(), b"")
-        for route, payload in (("/api/connections/rescan", {}), ("/api/memory/search", {"query": "vegetarian"})):
+        app.connections.test = Mock()
+        for route, payload in (("/api/connections/rescan", {}), ("/api/memory/search", {"query": "vegetarian"}),
+                               ("/api/connections/test", {"provider": "huggingface"})):
             ready = threading.Event()
             release = threading.Event()
 
@@ -329,6 +332,7 @@ class HearthTest(unittest.TestCase):
                 release.set()
                 timer.join()
                 worker.join()
+        app.connections.test.assert_called_once_with("huggingface")
         body, _ = request("/api/chat", {"message": "Wipe topics/thanksgiving.md"})
         self.assertIn("event: token", body)
         self.assertEqual(request("/api/state", headers={"If-None-Match": original_tag})[1], 200)

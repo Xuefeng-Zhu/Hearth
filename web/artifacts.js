@@ -223,6 +223,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     const badges = element("div", "artifact-badges");
     const heading = element("h3");
     const title = control(item.title, (event) => open(item.id, event.currentTarget), "artifact-card-title");
+    title.dataset.artifactId = item.id;
     title.setAttribute("aria-haspopup", "dialog");
     heading.append(title);
     badges.append(...chips(item));
@@ -261,7 +262,14 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       - (Date.parse(a.updated_at) || 0)) || byName(a, b));
     get("artifact-count").textContent = `${rows.length}${rows.length !== all.length ? " of " + all.length : ""}
       ${all.length === 1 ? "artifact" : "artifacts"}`.replace(/\s+/g, " ");
+    const active = document.activeElement;
+    const focusedId = collection.contains(active) && active.dataset.artifactId;
     collection.replaceChildren(...rows.map(card));
+    if (focusedId) {
+      const replacement = [...collection.querySelectorAll("button[data-artifact-id]")]
+        .find((button) => button.dataset.artifactId === focusedId);
+      (replacement || search).focus({ preventScroll: true });
+    }
     get("artifact-empty").hidden = !!rows.length;
     get("artifact-empty-title").textContent = all.length ? "No matches" : "No artifacts yet";
     get("artifact-empty-hint").textContent = all.length ? "Try a different search or kind."
@@ -431,8 +439,10 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       const saved = await api(`/api/artifacts/${operation}`, { id: item.id, ...fields });
       pending.delete(item.id);
       if (inDrawer && drawer.open && selected === item.id) {
-        if (operation === "delete") drawer.close();
-        else await open(item.id);
+        if (operation === "delete") {
+          opener = selected = undefined;
+          drawer.close();
+        } else await open(item.id);
       }
       if (operation === "delete") showNotice("Artifact deleted. Undo in Timeline.");
       else if (saved.sync_message && !inDrawer) showNotice(saved.sync_message);
@@ -467,6 +477,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       const verb = artifact.sync === "synced" ? "to Box" : "locally";
       const chip = control(`Saved “${artifact.title}” ${verb} ▸`, (event) => open(artifact.id, event.currentTarget),
         "artifact-chat-chip");
+      chip.dataset.artifactId = artifact.id;
       chip.setAttribute("aria-haspopup", "dialog");
       chip.title = artifact.sync_message || "";
       actions.append(chip);
@@ -537,9 +548,12 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
   get("artifact-close").addEventListener("click", () => drawer.close());
   drawer.addEventListener("click", (event) => { if (event.target === drawer) drawer.close(); });
   drawer.addEventListener("close", () => {
+    const replacement = [...document.querySelectorAll("button[data-artifact-id]")]
+      .find((button) => button.dataset.artifactId === selected && button.getClientRects().length);
+    const target = opener?.isConnected ? opener : replacement || (get("artifacts-view").hidden ? get("message") : search);
     selected = detailRequest = undefined;
-    if (opener?.isConnected) opener.focus();
-    else get("artifact-search").focus();
+    opener = undefined;
+    target.focus();
   });
   get("artifact-refresh").addEventListener("click", show);
   search.addEventListener("input", render);
