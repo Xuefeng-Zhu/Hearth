@@ -95,10 +95,14 @@ class Threads:
         index = self.load_index()
         return [self.describe(thread_id, index) for thread_id in index]
 
-    def create(self):
+    def create(self, *, title=None, panel_context=None):
         index = self.load_index()
         thread_id = new_id()
         index[thread_id] = {"created_at": iso()}
+        if title is not None:
+            index[thread_id]["title"] = title
+        if panel_context is not None:
+            index[thread_id]["panel_context"] = panel_context
         self.save_index(index)
         return self.describe(thread_id, index)
 

@@ -140,13 +140,21 @@ FAILURE_COOLDOWN = 5 * 60
 MAX_POOL = 32
 
 
+def panel_request(prompt):
+    return bool(re.search(
+        r"^/panel\s|\b(?:create|add|make|set up|update|edit|change|delete|remove|rename|refresh|build|put)\b"
+        r"[^\n]{0,90}\b(?:home panels?|panels? (?:on|for) (?:my |the )?home|panels?\b)|面板",
+        prompt, re.I,
+    ))
+
+
 def classify(prompt, *, side=False, file_request=False, image_attachment=False):
     command = SIDE_COMMAND.match(prompt.strip())
     if command:
         side, prompt = True, prompt.strip()[command.end():]
     if image_attachment:
         return "vision"
-    if file_request or file_intent.intent(prompt) or browse_intent(prompt) or ACTION.search(prompt):
+    if file_request or file_intent.intent(prompt) or panel_request(prompt) or browse_intent(prompt) or ACTION.search(prompt):
         return "tool"
     if CODE.search(prompt):
         return "code"

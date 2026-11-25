@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import artifacts, box, browserbase, inbox, memory_edits, recall, reminders, router, scheduler, search, timeline, uploads, voice, voice_call
+from . import artifacts, box, browserbase, home, inbox, memory_edits, recall, reminders, router, scheduler, search, timeline, uploads, voice, voice_call
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -26,6 +26,8 @@ from .threads import MAIN, Threads, compact
 
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
+    "/home.js": ("home.js", "text/javascript; charset=utf-8"),
+    "/home.css": ("home.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/mobile.js": ("mobile.js", "text/javascript; charset=utf-8"),
     "/dom.js": ("dom.js", "text/javascript; charset=utf-8"),
@@ -83,16 +85,22 @@ class Application:
         self.artifacts.on_memory_change = self.memory_sync.request
         self.reminders = reminders.Reminders(self)
         self.inbox = inbox.Inbox(self)
+        self.home = home.Home(self)
 
     def scheduler_tick(self):
         fired = scheduler.run_due(self.storage, tick=True)
         self.reminders.deliver(wait=True)
         polled = self.inbox.poll(force=True)
         info = self.reminders.info()
-        return {"fired": fired, "processed": polled, "last_tick": info["last_tick"], "next_due": info["next_due"]}
+        return {"fired": fired, "processed": polled, "last_tick": info["last_tick"], "next_due": info["next_due"],
+                "panels_refreshed": self.home.run_due()}
+
+    def restoring(self):
+        return bool(self.restore and self.restore["status"] == "restoring")
 
     def background_reminders(self):
         previous = None
+        next_home = 0
         while True:
             now = time.time()
             woke = previous is None or now - previous > 20
@@ -102,6 +110,9 @@ class Application:
                     if woke:
                         threading.Thread(target=self.inbox.poll, kwargs={"force": True}, daemon=True).start()
                     self.reminders.deliver()
+                    if woke or now >= next_home:
+                        self.home.kick()
+                        next_home = now + 10
             except (HearthError, OSError):
                 pass
             previous = time.time()
@@ -589,6 +600,10 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/state":
                 thread_id = parse_qs(url.query).get("thread", [MAIN])[0]
                 self.json(self.app.info(thread_id), conditional=True)
+            elif url.path == "/api/home":
+                self.json({**self.app.home.snapshot(), "checkpoints": self.app.checkpoints.mode})
+            elif url.path == "/api/home/settings":
+                self.json(self.app.home.settings())
             elif url.path == "/api/connections":
                 self.json(self.app.connection_info())
             elif url.path == "/api/voice/call/status":
@@ -726,6 +741,9 @@ class Handler(BaseHTTPRequestHandler):
                 except (HearthError, OSError):
                     self.json({"error": "Hearth could not run the scheduler tick."}, 500)
             return
+        if self.path.startswith("/api/home/"):
+            self.post_home()
+            return
         if self.path.startswith(("/api/reminders/", "/api/inbox/")):
             self.post_reminders()
             return
@@ -818,6 +836,40 @@ class Handler(BaseHTTPRequestHandler):
             self.stream_chat(stream)
         else:
             self.json(result, status)
+
+    def post_home(self):
+        actions = {
+            "/api/home/layout": self.app.home.adjust,
+            "/api/home/checklist": self.app.home.toggle,
+            "/api/home/settings": self.app.home.save_settings,
+            "/api/home/chat": lambda body: self.app.home.panel_chat(body.get("id")),
+        }
+        try:
+            if self.app.restoring():
+                self.json({"error": "A checkpoint is being restored."}, 409)
+                return
+            body = self.body()
+            if self.path == "/api/home/refresh":
+                identity = body.get("id")
+                if identity == "weather":
+                    self.app.home.refresh_weather()
+                    result = self.app.home.settings()
+                else:
+                    result, _ = self.app.home.panels.refresh(identity)
+                self.json(result)
+            elif self.path in actions:
+                with self.app.operation:
+                    if self.app.restoring():
+                        self.json({"error": "A checkpoint is being restored."}, 409)
+                        return
+                    result = actions[self.path](body)
+                self.json(result)
+            else:
+                self.json({"error": "Page not found."}, 404)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+        except OSError:
+            self.json({"error": "Hearth could not update the Home panel."}, 500)
 
     def post_upload(self, url):
         try:
