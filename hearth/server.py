@@ -682,7 +682,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"error": str(error)}, 400)
             return
         accepting_chat = self.path == "/api/chat" or self.path.startswith("/api/threads/")
-        if not self.app.operation.acquire(blocking=accepting_chat):
+        if self.path in {"/api/connections/rescan", "/api/memory/search"}:
+            # Background discovery and an immediate user search can overlap across tabs.
+            acquired = self.app.operation.acquire(timeout=5)
+        else:
+            acquired = self.app.operation.acquire(blocking=accepting_chat)
+        if not acquired:
             self.json({"error": "Hearth is working on another action."}, 409)
             return
         status = 200

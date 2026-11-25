@@ -255,6 +255,26 @@ class HearthTest(unittest.TestCase):
                 opener.open(Request(base + "/api/chat", data=raw, headers={"Content-Type": "application/json"}))
             self.assertEqual(error.exception.code, 400)
         self.assertFalse(get("/api/state")["messages"])
+        for route, payload in (("/api/connections/rescan", {}), ("/api/memory/search", {"query": "vegetarian"})):
+            ready = threading.Event()
+            release = threading.Event()
+
+            def hold_operation():
+                with app.operation:
+                    ready.set()
+                    release.wait(2)
+
+            worker = threading.Thread(target=hold_operation)
+            worker.start()
+            self.assertTrue(ready.wait(1))
+            timer = threading.Timer(0.1, release.set)
+            timer.start()
+            try:
+                self.assertEqual(request(route, payload)[1], 200)
+            finally:
+                release.set()
+                timer.join()
+                worker.join()
         body, _ = request("/api/chat", {"message": "Wipe topics/thanksgiving.md"})
         self.assertIn("event: token", body)
         action = get("/api/state")["actions"][-1]
