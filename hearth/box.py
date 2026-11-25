@@ -117,7 +117,7 @@ class Box:
         file_id = row.get("box_id")
         attrs = {} if file_id else {"name": row["filename"], "parent": {"id": folder_id}}
         boundary = new_id()
-        content_type = FORMATS[row["format"]]
+        content_type = row.get("mime") or FORMATS[row["format"]]
         if len(content) > MAX_UPLOAD_BYTES:
             raise HearthError("Box uploads must be at most 50 MiB.")
         multipart = (

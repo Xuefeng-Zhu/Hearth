@@ -11,3 +11,6 @@ typing-extensions==4.16.0
 XlsxWriter==3.3.2
 greenlet==3.5.6
 playwright==1.65.2
+pillow-heif==1.9.0
+pypdf==6.21.4
+python-multipart==0.0.34

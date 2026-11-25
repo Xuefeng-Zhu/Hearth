@@ -324,13 +324,55 @@ def generate(fmt, value):
     return output.getvalue()
 
 
+def bounded_archive(source):
+    # Imported office files are ZIP containers. Bound decompression before parsing.
+    archive = ZipFile(source)
+    members = archive.infolist()
+    if len(members) > 1_000 or sum(entry.file_size for entry in members) > 64 * 1024 * 1024:
+        archive.close()
+        raise HearthError("This file is too large to preview in Hearth.")
+    return archive
+
+
+def text_lines(fmt, path):
+    with bounded_archive(path):
+        pass
+    if fmt == "xlsx":
+        with path.open("rb") as stream:
+            workbook = load_workbook(stream, read_only=True, keep_links=False, data_only=True)
+            try:
+                for sheet in workbook.worksheets:
+                    yield f"Sheet: {sheet.title}"
+                    if (sheet.max_row or 0) > 5000 or (sheet.max_column or 0) > 256:
+                        yield "Sheet text truncated to 5000 rows and 256 columns."
+                    for row in sheet.iter_rows(max_row=min(sheet.max_row or 5000, 5000),
+                                               max_col=min(sheet.max_column or 256, 256), values_only=True):
+                        if any(value is not None for value in row):
+                            yield "\t".join("" if value is None else str(value) for value in row).rstrip()
+            finally:
+                workbook.close()
+    elif fmt == "docx":
+        for block in Document(str(path)).iter_inner_content():
+            if isinstance(block, WordTable):
+                for row in block.rows:
+                    yield "\t".join(cell.text for cell in row.cells)
+            else:
+                yield block.text
+    elif fmt == "pptx":
+        for number, slide in enumerate(Presentation(str(path)).slides, 1):
+            yield f"Slide {number}"
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    yield shape.text
+                elif shape.has_table:
+                    for row in shape.table.rows:
+                        yield "\t".join(cell.text for cell in row.cells)
+
+
 def preview(fmt, raw):
     stream = io.BytesIO(raw)
-    # Imported office files are ZIP containers. Bound decompression before parsing.
-    with ZipFile(stream) as archive:
-        members = archive.infolist()
-        if len(members) > 1_000 or sum(entry.file_size for entry in members) > 64 * 1024 * 1024:
-            raise HearthError("This file is too large to preview in Hearth.")
+    with bounded_archive(stream):
+        pass
     if fmt == "xlsx":
         workbook = load_workbook(stream, read_only=True, keep_links=False)
         try:

@@ -7,12 +7,24 @@ from .storage import HearthError
 
 MAX_AUDIO = 8 * 1024 * 1024
 WHISPER_PATH = "hf-inference/models/openai/whisper-large-v3-turbo"
+
+
+def is_mp3_frame(data):
+    return len(data) > 3 and not data.startswith(b"\xff\xfe") and data[0] == 0xff and data[1] & 0xe0 == 0xe0 and (
+        data[1] & 0x18 != 0x08 and data[1] & 0x06 and data[2] & 0xf0 not in (0, 0xf0) and data[2] & 0x0c != 0x0c
+    )
+
+
 AUDIO_TYPES = {
     "audio/webm": lambda data: data.startswith(b"\x1a\x45\xdf\xa3"),
     "audio/ogg": lambda data: data.startswith(b"OggS"),
     "audio/mp4": lambda data: data[4:8] == b"ftyp",
     "audio/wav": lambda data: data.startswith(b"RIFF") and data[8:12] == b"WAVE",
     "audio/x-wav": lambda data: data.startswith(b"RIFF") and data[8:12] == b"WAVE",
+}
+ATTACHMENT_AUDIO_TYPES = {
+    **AUDIO_TYPES, "audio/mpeg": lambda data: data.startswith(b"ID3") or is_mp3_frame(data),
+    "audio/flac": lambda data: data.startswith(b"fLaC"),
 }
 
 
@@ -34,7 +46,7 @@ def clean_transcript(text):
 def transcribe(gateway, connection, data, content_type, language):
     if not connection:
         raise VoiceError("Connect Hugging Face in Connections or choose Browser in Settings → Voice.", 409)
-    if not AUDIO_TYPES[content_type](data):
+    if not ATTACHMENT_AUDIO_TYPES[content_type](data):
         raise VoiceError("The recording does not match its audio format.", 415)
     if language != "auto" and not re.fullmatch(r"[a-z]{2,3}", language):
         raise VoiceError("Choose a supported transcription language.")
