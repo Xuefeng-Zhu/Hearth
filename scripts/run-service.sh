@@ -8,6 +8,7 @@ export HEARTH_CJK_FONT="$root/config/fonts/wqy-microhei.ttc"
 case "${1:-}" in
   web)
     export HEARTH_CHECKPOINTS=sprite
+    export HEARTH_SHARE_CONFIG="$root/config/pages-share.json"
     if [[ -f "$root/config/public-url" ]]; then
       export HEARTH_PUBLIC_URL
       HEARTH_PUBLIC_URL=$(< "$root/config/public-url")
