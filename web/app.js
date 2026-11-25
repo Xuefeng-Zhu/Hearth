@@ -15,10 +15,9 @@ const connectorSettings = {
   pinecone: { field: "index", label: "Index name", placeholder: "hearth-memory", maxLength: 45 },
   agentmail: { field: "inbox_id", label: "Inbox ID", placeholder: "your-inbox@agentmail.to", maxLength: 254 },
 };
-const connectionLabels = {
-  connected: "Connected", unauthorized: "Found but not authorized",
-  not_set_up: "Not set up", unknown: "Not checked",
-};
+const configTabs = ["configured", "not-configured"];
+const connectionTabStorage = "hearth-connections-tab";
+const connectionPanels = new Map();
 const connectionDrafts = new Map();
 const gatewayResults = new Map();
 const threadDrafts = new Map();
@@ -41,6 +40,8 @@ let busy = false;
 let timelineTimer;
 let connectionState;
 let connectionRequest;
+let connectionTabPreference = localStorage.getItem(connectionTabStorage);
+let newlyConfigured = new Set();
 let brainSettings;
 let brainBusy = false;
 let modelRequest;
@@ -506,68 +507,178 @@ function connectorForm(provider, entry, info) {
 function connectionCard(provider, entry) {
   const card = node("article", "card connection-card");
   card.dataset.provider = provider;
+  if (newlyConfigured.delete(provider)) card.classList.add("newly-configured");
+
+  const configured = entry.status === "connected";
+  const check = entry.test_status === "passed" ? "ok" : entry.test_status ? "error" : "untested";
+  const status = configured ? check : entry.status;
+  const labels = {
+    ok: "OK", error: "Error", untested: "Untested", unauthorized: "Found but not authorized",
+    not_set_up: "Not set up", unknown: "Not checked",
+  };
   const heading = node("div", "card-header");
-  heading.append(node("h4", "", entry.name), node("span", `connection-status ${entry.status}`, connectionLabels[entry.status]));
-  const metadata = [entry.category, entry.auth].filter(Boolean).join(" · ");
-  card.append(heading, node("p", "meta", metadata), node("p", "connection-description", entry.description));
+  heading.append(node("h4", "", entry.name), node("span", `connection-status ${status}`, labels[status]));
+  card.append(heading);
+  if (entry.auth) card.append(node("p", "meta", entry.auth));
+  card.append(node("p", "connection-description", entry.description));
+  if (configured) {
+    const uses = node("p", "connection-uses");
+    uses.append(node("strong", "", "Used for"), ` ${entry.uses.join(" · ")}`);
+    card.append(uses);
+  }
   if (Object.hasOwn(connectorSettings, provider)) card.append(connectorForm(provider, entry, connectorSettings[provider]));
   if (entry.test_detail) card.append(node("p", `connection-test ${entry.test_status}`, entry.test_detail));
 
   const footer = node("div", "connector-footer");
   const access = node("span", "connector-access", entry.access_rule);
   const links = node("div", "connector-links");
-  links.append(externalLink("Open in Fly ↗", entry.dashboard_url), externalLink("Docs ↗", entry.docs_url));
+  const flyLabel = configured ? "Open in Fly" : entry.status === "unauthorized" ? "Review in Fly" : "Add in Fly";
+  links.append(externalLink(`${flyLabel} ↗`, entry.dashboard_url), externalLink("Docs ↗", entry.docs_url));
   footer.append(access, links);
-  if (entry.test_path) {
-    const test = button("Test", () => updateConnections("test", { provider }));
+  if (entry.can_test) {
+    const test = button("Test", async () => {
+      await updateConnections("test", { provider });
+      if (view === "connections" && document.activeElement === document.body) byId(test.id)?.focus();
+    });
+    test.id = `test-connection-${provider}`;
     test.setAttribute("aria-label", `Test ${entry.name}`);
-    test.dataset.canTest = String(entry.can_test);
-    test.disabled = !entry.can_test;
-    if (!entry.can_test) test.title = "Authorize this connector in Fly, then re-scan.";
+    if (!entry.test_path) test.title = "Check gateway authorization.";
     links.append(test);
   }
   card.append(footer);
   return card;
 }
 
+function connectionHash(tab = "") {
+  return tab ? `#connections/${tab}` : "#connections";
+}
+
+function tabFromHash() {
+  return configTabs.find((tab) => location.hash === connectionHash(tab));
+}
+
+function isConnectionsRoute() {
+  return location.hash === connectionHash() || Boolean(tabFromHash());
+}
+
+function rememberConnectionTab(tab) {
+  connectionTabPreference = tab;
+  localStorage.setItem(connectionTabStorage, tab);
+}
+
+function selectConnectionTab(tab) {
+  rememberConnectionTab(tab);
+  if (location.hash !== connectionHash(tab)) history.pushState(history.state, "", connectionHash(tab));
+  renderConnections();
+  connectionPanels.get(tab).button.focus();
+}
+
+function syncConnectionRoute() {
+  if (isConnectionsRoute()) {
+    const tab = tabFromHash();
+    if (tab) rememberConnectionTab(tab);
+    if (view === "connections") renderConnections();
+    else openView("connections", false);
+  } else if (view === "connections") {
+    openView(history.state?.hearthView || "chat", false);
+  }
+}
+
 function renderConnections() {
-  if (!connectionState) return;
-  const entries = Object.entries(connectionState.providers);
-  const filter = byId("connector-category");
-  const category = filter.value;
-  const categories = [...new Set(entries.map(([, entry]) => entry.category))].sort();
-  if (categories.join("|") !== filter.dataset.categories) {
-    filter.replaceChildren(new Option("All categories", ""), ...categories.map((name) => new Option(name, name)));
-    filter.value = categories.includes(category) ? category : "";
-    filter.dataset.categories = categories.join("|");
+  const entries = Object.entries(connectionState?.providers ?? {});
+  const configured = entries.filter(([, entry]) => entry.status === "connected");
+  const unconfigured = entries.filter(([, entry]) => entry.status !== "connected");
+  const providersByTab = { configured, "not-configured": unconfigured };
+  const defaultTab = configured.length ? "configured" : "not-configured";
+  const activeConnectionTab = configTabs.includes(connectionTabPreference) ? connectionTabPreference : defaultTab;
+  if (view === "connections" && (connectionState || connectionTabPreference === activeConnectionTab)
+      && location.hash !== connectionHash(activeConnectionTab)) {
+    history.replaceState(history.state, "", connectionHash(activeConnectionTab));
   }
 
-  const terms = byId("connector-search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const pinned = [];
-  const more = [];
-  for (const [provider, entry] of entries) {
-    const searchable = [provider, entry.gateway_provider, entry.name, entry.category, entry.auth, entry.description]
-      .join(" ").toLowerCase();
-    if ((filter.value && entry.category !== filter.value) || !terms.every((term) => searchable.includes(term))) continue;
-    (entry.pinned ? pinned : more).push(connectionCard(provider, entry));
+  const categories = [...new Set(entries.map(([, entry]) => entry.category))].sort();
+  for (const [tab, controls] of connectionPanels) {
+    const selected = tab === activeConnectionTab;
+    controls.button.setAttribute("aria-selected", String(selected));
+    controls.button.tabIndex = selected ? 0 : -1;
+    controls.badge.hidden = !connectionState;
+    controls.badge.textContent = providersByTab[tab].length;
+    controls.panel.hidden = !selected;
+    if (!selected) controls.groups.replaceChildren();
+    const filter = controls.filter;
+    if (categories.join("|") !== filter.dataset.categories) {
+      const category = filter.value;
+      filter.replaceChildren(new Option("All categories", ""), ...categories.map((name) => new Option(name, name)));
+      filter.value = categories.includes(category) ? category : "";
+      filter.dataset.categories = categories.join("|");
+    }
   }
-  byId("pinned-section").hidden = !pinned.length;
-  byId("catalog-section").hidden = !more.length;
-  byId("pinned-connections").replaceChildren(...pinned);
-  byId("catalog-connections").replaceChildren(...more);
-  const count = byId("connector-count");
-  const matches = pinned.length + more.length;
-  count.hidden = false;
-  count.textContent = matches ? `${matches} of ${entries.length} providers` : "No providers match your filters.";
+  if (!connectionState) return;
+
+  const controls = connectionPanels.get(activeConnectionTab);
+  const terms = controls.search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matchesFilters = ([provider, entry]) => {
+    if (controls.filter.value && controls.filter.value !== entry.category) return false;
+    const searchable = [provider, entry.gateway_provider, entry.name, entry.category, entry.auth, entry.description,
+      ...entry.uses].join(" ").toLowerCase();
+    return terms.every((term) => searchable.includes(term));
+  };
+  const active = providersByTab[activeConnectionTab];
+  const matches = active.filter(matchesFilters);
+  const otherTab = configTabs.find((tab) => tab !== activeConnectionTab);
+  const otherMatches = terms.length ? providersByTab[otherTab].filter(matchesFilters).length : 0;
+  controls.count.textContent = matches.length ? `${matches.length} of ${active.length} providers`
+    : active.length ? "No providers match your filters."
+    : activeConnectionTab === "configured" ? "No configured connectors yet." : "All providers are configured.";
+  controls.link.hidden = !otherMatches;
+  controls.link.href = connectionHash(otherTab);
+  controls.link.textContent = `${otherMatches} ${otherMatches === 1 ? "match" : "matches"} in the other tab`;
+  controls.groups.replaceChildren(...connectionGroups(matches));
   if (connectionRequest) setConnectionsBusy(true);
-  renderBrain(connectionState);
+}
+
+function connectionGroups(entries) {
+  const groups = new Map();
+  for (const [provider, entry] of entries) {
+    const group = entry.pinned ? "Hearth essentials" : entry.category;
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(connectionCard(provider, entry));
+  }
+  return [...groups].map(([name, cards]) => {
+    const section = node("section", "connection-section");
+    const grid = node("div", "connection-grid");
+    grid.append(...cards);
+    section.append(node("h3", "", name), grid);
+    return section;
+  });
 }
 
 function setConnectionsBusy(value) {
-  byId("rescan-connections").disabled = value;
+  byId("rescan-connections").setAttribute("aria-disabled", String(value));
   for (const control of byId("connections-view").querySelectorAll(".connection-grid button, .connection-grid input")) {
-    control.disabled = value || control.dataset.canTest === "false";
+    control.disabled = value;
   }
+}
+
+function announceNewConnections(previous, current) {
+  const promoted = Object.entries(current.providers).filter(([provider, entry]) =>
+    entry.status === "connected" && previous.providers[provider]?.status !== "connected");
+  newlyConfigured = new Set(promoted.map(([provider]) => provider));
+  const notice = byId("connection-promotion");
+  notice.hidden = !promoted.length;
+  notice.replaceChildren();
+  if (!promoted.length) return;
+  const names = promoted.map(([, entry]) => entry.name);
+  notice.append(names.length === 1 ? `${names[0]} moved to Configured. ` : `${names.length} connectors moved to Configured. `);
+  const link = node("a", "", "Show configured");
+  link.href = connectionHash("configured");
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    const controls = connectionPanels.get("configured");
+    controls.search.value = controls.filter.value = "";
+    selectConnectionTab("configured");
+  });
+  notice.append(link);
 }
 
 function updateConnections(operation, body = {}) {
@@ -578,9 +689,14 @@ function updateConnections(operation, body = {}) {
   setConnectionsBusy(true);
   connectionRequest = (async () => {
     try {
+      const previous = connectionState;
       connectionState = await api(`/api/connections/${operation}`, body);
+      if (operation === "rescan" && previous && !connectionState.scan_error) {
+        announceNewConnections(previous, connectionState);
+      }
       if (operation === "settings") connectionDrafts.delete(body.provider);
       renderConnections();
+      renderBrain(connectionState);
       const entry = connectionState.providers[body.provider];
       feedback.textContent = {
         rescan: connectionState.scan_error || `Last checked ${date(connectionState.last_scan)}.`,
@@ -593,6 +709,7 @@ function updateConnections(operation, body = {}) {
         try {
           connectionState = await api("/api/connections");
           renderConnections();
+          renderBrain(connectionState);
         } catch {
           // The request message remains visible until a re-scan succeeds.
         }
@@ -958,7 +1075,13 @@ async function refreshView() {
   else if (view === "timeline") await renderTimeline();
 }
 
-async function openView(nextView) {
+async function openView(nextView, updateHistory = true) {
+  if (updateHistory && nextView === "connections" && !isConnectionsRoute()) {
+    history.replaceState({ ...history.state, hearthView: view }, "");
+    history.pushState(null, "", connectionHash());
+  } else if (updateHistory && nextView !== "connections" && isConnectionsRoute()) {
+    history.pushState({ hearthView: nextView }, "", location.pathname + location.search);
+  }
   view = nextView;
   clearTimeout(timelineTimer);
   clearTimeout(reindexPoll);
@@ -973,6 +1096,7 @@ async function openView(nextView) {
     byId(`${item.dataset.view}-view`).hidden = !active;
   }
   if (view === "connections") {
+    renderConnections();
     await updateConnections("rescan");
   } else if (view === "settings") {
     await openSettings(settingsSection);
@@ -1207,8 +1331,40 @@ byId("delete-thread").addEventListener("click", () => {
     changeThread("delete", { thread_id: thread.id });
   }
 });
-byId("connector-search").addEventListener("input", renderConnections);
-byId("connector-category").addEventListener("change", renderConnections);
+for (const tab of configTabs) {
+  const panel = byId(`${tab}-panel`);
+  const tabButton = byId(`${tab}-tab`);
+  panel.append(byId("connection-content").content.cloneNode(true));
+  const controls = {
+    panel, button: tabButton, badge: tabButton.querySelector(".connection-badge"),
+    search: panel.querySelector("input"), filter: panel.querySelector("select"),
+    count: panel.querySelector(".connection-count"), link: panel.querySelector(".connection-match-link"),
+    groups: panel.querySelector(".connection-groups"),
+  };
+  connectionPanels.set(tab, controls);
+  controls.search.addEventListener("input", renderConnections);
+  controls.filter.addEventListener("change", renderConnections);
+  controls.link.addEventListener("click", (event) => {
+    event.preventDefault();
+    const otherTab = configTabs.find((item) => item !== tab);
+    const other = connectionPanels.get(otherTab);
+    other.search.value = controls.search.value;
+    other.filter.value = controls.filter.value;
+    selectConnectionTab(otherTab);
+  });
+  tabButton.addEventListener("click", () => selectConnectionTab(tab));
+  tabButton.addEventListener("keydown", (event) => {
+    const target = {
+      ArrowLeft: configTabs.find((item) => item !== tab),
+      ArrowRight: configTabs.find((item) => item !== tab),
+      Home: configTabs[0], End: configTabs.at(-1),
+    }[event.key];
+    if (!target) return;
+    event.preventDefault();
+    selectConnectionTab(target);
+  });
+}
+window.addEventListener("hashchange", syncConnectionRoute);
 byId("rescan-connections").addEventListener("click", () => updateConnections("rescan"));
 brainProvider.addEventListener("change", () => {
   clearBrainTest();
@@ -1284,5 +1440,6 @@ setInterval(async () => {
   }
 }, 3_000);
 renderChat(true);
-openView("chat");
-updateConnections("rescan");
+openView("chat", false);
+if (isConnectionsRoute()) syncConnectionRoute();
+else updateConnections("rescan");
