@@ -21,6 +21,16 @@ const connectionLabels = {
 };
 const connectionDrafts = new Map();
 const gatewayResults = new Map();
+const threadDrafts = new Map();
+const turns = new Set();
+const mainThread = { id: "main", title: "Main", busy: false };
+let threadList = [mainThread];
+let currentThread = sessionStorage.getItem("hearth-thread") || mainThread.id;
+let selectionVersion = 0;
+let stateRequest = 0;
+let threadSignature;
+let chatSignature;
+let threadBusy = false;
 let state;
 let view = "chat";
 let selectedFile;
@@ -76,6 +86,7 @@ function setBusy(value) {
   for (const item of document.querySelectorAll(".cards button, #timeline .card button, [data-prompt]")) {
     item.disabled = value;
   }
+  renderThreads();
   setBrainControls();
 }
 
@@ -83,7 +94,11 @@ function scrollDown() {
   chatScroll.scrollTop = chatScroll.scrollHeight;
 }
 
-function messageBubble(role, content) {
+function nearBottom() {
+  return chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight < 65;
+}
+
+function messageBubble(role, content, { message, status } = {}) {
   const item = node("article", `message ${role}`);
   if (role === "assistant") {
     const avatar = node("span", "avatar", "✦");
@@ -95,10 +110,21 @@ function messageBubble(role, content) {
   const cards = node("div", "cards");
   const notices = node("div");
   notices.setAttribute("role", "status");
+  if (status) notices.append(node("p", "queued-label", status));
   body.append(notices, text, cards);
+  if (message?.id && currentThread !== mainThread.id) {
+    const threadId = currentThread;
+    const share = button("Share to Main", () => changeThread("share", { thread_id: threadId, message_id: message.id }));
+    share.className = "share-message";
+    body.append(share);
+  }
   item.append(body);
   transcript.append(item);
   return { cards, notices, text };
+}
+
+function threadSource(item, fallback = "Main") {
+  return threadList.find((thread) => thread.id === item.thread_id)?.title || item.thread_title || fallback;
 }
 
 function actionCard(action) {
@@ -110,7 +136,7 @@ function actionCard(action) {
     sent: "Sent", complete: action.kind === "gateway" ? "Completed" : "", request_unknown: "Request unconfirmed",
   };
   header.append(node("h4", "", action.title), node("span", "meta", statuses[action.status] || ""));
-  card.append(header);
+  card.append(header, node("p", "thread-source", `From ${threadSource(action)}`));
   if (action.kind === "email") {
     card.append(node("p", "", `To: ${action.email.to.join(", ")}`));
     card.append(node("p", "", `Subject: ${action.email.subject}`), node("pre", "", action.email.text));
@@ -146,24 +172,107 @@ function actionCard(action) {
   return card;
 }
 
-function renderChat() {
-  const actions = new Map(state.actions.map((action) => [action.id, action]));
+function isWorking(thread) {
+  return thread?.busy || [...turns].some((turn) => turn.threadId === thread?.id && !turn.finished);
+}
+
+function renderThreads() {
+  const entries = threadList.map((item) => ({ ...item, busy: isWorking(item) }));
+  const active = entries.find((item) => item.id === currentThread);
+  const signature = JSON.stringify([entries, currentThread, busy, threadBusy]);
+  if (signature === threadSignature) return;
+  threadSignature = signature;
+  const list = byId("threads");
+  const focused = list.contains(document.activeElement) && document.activeElement.dataset.thread;
+  list.replaceChildren(...entries.map((thread) => {
+    const item = button("", () => selectThread(thread.id));
+    item.className = "thread-link";
+    item.dataset.thread = thread.id;
+    item.title = thread.title;
+    item.append(node("span", "", thread.title));
+    if (thread.id === currentThread) item.setAttribute("aria-current", "true");
+    if (thread.busy) {
+      const dot = node("span", "thread-dot");
+      dot.setAttribute("aria-hidden", "true");
+      item.append(dot, node("span", "visually-hidden", " · Replying"));
+    }
+    return item;
+  }));
+  if (focused) [...list.children].find((item) => item.dataset.thread === focused)?.focus();
+  const select = byId("thread-select");
+  select.replaceChildren(...entries.map((thread) => new Option(`${thread.busy ? "● " : ""}${thread.title}`, thread.id)));
+  select.value = currentThread;
+  byId("thread-title").textContent = active?.title || (currentThread === mainThread.id ? "Main" : "Side chat");
+  byId("thread-activity").hidden = !active?.busy;
+  byId("thread-controls").hidden = !active || active.id === mainThread.id;
+  byId("new-thread").disabled = busy || threadBusy;
+  byId("rename-thread").disabled = busy || threadBusy;
+  const remove = byId("delete-thread");
+  remove.disabled = busy || threadBusy || !!active?.busy;
+  remove.title = active?.busy ? "Wait for this chat to finish" : "Delete this side chat";
+  send.title = active?.busy ? "Queue follow-up" : "Send message";
+  send.setAttribute("aria-label", send.title);
+}
+
+function rememberThread(thread) {
+  const index = threadList.findIndex((item) => item.id === thread.id);
+  if (index < 0) threadList.push(thread);
+  else threadList[index] = { ...threadList[index], ...thread };
+}
+
+function renderChat(force = false) {
+  renderThreads();
+  const actions = new Map((state?.actions || []).map((action) => [action.id, action]));
+  const messages = state?.thread_id === currentThread ? state.messages : [];
+  const local = [...turns].filter((turn) => turn.threadId === currentThread);
+  const signature = JSON.stringify([currentThread, messages, threadList.map((thread) => thread.title), busy,
+    messages.flatMap((message) => (message.action_ids || []).map((id) => actions.get(id)))]);
+  if (!force && signature === chatSignature) return;
+  chatSignature = signature;
+  const follow = nearBottom();
+  const saved = new Set(messages.map((message) => message.id));
   transcript.replaceChildren();
-  byId("welcome").hidden = state.messages.length > 0;
-  for (const message of state.messages) {
-    const bubble = messageBubble(message.role, message.content);
+  byId("welcome").hidden = currentThread !== mainThread.id || !!(messages.length || local.length);
+  byId("side-welcome").hidden = currentThread === mainThread.id || !!(messages.length || local.length);
+  for (const message of messages) {
+    const bubble = messageBubble(message.role, message.content, { message });
     for (const notice of message.notices || []) bubble.notices.append(node("p", "model-warning", notice));
     for (const id of new Set(message.action_ids || [])) {
       if (actions.has(id)) bubble.cards.append(actionCard(actions.get(id)));
     }
   }
-  scrollDown();
+  for (const turn of local) {
+    turn.bubble = undefined;
+    if (!saved.has(turn.user?.id)) {
+      messageBubble("user", turn.user?.content || turn.prompt, {
+        message: turn.user, status: turn.user ? undefined : "Queued",
+      });
+    }
+    if (saved.has(turn.reply?.id) || (!turn.user && !turn.error)) continue;
+    const content = turn.reply?.content || turn.text || turn.error || "Thinking…";
+    turn.bubble = messageBubble("assistant", content, { message: turn.reply });
+    for (const warning of turn.warnings) turn.bubble.notices.append(node("p", "model-warning", warning));
+    for (const action of turn.actions.values()) turn.bubble.cards.append(actionCard(actions.get(action.id) || action));
+  }
+  if (follow) scrollDown();
 }
 
 async function refreshState() {
-  state = await api("/api/state", undefined, AbortSignal.timeout(6000));
+  const request = ++stateRequest;
+  const thread = currentThread;
+  const next = await api(`/api/state?thread=${encodeURIComponent(thread)}`, undefined, AbortSignal.timeout(6000));
+  if (request !== stateRequest || thread !== currentThread) return false;
+  state = next;
+  threadList = state.threads;
+  if (state.thread_id !== currentThread) {
+    threadDrafts.delete(currentThread);
+    activateThread(state.thread_id);
+  }
+  const saved = new Set(state.messages.map((message) => message.id));
+  for (const turn of turns) if (saved.has(turn.reply?.id)) turns.delete(turn);
   byId("environment-label").textContent = state.checkpoints === "sprite" ? "Private Sprite" : "Local workspace";
   renderBrain(state);
+  return true;
 }
 
 function renderBrain({ model, model_id: id }) {
@@ -209,9 +318,9 @@ function timelineSection(title, items, fallback) {
   return section;
 }
 
-function timelineItem(title, detail) {
+function timelineItem(title, detail, origin) {
   const item = node("article", "card");
-  item.append(node("h4", "", title), node("p", "meta", detail));
+  item.append(node("h4", "", title), node("p", "meta", detail), node("p", "thread-source", `From ${origin}`));
   return item;
 }
 
@@ -226,15 +335,17 @@ async function renderTimeline() {
     checkpointStatus = error.message;
   }
   if (view !== "timeline") return;
-  const reminders = state.reminders.slice().reverse().map((item) => timelineItem(item.message, `Due ${date(item.scheduled_at)}`));
+  const reminders = state.reminders.slice().reverse().map((item) => timelineItem(item.message,
+    `Due ${date(item.scheduled_at)}`, threadSource(item)));
   const scheduled = state.jobs.filter((job) => job.status === "scheduled")
     .sort((a, b) => a.next_at.localeCompare(b.next_at));
   reminders.push(...scheduled.map((job) => timelineItem(job.message,
-    `Scheduled for ${date(job.next_at)}${job.cron ? ` · ${job.cron} UTC` : ""}`)));
+    `Scheduled for ${date(job.next_at)}${job.cron ? ` · ${job.cron} UTC` : ""}`, threadSource(job))));
   timeline.replaceChildren(
     timelineSection("Reminders", reminders, "No reminders scheduled."),
     timelineSection("Checkpoints", checkpoints.map((item) => timelineItem(
-      item.comment || "Sprite checkpoint", [item.id, date(item.created_at)].filter(Boolean).join(" · "))), checkpointStatus),
+      item.comment || "Sprite checkpoint", [item.id, date(item.created_at)].filter(Boolean).join(" · "),
+      threadSource(item, "Workspace"))), checkpointStatus),
     timelineSection("Actions", state.actions.slice().reverse().map(actionCard), "No actions yet."),
   );
   if (scheduled.length && !document.hidden) {
@@ -517,7 +628,7 @@ async function updateBrain(operation) {
 }
 
 async function refreshView() {
-  await refreshState();
+  if (!await refreshState()) return;
   if (view === "chat") renderChat();
   else if (view === "memory") await renderMemory();
   else if (view === "timeline") await renderTimeline();
@@ -549,28 +660,116 @@ async function openView(nextView) {
   }
 }
 
+function activateThread(threadId) {
+  if (currentThread === threadId) return;
+  threadDrafts.set(currentThread, input.value);
+  currentThread = threadId;
+  selectionVersion++;
+  sessionStorage.setItem("hearth-thread", threadId);
+  input.value = threadDrafts.get(threadId) || "";
+  input.placeholder = threadId === mainThread.id ? "Message Hearth…" : "Message this side chat…";
+  resizeInput();
+  renderChat(true);
+  scrollDown();
+}
+
+async function selectThread(threadId, focus = false) {
+  activateThread(threadId);
+  showNotice();
+  if (focus && view === "chat") input.focus();
+  try {
+    await refreshView();
+  } catch (error) {
+    if (currentThread === threadId) showNotice(error.message);
+  }
+}
+
+async function changeThread(operation, body = {}) {
+  if (threadBusy || busy) return;
+  threadBusy = true;
+  renderThreads();
+  const selection = selectionVersion;
+  try {
+    await connectionRequest;
+    const result = await api(`/api/threads/${operation}`, body);
+    if (operation === "create" || operation === "rename") rememberThread(result);
+    if (operation === "create" && selection === selectionVersion) {
+      await selectThread(result.id, true);
+    } else if (operation === "delete") {
+      threadList = threadList.filter((item) => item.id !== body.thread_id);
+      if (currentThread === body.thread_id) activateThread(mainThread.id);
+      threadDrafts.delete(body.thread_id);
+      for (const turn of turns) if (turn.threadId === body.thread_id) turns.delete(turn);
+      await refreshView();
+      showNotice("Side chat deleted. Its checkpoint is in Timeline.");
+    } else {
+      await refreshView();
+      if (operation === "share") showNotice("Shared to Main.");
+    }
+  } catch (error) {
+    showNotice(error.message);
+  } finally {
+    threadBusy = false;
+    renderThreads();
+  }
+}
+
+function readChatEvent(turn, name, payload) {
+  if (name === "queued") {
+    turn.threadId = payload.thread.id;
+    turn.prompt = payload.prompt;
+    rememberThread(payload.thread);
+    if (turn.command && turn.selection === selectionVersion) {
+      activateThread(turn.threadId);
+      if (view === "chat") input.focus();
+    }
+  } else if (name === "started") {
+    turn.user = payload.message;
+    rememberThread(payload.thread);
+  } else if (name === "token" || name === "reset") {
+    const follow = turn.threadId === currentThread && nearBottom();
+    turn.text = name === "reset" ? "" : turn.text + payload.text;
+    if (turn.bubble) turn.bubble.text.textContent = turn.text || payload.message || "Thinking…";
+    if (follow) scrollDown();
+    return;
+  } else if (name === "action") {
+    turn.actions.set(payload.id, payload);
+  } else if (name === "model_warning") {
+    turn.warnings.push(payload.message);
+  } else if (name === "done") {
+    turn.reply = payload.message;
+  } else if (name === "error") {
+    throw new Error(payload.message);
+  }
+  if (turn.threadId === currentThread) renderChat(true);
+  else renderThreads();
+}
+
 async function chat(prompt) {
-  if (!prompt.trim() || busy) return;
-  setBusy(true);
+  prompt = prompt.trim();
+  if (!prompt || busy) return;
+  const source = currentThread;
+  const command = source === mainThread.id && /^\/(side|btw)(?:\s|$)/i.test(prompt);
+  const turn = { threadId: command ? undefined : source, selection: selectionVersion, command,
+    prompt, text: "", warnings: [], actions: new Map() };
+  for (const previous of turns) if (previous.threadId === source && previous.error) turns.delete(previous);
+  turns.add(turn);
   showNotice();
   input.value = "";
   resizeInput();
-  byId("welcome").hidden = true;
-  messageBubble("user", prompt);
-  const reply = messageBubble("assistant", "Thinking…");
+  renderChat(true);
   scrollDown();
   try {
     await connectionRequest;
     const response = await fetch("/api/chat", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: prompt }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: prompt, thread_id: source }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw new Error(body.error || "Hearth could not start this turn.");
     }
-    let text = "";
     let buffered = "";
-    let done = false;
     for await (const chunk of response.body.pipeThrough(new TextDecoderStream())) {
       buffered += chunk;
       let split;
@@ -578,25 +777,27 @@ async function chat(prompt) {
         const packet = buffered.slice(0, split);
         buffered = buffered.slice(split + 2);
         const [event, data] = packet.split("\n");
-        const name = event.slice(7);
-        const payload = JSON.parse(data.slice(6));
-        if (name === "token") reply.text.textContent = text += payload.text;
-        if (name === "action") reply.cards.append(actionCard(payload));
-        if (name === "reset") reply.text.textContent = (text = "") || payload.message || "Thinking…";
-        if (name === "model_warning") reply.notices.append(node("p", "model-warning", payload.message));
-        if (name === "done") done = true;
-        if (name === "error") throw new Error(payload.message);
-        scrollDown();
+        if (event.startsWith("event: ") && data?.startsWith("data: ")) {
+          readChatEvent(turn, event.slice(7), JSON.parse(data.slice(6)));
+        }
       }
     }
-    if (!done) throw new Error("The reply was interrupted. Check Timeline for any saved actions.");
-    await refreshView();
+    if (!turn.reply) throw new Error("The reply was interrupted. Check Timeline for any saved actions.");
   } catch (error) {
-    if (!reply.text.textContent || reply.text.textContent === "Thinking…") reply.text.textContent = error.message;
-    showNotice(error.message);
-    if (view !== "chat") await refreshView().catch(() => {});
+    turn.error = error.message;
+    if (!turn.user) {
+      turns.delete(turn);
+      if (source === currentThread && !input.value) {
+        input.value = prompt;
+        resizeInput();
+      }
+    }
+    if ((turn.threadId || source) === currentThread) showNotice(error.message);
   } finally {
-    setBusy(false);
+    turn.finished = true;
+    if (turn.threadId === currentThread || !turn.threadId) renderChat(true);
+    else renderThreads();
+    await refreshView().catch(() => {});
   }
 }
 
@@ -666,6 +867,20 @@ byId("composer").addEventListener("submit", (event) => {
   event.preventDefault();
   chat(input.value);
 });
+byId("thread-select").addEventListener("change", (event) => selectThread(event.target.value));
+byId("new-thread").addEventListener("click", () => changeThread("create"));
+byId("rename-thread").addEventListener("click", () => {
+  const thread = threadList.find((item) => item.id === currentThread);
+  if (!thread) return;
+  const title = window.prompt("Rename side chat", thread.title)?.trim();
+  if (title && title !== thread.title) changeThread("rename", { thread_id: thread.id, title });
+});
+byId("delete-thread").addEventListener("click", () => {
+  const thread = threadList.find((item) => item.id === currentThread);
+  if (thread && window.confirm(`Delete “${thread.title}”? Hearth will save a checkpoint first.`)) {
+    changeThread("delete", { thread_id: thread.id });
+  }
+});
 byId("connector-search").addEventListener("input", renderConnections);
 byId("connector-category").addEventListener("change", renderConnections);
 byId("rescan-connections").addEventListener("click", () => updateConnections("rescan"));
@@ -701,7 +916,22 @@ for (const item of nav) {
   item.addEventListener("click", () => openView(item.dataset.view));
 }
 document.addEventListener("visibilitychange", () => {
-  if (view === "timeline" && !document.hidden && !busy) refreshView().catch((error) => showNotice(error.message));
+  if ((view === "chat" || view === "timeline") && !document.hidden && !busy) {
+    refreshView().catch((error) => showNotice(error.message));
+  }
 });
+let polling = false;
+setInterval(async () => {
+  if (view !== "chat" || busy || threadBusy || document.hidden || polling) return;
+  polling = true;
+  try {
+    await refreshView();
+  } catch {
+    // A transient connection failure leaves the visible conversation intact.
+  } finally {
+    polling = false;
+  }
+}, 3_000);
+renderChat(true);
 openView("chat");
 updateConnections("rescan");

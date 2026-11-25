@@ -30,7 +30,25 @@
       </header>
       <p class="notice" id="notice" role="status" hidden></p>
       <section class="view chat-view" id="chat-view" aria-labelledby="view-title">
-        <div class="chat-scroll" id="chat-scroll">
+        <aside class="thread-panel" aria-label="Chat threads">
+          <div class="thread-panel-header">
+            <h2>Threads</h2>
+            <label class="visually-hidden" for="thread-select">Chat thread</label>
+            <select id="thread-select" class="thread-select"><option value="main">Main</option></select>
+            <button type="button" id="new-thread" class="new-thread">New side chat</button>
+          </div>
+          <div id="threads" class="threads" aria-label="Thread list"></div>
+        </aside>
+        <div class="chat-pane">
+          <header class="thread-header">
+            <h2 id="thread-title">Main</h2>
+            <span class="thread-activity" id="thread-activity" role="status" hidden>Replying</span>
+            <div id="thread-controls" class="thread-controls" hidden>
+              <button type="button" id="rename-thread">Rename</button>
+              <button type="button" id="delete-thread">Delete</button>
+            </div>
+          </header>
+          <div class="chat-scroll" id="chat-scroll">
           <section class="welcome" id="welcome">
             <span class="welcome-mark" aria-hidden="true">✦</span>
             <h2>What’s on your mind?</h2>
@@ -41,13 +59,19 @@
               <button type="button" data-prompt="Checkpoint"><span aria-hidden="true">◷</span> Save a checkpoint</button>
             </div>
           </section>
+          <section class="welcome side-welcome" id="side-welcome" hidden>
+            <span class="welcome-mark" aria-hidden="true">✧</span>
+            <h2>Start a side chat</h2>
+            <p>Talk through a topic here. Hearth can refer to Main and uses the same memory.</p>
+          </section>
           <div class="transcript" id="transcript" aria-label="Conversation"></div>
+          </div>
+          <form class="composer" id="composer">
+            <label class="visually-hidden" for="message">Message Hearth</label>
+            <textarea id="message" maxlength="4000" rows="1" placeholder="Message Hearth…" required></textarea>
+            <button type="submit" id="send" aria-label="Send message">↑</button>
+          </form>
         </div>
-        <form class="composer" id="composer">
-          <label class="visually-hidden" for="message">Message Hearth</label>
-          <textarea id="message" maxlength="4000" rows="1" placeholder="Message Hearth…" required></textarea>
-          <button type="submit" id="send" aria-label="Send message">↑</button>
-        </form>
       </section>
       <section class="view panel" id="memory-view" aria-labelledby="view-title" hidden>
         <div class="section-intro"><h2>Memory files</h2><p>Personal notes stored as Markdown in your workspace.</p></div>
