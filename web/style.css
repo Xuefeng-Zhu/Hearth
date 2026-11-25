@@ -188,6 +188,13 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .message .model-warning { color: #694518; background: #f6ede2; border-radius: 8px; padding: 7px 10px; margin-bottom: 8px; font-size: 13px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 
+@media (min-width: 1050px) {
+  #configured-panel .connection-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 25px 12px; }
+  #configured-panel .connection-section { margin-top: 0; }
+  #configured-panel .connection-section:has(.connection-card + .connection-card) { grid-column: 1 / -1; }
+  #configured-panel .connection-grid:has(.connection-card:only-child) { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 880px) {
   .connection-grid { grid-template-columns: 1fr; }
 }
