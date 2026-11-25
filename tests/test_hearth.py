@@ -137,6 +137,37 @@ class HearthTest(unittest.TestCase):
         with self.assertRaises(HearthError):
             next_cron("0 0 31 2 *", now)
 
+    def test_chat_can_schedule_a_recurring_reminder_offline(self):
+        events = self.chat("Schedule check the oven | 0 17 * * 4")
+        action, = [data for name, data in events if name == "action"]
+        self.assertEqual(action["job"]["cron"], "0 17 * * 4")
+        self.assertEqual(action["job"]["message"], "check the oven")
+        self.assertEqual(self.storage.load()["jobs"], [action["job"]])
+
+    def test_semantic_index_is_written_after_checkpoint_and_reused_for_recall(self):
+        class PineconeGateway(Recorder):
+            def json(inner, config, path, body, headers=None):
+                inner.requests.append((path, body))
+                if path == "embed":
+                    return {"data": [{"values": [0.1, 0.2]} for _ in body["inputs"]]}
+                if path.endswith("/vectors/upsert"):
+                    self.assertEqual(len(self.checkpoints.list()), 1)
+                    self.assertTrue(any(vector["metadata"]["path"] == "people/maya.md" for vector in body["vectors"]))
+                    return {"upsertedCount": len(body["vectors"])}
+                if path.endswith("/query"):
+                    return {"matches": [{"metadata": {"path": "people/maya.md", "excerpt": "Vegetarian guest."}}]}
+                self.fail("Unexpected Pinecone API path.")
+
+        self.config["pinecone"]["connection_id"] = "test-id"
+        gateway = PineconeGateway()
+        agent = Agent(self.storage, self.checkpoints, self.config, gateway)
+        for _ in range(2):
+            self.assertEqual(agent.memory_search("dietary preferences")["results"],
+                             [{"path": "people/maya.md", "excerpt": "Vegetarian guest."}])
+        paths = [path for path, _ in gateway.requests]
+        self.assertEqual(paths.count("indexes/hearth-memory/vectors/upsert"), 1)
+        self.assertEqual(paths.count("indexes/hearth-memory/query"), 2)
+
     def test_http_flow_streams_and_restores(self):
         app = Application(self.storage, self.checkpoints, self.config)
         server = HTTPServer(("127.0.0.1", 0), app)

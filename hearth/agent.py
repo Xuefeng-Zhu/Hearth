@@ -60,6 +60,8 @@ def mock_completion(messages, emit, clock):
         answer = last["error"]
     elif wipe:
         if not prior:
+            if not note and "thanksgiving" not in lower:
+                return mock_text("Which memory file should I clear? Use a path from the Memory tab.", emit)
             return tool_call("memory_write", {"notes": [{"path": note[0] if note else "topics/thanksgiving.md", "content": ""}]})
         answer = "I cleared the note after saving a checkpoint. Use Undo on the action card to restore it."
     elif lower.startswith("undo"):
@@ -75,7 +77,9 @@ def mock_completion(messages, emit, clock):
             return tool_call("web_search", {"query": re.sub(r"^(web search|search the web for)\s+", "", prompt, flags=re.I)})
         answer = "\n\n".join(f"{item['title']}\n{item['url']}\n{item['content']}" for item in last["results"])
         answer = answer or "Tavily returned no results."
-    elif "thanksgiving" in lower and not lower.startswith(("read ", "remember ", "search ")):
+    elif "thanksgiving" in lower and not lower.startswith(
+        ("read ", "remember ", "search ", "email ", "draft ", "send ", "remind ", "schedule ")
+    ):
         if not prior:
             return tool_call("memory_read", {"path": "topics/thanksgiving.md"})
         if len(prior) == 1:
@@ -100,14 +104,19 @@ def mock_completion(messages, emit, clock):
             answer = "\n\n".join(part for part in (*family, menu, summary) if part)
     elif lower.startswith(("remind me", "schedule ")):
         if not prior:
+            reminder = re.sub(r"^(?:remind me(?: to)?|schedule)\s*", "", prompt, flags=re.I)
+            if "|" in reminder:
+                message, cron = reminder.split("|", maxsplit=1)
+                return tool_call("schedule", {"message": message.strip(), "cron": cron.strip()})
             match = re.search(r"\bin (\d+) (minute|second|hour)s?\b", lower)
             seconds = int(match[1]) * {"second": 1, "minute": 60, "hour": 3600}[match[2]] if match else 120
             if not 1 <= seconds <= 366 * 86400:
                 return mock_text("Choose a delay between one second and one year.", emit)
-            reminder = re.sub(r"^(?:remind me(?: to)?|schedule)\s*", "", prompt, flags=re.I)
             if match:
-                reminder = (reminder[:reminder.lower().rfind(match[0])] + reminder[reminder.lower().rfind(match[0]) + len(match[0]):]).strip(" ,.")
-            return tool_call("schedule", {"message": reminder or "Reminder", "at": iso(clock + timedelta(seconds=seconds))})
+                position = reminder.lower().rfind(match[0])
+                reminder = (reminder[:position] + reminder[position + len(match[0]):]).strip(" ,.")
+            due = clock + timedelta(seconds=seconds)
+            return tool_call("schedule", {"message": reminder or "Reminder", "at": due.isoformat()})
         answer = "Reminder scheduled. It will appear in Timeline when due."
     elif lower.startswith(("email ", "draft an email to ", "send an email to ")):
         if not prior:
