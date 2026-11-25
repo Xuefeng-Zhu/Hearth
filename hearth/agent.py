@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 
 from . import box, recall, router, search, timeline
+from .artifacts import format_text
 from .connections import catalog_entry, with_model
 from .connectors import ConnectorError, Integrations, model_error
 from .gateway_tools import METHODS, gateway_read, gateway_result, redact_text, validate_request
@@ -147,7 +148,7 @@ def tool_call(name, arguments):
     }]}
 
 
-def mock_completion(messages, emit, clock, *, tool_names=(), demo=False):
+def mock_completion(messages, emit, clock, *, tool_names=(), demo=False, artifact_format="md"):
     since_user = next(index for index in reversed(range(len(messages))) if messages[index]["role"] == "user")
     prompt = messages[since_user]["content"].strip()
     prior = [json.loads(message["content"]) for message in messages[since_user:] if message["role"] == "tool"]
@@ -178,9 +179,12 @@ def mock_completion(messages, emit, clock, *, tool_names=(), demo=False):
                              if item["role"] == "assistant"), None)
             if not previous:
                 return mock_text("What would you like in the artifact?", emit)
-            return tool_call("artifact_create", {"title": compact(previous.lstrip("# "), 60) or "Chat reply",
-                                                 "kind": "note", "content": previous,
-                                                 "format": "txt" if "plain text" in lower else "md"})
+            formats = {"plain text": "txt", "markdown": "md", "csv": "csv", "json": "json"}
+            fmt = next((fmt for label, fmt in formats.items() if re.search(r"\b" + label + r"\b", lower)),
+                       artifact_format)
+            title = compact(previous.lstrip("# "), 60) or "Chat reply"
+            return tool_call("artifact_create", {"title": title, "kind": "note",
+                                                 "content": format_text(title, previous, fmt), "format": fmt})
         answer = "Your files are ready in Artifacts." if len(prior) > 1 else "Your file is ready in Artifacts."
     elif lower.startswith("gateway "):
         if not prior:
@@ -412,7 +416,10 @@ class Agent:
 
     def reply(self, prompt, event, history, context):
         clock = datetime.now(timezone.utc)
-        messages = [{"role": "system", "content": f"{SYSTEM}\nCurrent UTC time: {iso(clock)}.\n{context}"}]
+        artifact_format = self.artifacts.config()["format"] if self.artifacts else "md"
+        messages = [{"role": "system", "content":
+                     f"{SYSTEM}\nDefault artifact format: {artifact_format}. Match content to the selected format.\n"
+                     f"Current UTC time: {iso(clock)}.\n{context}"}]
         messages.extend({"role": message["role"], "content": message["content"]} for message in history)
         demo_addresses = None
         if prompt.casefold() == THANKSGIVING_DEMO.casefold():
@@ -575,7 +582,8 @@ class Agent:
                         event("demo_warning", {})
                         time.sleep(1.8)
                     reply = mock_completion(messages, emit, clock, demo=demo,
-                                            tool_names={tool["function"]["name"] for tool in tools})
+                                            tool_names={tool["function"]["name"] for tool in tools},
+                                            artifact_format=self.artifacts.config()["format"] if self.artifacts else "md")
                 else:
                     reply = self.tools.gateway.completion(model, messages, tools, emit)
             except ConnectorError as error:
@@ -655,7 +663,7 @@ class Agent:
                     data = {"files": {path: self.storage.read(path) for path in self.storage.files()}}
             else:
                 data = {"entries": timeline.entries(self.storage, self.threads, self.can_undo)}
-            content, format, kind = json.dumps(scrub(data), ensure_ascii=False), "json", "export"
+            content, format, kind = json.dumps(data, ensure_ascii=False), "json", "export"
         chat = CHAT_ORIGIN.get()
         origin = {key: chat[key] for key in ("thread_id", "thread_title")}
         if chat.get("source"):

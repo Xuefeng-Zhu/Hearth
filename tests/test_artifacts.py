@@ -298,6 +298,20 @@ class ArtifactTest(unittest.TestCase):
         self.assertEqual(len(self.request("/api/state")[1]["message_artifacts"][done["id"]]), 4)
         self.assertEqual(self.detail(first)["thread_id"], "main")
 
+    def test_conversational_save_and_structured_memory_export(self):
+        self.request("/api/chat", {"message": "Read USER.md"})
+        _, events = self.request("/api/chat", {"message": "Save this as JSON"})
+        saved = events[-1]["message"]["artifacts"][0]
+        self.assertEqual(saved["format"], "json")
+        self.assertTrue(json.loads(self.detail(saved)["content"])["content"].startswith("# Frank"))
+        _, events = self.request("/api/chat", {"message": "Export my memory"})
+        exported = events[-1]["message"]["artifacts"][0]
+        self.assertEqual(exported["kind"], "export")
+        self.assertIn("USER.md", json.loads(self.detail(exported)["content"])["files"])
+        _, events = self.request("/api/chat", {"message": "Export the Timeline"})
+        exported = events[-1]["message"]["artifacts"][0]
+        self.assertTrue(any(row["kind"] == "artifact" for row in json.loads(self.detail(exported)["content"])["entries"]))
+
 
 if __name__ == "__main__":
     unittest.main()

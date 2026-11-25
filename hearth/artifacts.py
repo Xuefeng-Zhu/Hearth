@@ -40,6 +40,18 @@ def clean_content(content, fmt):
     return content, size
 
 
+def format_text(title, text, fmt):
+    if fmt == "csv":
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["Text"])
+        writer.writerows([line] for line in text.splitlines())
+        return buffer.getvalue()
+    if fmt == "json":
+        return json.dumps({"title": title, "content": text}, ensure_ascii=False)
+    return text
+
+
 def when(value):
     if not isinstance(value, str):
         return None
@@ -255,7 +267,8 @@ class Artifacts:
                 warnings.append("Connect the original Box account in Connections to load this file’s history.")
             if row.get("box_id") and row["sync"] == "synced":
                 row = {**row, "revision": self.box_revision(row)}
-            return {**public(row, content=True), "versions": history, "warnings": warnings}
+            return {**public(row, content=True), "versions": history, "warnings": warnings,
+                    "box_connected": bool(self.connection())}
 
     def write(self, row, operation=None, before=None):
         with self.storage.lock():
@@ -361,13 +374,7 @@ class Artifacts:
             if not text:
                 raise HearthError("This call has no saved transcript.")
         fmt = self.config()["format"]
-        if fmt == "csv":
-            buffer = io.StringIO()
-            csv.writer(buffer).writerows([["Text"], *[[line] for line in text.splitlines()]])
-            text = buffer.getvalue()
-        elif fmt == "json":
-            text = json.dumps({"title": title, "content": text}, ensure_ascii=False)
-        return self.create(title=title, kind=kind, content=text, format=fmt, message_id=message_id,
+        return self.create(title=title, kind=kind, content=format_text(title, text, fmt), format=fmt, message_id=message_id,
                            origin={"thread_id": thread_id, "thread_title": thread["title"],
                                    **({"source_tag": message["source"]} if message.get("source") else {})})
 

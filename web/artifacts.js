@@ -316,7 +316,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       link.rel = "noopener noreferrer";
       actions.append(link);
     }
-    if (item.sync !== "synced" && snapshot?.connected && !pending.has(item.id)) {
+    if (item.sync !== "synced" && item.box_connected && !pending.has(item.id)) {
       actions.append(control("Retry sync", () => retry(item)));
     }
     const deletion = control("Delete", () => {
