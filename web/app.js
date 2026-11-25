@@ -3,7 +3,7 @@ import { announcePose, looks, mascot, poseLabel, setLook, setPose } from "./avat
 import { createVoiceInput } from "./voice.js";
 import { callDuration, captionLine, createVoiceCall } from "./voice-call.js";
 import { createTimeline } from "./timeline.js";
-import { createArtifacts } from "./artifacts.js";
+import { createArtifacts, markdown } from "./artifacts.js";
 import { channelChip, createReminders } from "./reminders.js";
 
 const byId = (id) => document.getElementById(id);
@@ -388,7 +388,7 @@ function messageBubble(role, content, { message, status } = {}) {
     item.append(avatar);
   }
   const body = node("div");
-  const text = node("p", "", content);
+  const text = role === "assistant" && message?.id ? markdown(content, "chat-markdown") : node("p", "", content);
   const cards = node("div", "cards");
   const notices = node("div");
   notices.setAttribute("role", "status");

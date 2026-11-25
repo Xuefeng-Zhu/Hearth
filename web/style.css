@@ -73,6 +73,15 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .transcript:empty { display: none; }
 .message { min-width: 0; }
 .message p, .card pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.58; }
+.chat-markdown { line-height: 1.58; overflow-wrap: anywhere; }
+.chat-markdown > :is(p, h3, h4, h5, h6, ul, ol, blockquote, pre) { margin: 0 0 0.65em; }
+.chat-markdown > :last-child { margin-bottom: 0; }
+.chat-markdown :is(h3, h4, h5, h6) { font-size: 1.05em; }
+.chat-markdown :is(ul, ol) { padding-inline-start: 1.5em; }
+.chat-markdown a { color: var(--accent); text-underline-offset: 3px; }
+.chat-markdown blockquote { border-inline-start: 2px solid var(--accent); padding-inline-start: 0.8em; }
+.chat-markdown pre { white-space: pre-wrap; font: 13px/1.6 ui-monospace, monospace; }
+.chat-markdown :is(code, pre) { background: #f3edf3; border-radius: 4px; padding: 0.15em 0.3em; }
 .message.user { max-width: min(85%, 550px); justify-self: end; border-radius: 14px 14px 4px 14px; background: var(--accent-light); padding: 10px 15px; }
 .message.assistant { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: 11px; }
 .message .queued-label { color: var(--muted); font-size: 12px; margin-bottom: 4px; }

@@ -87,8 +87,8 @@ function inlineMarkdown(target, text) {
   target.append(text.slice(end));
 }
 
-function markdown(text) {
-  const content = element("div", "artifact-markdown");
+export function markdown(text, className = "artifact-markdown") {
+  const content = element("div", className);
   let block, code;
   for (const line of text.split(/\r?\n/)) {
     if (line.startsWith("```")) {
