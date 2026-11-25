@@ -214,6 +214,7 @@ async function screens(scheme, width, height) {
   page.setDefaultTimeout(7500);
   await page.goto(url);
   assert.equal(await page.title(), "Hearth");
+  await go(page, "chat");
   await page.locator(".chat-markdown table").waitFor();
   assert.match(await page.locator(".chat-markdown").first().innerText(), /Seattle weekend/);
   const screenshotLayout = page.locator("#composer");
