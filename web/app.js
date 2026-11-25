@@ -11,6 +11,7 @@ import { createAttachments } from "./attachments.js";
 import { icon, iconButton, mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
 import { createHome } from "./home.js";
+import { createAutomation } from "./automation.js";
 
 mountIcons();
 
@@ -105,18 +106,25 @@ const artifactLibrary = createArtifacts({
   refreshChat: async () => { if (view === "chat") await refreshView(); },
   onFilter: selectArtifactFilter,
 });
+const automation = createAutomation({
+  api, refresh: refreshView, undo, openThread: async (thread) => {
+    activateThread(thread);
+    await openView("chat");
+  },
+});
 const homePage = createHome({
   api, openView, openWeatherSettings, openPanelChat, openDemo,
   openFile: (file, trigger) => artifactLibrary.open(file.id, trigger, file),
   onData(data) {
     setTimeZone(data.timezone);
+    automation.home(data.approvals || []);
     const connections = data.builtin.connections;
     homeConnectorError = !!connections.error || connections.items.some((entry) => entry.status === "error");
     renderBrain(data);
   },
 });
 const delivery = createReminders({
-  api, openView, openSettings, currentView: () => view, currentSettings: () => settingsSection,
+  api, openView, openSettings, onInbox: automation.inbox, currentView: () => view, currentSettings: () => settingsSection,
   startSending: () => avatarSignal(currentThread, { type: "tool_started", title: "Sending reminder" }),
   stopSending: () => avatarSignal(currentThread, { type: "tool_finished" }),
 });
@@ -737,6 +745,7 @@ function browseCard(browse) {
 }
 
 function actionCard(action) {
+  if (action.tool) return automation.approvalCard(action);
   const card = node("article", "card");
   const header = node("div", "card-header");
   const statuses = {
@@ -1994,6 +2003,7 @@ async function openSettings(section, expand = true) {
   if (section === "appearance") return;
   if (section === "artifacts") return artifactLibrary.settings();
   if (section === "home") return homePage.settings();
+  if (section === "approvals") return automation.settings();
   if (section === "reminders") return delivery.settings();
   if (section === "voice") {
     syncVoiceSettings();
@@ -2079,7 +2089,7 @@ async function refreshView() {
   if (view === "home") return homePage.load();
   if (view === "timeline") return timeline.show();
   if (view === "artifacts") return artifactLibrary.show();
-  if (view === "reminders") return delivery.reminders();
+  if (view === "reminders") return automation.tasksActive() ? automation.loadTasks() : delivery.reminders();
   if (view === "inbox") return delivery.inbox();
   if (!await refreshState()) return;
   if (view === "chat") renderChat();
@@ -2417,13 +2427,13 @@ async function approve(action) {
 }
 
 async function undo(action, { confirmed = false, timelineTitle, redo = false } = {}) {
-  if (action.job || action.inbox_id) {
+  if (action.job || action.inbox_id || action.undo_task) {
     if (busy) return;
     setBusy(true);
     try {
       await api(action.inbox_id ? "/api/inbox/undo" : "/api/undo", { id: action.inbox_id || action.id });
       await refreshView();
-      showNotice(action.inbox_id ? "Email acceptance undone." : "Reminder canceled.");
+      showNotice(action.inbox_id ? "Email acceptance undone." : action.undo_task ? "Task restored." : "Reminder canceled.");
     } catch (error) {
       showNotice(error.message);
     } finally {
@@ -2762,7 +2772,7 @@ let polling = false;
 window.addEventListener("offline", renderWorkspaceStatus);
 window.addEventListener("online", renderWorkspaceStatus);
 setInterval(async () => {
-  if (!["chat", "reminders", "connections"].includes(view) || busy || threadBusy || document.hidden || polling) return;
+  if (!["chat", "reminders", "connections", "home", "inbox"].includes(view) || busy || threadBusy || document.hidden || polling) return;
   polling = true;
   try {
     if (view === "connections") await refreshPineconeHealth();

@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="/theme.css">
   <link rel="stylesheet" href="/home.css">
   <link rel="stylesheet" href="/pages.css">
+  <link rel="stylesheet" href="/automation.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -59,6 +60,7 @@
           </div>
           <p class="home-feedback" id="home-feedback" role="status"></p>
           <p class="home-meta" id="home-loading">Loading panels…</p>
+          <section id="home-approvals" class="automation-section" aria-label="Pending approvals" hidden></section>
           <div class="home-grid" id="home-grid"></div>
           <p class="home-empty home-meta" id="home-empty" hidden>All panels are removed. Edit the layout to restore them.</p>
           <section class="home-removed" id="home-removed" aria-labelledby="home-removed-title" hidden>
@@ -224,6 +226,11 @@
         </div>
       </section>
       <section class="view panel" id="reminders-view" aria-labelledby="view-title" hidden>
+        <div class="automation-tabs" role="tablist" aria-label="Reminders and recurring tasks">
+          <button type="button" role="tab" id="reminders-tab" aria-selected="true" aria-controls="reminders-panel">Reminders</button>
+          <button type="button" role="tab" id="tasks-tab" aria-selected="false" aria-controls="tasks-panel" tabindex="-1">Recurring tasks</button>
+        </div>
+        <div id="reminders-panel" role="tabpanel" aria-labelledby="reminders-tab">
         <div class="section-intro delivery-intro">
           <div><h2>Reminders</h2><p>See what’s coming up and what reached each channel.</p></div>
           <button type="button" id="open-reminder-settings">Reminder settings</button>
@@ -241,6 +248,16 @@
         </details>
         <p id="reminders-feedback" class="meta" role="status"></p>
         <div id="reminders-content"></div>
+        </div>
+        <div id="tasks-panel" role="tabpanel" aria-labelledby="tasks-tab" hidden>
+          <div class="section-intro delivery-intro">
+            <div><h2>Recurring tasks</h2><p>Schedule Hearth to run a prompt and deliver the result.</p></div>
+            <button type="button" class="primary-setting automation-button" id="new-task"><span data-icon="plus"></span>New task</button>
+          </div>
+          <p class="meta" id="tasks-feedback" role="status"></p>
+          <div id="task-approval"></div>
+          <div id="tasks-content" class="automation-task-grid"></div>
+        </div>
       </section>
       <section class="view panel" id="inbox-view" aria-labelledby="view-title" hidden>
         <div class="section-intro delivery-intro">
@@ -249,6 +266,8 @@
         </div>
         <div id="inbox-address" class="card email-hearth-card"></div>
         <p id="inbox-feedback" class="meta" role="status"></p>
+        <section id="inbox-approvals" class="automation-section" aria-label="Approvals" hidden></section>
+        <section id="inbox-runs" class="automation-section" aria-label="Recurring task results" hidden></section>
         <div id="inbox-content"></div>
       </section>
       <section class="view panel" id="timeline-view" aria-labelledby="view-title" hidden>
@@ -324,8 +343,18 @@
           <button type="button" data-settings="voice">Voice</button>
           <button type="button" data-settings="reminders">Reminders</button>
           <button type="button" data-settings="home">Home</button>
+          <button type="button" data-settings="approvals">Approvals</button>
         </nav>
         <div class="settings-sections" id="settings-sections">
+        <div id="settings-approvals" hidden>
+          <div class="section-intro"><h2>Approvals</h2><p>Choose when Hearth should ask before taking an action.</p></div>
+          <form id="approval-settings-form" class="card brain-form approval-settings">
+            <div id="approval-policies"></div>
+            <p class="meta">Reminders and task updates can email your configured recipient. Scheduled tools still ask before sending, spending, publishing, or deleting.</p>
+            <button type="submit" class="primary-setting">Save settings</button>
+            <p class="meta" id="approval-settings-feedback" role="status"></p>
+          </form>
+        </div>
         <div id="settings-home" hidden>
           <div class="section-intro"><h2>Home</h2><p>Choose the location shown on your weather panel.</p></div>
           <form id="weather-settings-form" class="card brain-form">
@@ -792,5 +821,6 @@
       <div class="artifact-drawer-body" id="artifact-detail-body"></div>
     </div>
   </dialog>
+  <dialog id="automation-dialog" class="card automation-dialog" aria-labelledby="automation-dialog-title"></dialog>
 </body>
 </html>

@@ -14,6 +14,7 @@ const kinds = {
   voice: ["Voice", "mic"], artifact: ["Artifact", "file-text"], upload: ["Attachment", "paperclip"],
   page: ["Page", "page"], page_share: ["Page sharing", "share"],
   undo: ["Undo", "retry"], inbox: ["Inbox", "inbox"], email: ["Email", "mail"],
+  approval: ["Approval", "shield"], task: ["Recurring task", "clock"],
   panel: ["Home panel", "home"], checkpoint: ["Checkpoint", "history"], thread: ["Side chat", "message"], tool: ["Tool", "wrench"],
 };
 kinds.remember = kinds.memory;
@@ -79,7 +80,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share"]
+    action: ["approval", "task", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -114,7 +115,7 @@ function detailFields(row, gatewayResponse) {
     ["Reply", data.reply],
     ["Routing", data.reason || data.routing?.reason],
     ["Model order", join(data.order?.map(routedModel))],
-    ["Notes", data.detail || data.error || (row.kind === "inbox" && data.reason) || join(data.notices)],
+    ["Notes", data.detail || data.error || data.reason || join(data.notices)],
     ["Memory files", join(data.paths) || data.path],
     ["Excerpt", data.excerpt],
     ["Memory backend", data.backend && (row.connector || "Keyword")],
@@ -248,12 +249,13 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
     const button = card.querySelector(".timeline-undo");
     button.setAttribute("aria-expanded", String(!target.hidden));
     if (!target.hidden && !target.firstElementChild) {
-      const itemChange = ["artifact", "inbox", "reminder", "page"].includes(row.kind) || action.memory_change;
+      const itemChange = ["artifact", "inbox", "reminder", "page"].includes(row.kind) || action.memory_change || action.undo_task;
       const message = row.redoable ? "Apply this memory change again?"
         : row.kind === "page" ? "Undo this page change?"
         : row.kind === "artifact" ? "Undo this artifact change?"
           : row.kind === "inbox" ? "Undo the changes from this email?"
           : row.kind === "reminder" ? "Cancel this reminder?"
+            : row.data.undo_task ? "Restore this recurring task?"
           : action.memory_change ? "Undo this memory change?"
             : "Restore this checkpoint? Newer chats, notes, and reminders will roll back. Delivered email stays delivered.";
       target.append(element("p", "", message));

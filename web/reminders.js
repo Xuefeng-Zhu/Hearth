@@ -68,7 +68,7 @@ function option(label, value) {
   return item;
 }
 
-export function createReminders({ api, openView, openSettings, startSending, stopSending, currentView, currentSettings }) {
+export function createReminders({ api, openView, openSettings, startSending, stopSending, currentView, currentSettings, onInbox }) {
   const form = get("reminder-settings-form");
   const options = get("inbox-auto-kinds");
   let backgroundPoll;
@@ -427,6 +427,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
     try {
       const result = await api("/api/inbox");
       if (request !== inboxRequest || currentView() !== "inbox") return;
+      onInbox(result.task_notifications || [], result.approvals || []);
       if (result.settings?.timezone) setTimeZone(result.settings.timezone);
       const connection = JSON.stringify([result.connected, result.inbox_address, result.inbox_error, result.connection_message]);
       if (connection !== inboxConnection) {
