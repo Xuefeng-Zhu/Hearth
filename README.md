@@ -50,12 +50,22 @@ Each query from the voice agent runs in the chat where the call started, with He
 
 Hearth mints room credentials through the Fly gateway. The browser uses them for LiveKit WebRTC, and Hearth serves the pinned SDK locally from `web/vendor/vocalbridge.mjs`. The bundle contains `@vocalbridgeai/sdk@0.1.1` and `livekit-client@2.25.0`, bundled for browser ESM with esbuild 0.28.1. It loads on demand and requires no app build step or CDN. [Vocal Bridge developer docs](https://vocalbridgeai.com/docs/overview), [SDK integration guide](https://github.com/vocalbridgeai/sdk/blob/main/INTEGRATION.md)
 
+## Timeline
+
+Open **Timeline** for a live history of chat turns, memory, approvals, reminders, connectors, model routing, voice, and checkpoints. Entries are grouped by day in your browser’s time zone. Today’s totals sit above the filters. Filter by activity type or thread, or search for a prompt, note, model, or provider. The activity type is saved in this browser. Expand a card for its redacted details, then open **Raw** for the saved fields. The time on each card has the exact timestamp in its tooltip.
+
+Select **Undo** and confirm **Restore checkpoint** on the card. A restore can roll back newer chats, notes, and reminders across the workspace. On the Sprite it also restores filesystem changes, including deployed files. Delivered email and remote provider changes persist. Once Hearth verifies the restore, the card shows **Undone** and the summary records **Last undo**. These receipts are saved in the browser so they survive the workspace restore.
+
+The activity feed uses the same server-sent event transport as Chat. It updates for completed background work, including delivered reminders. Connector reads record request metadata, while provider responses still follow their original preview and chat behavior. Dictation activity records the transcription engine without saving an unsent transcript.
+
+The Harvest Hearth icon appears in Chat and the sidebar. The browser tab uses the flame-only icon, and the web manifest and touch icon supply larger versions for browsers that install Hearth.
+
 ## Demo
 
 1. Click **Plan Thanksgiving dinner**. Hearth streams a plan based on the sample notes, drafts an invitation, and sets an in-app reminder for two minutes later.
 2. Click **Approve** to record the simulated send. The invitation card shows its checkpoint.
 3. Send `Wipe topics/thanksgiving.md`. Open **Memory** and select the Thanksgiving note to see that it is empty.
-4. In **Timeline**, find the **Memory updated** action and click **Undo**. Confirm the checkpoint restore. When Hearth reconnects, reopen the note to see its original content.
+4. In **Timeline**, find the **Memory updated** action and click **Undo**, then **Restore checkpoint**. When Hearth reconnects, the card is marked **Undone** and the note contains its original Markdown.
 
 Use `Remind me to check the oven in 15 seconds` for a quick reminder demo. Use `Schedule check the oven | 0 17 * * 4` for a weekly Thursday reminder at 17:00 UTC. Timeline shows upcoming and delivered reminders.
 
