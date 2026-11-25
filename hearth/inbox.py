@@ -89,19 +89,25 @@ class Inbox:
                 mailbox = self.reminders.mailbox(client)
                 count = self.read_page(client, mailbox, now)
                 self.acknowledge(client, mailbox, now)
-                error = None
+                error, transient = None, False
             except (ConnectorError, HearthError) as exc:
                 status = getattr(exc, "status", None)
+                transient = status is None or status in (408, 429) or status >= 500
                 error = f"AgentMail returned HTTP {status}." if status else "Hearth could not check the AgentMail inbox."
                 count = 0
             with self.storage.lock():
                 state = self.storage.load()
                 previous = state.get("inbox_poll", {})
-                state["inbox_poll"] = {"at": iso(now), "error": error}
-                if error and error != previous.get("error"):
+                same_error = error and error == previous.get("error")
+                failures = (previous.get("failures", 1) + 1 if same_error else 1) if error else 0
+                actionable = bool(error) and (not transient or failures >= 3)
+                incident = previous.get("incident") if same_error else None
+                if actionable and not incident:
+                    incident = new_id()
                     state.setdefault("activity", []).append(timeline.entry(
-                        "inbox", "AgentMail inbox poll failed", ORIGIN, id=new_id(), at=iso(now),
+                        "inbox", "AgentMail inbox poll failed", ORIGIN, id=incident, at=iso(now),
                         provider="agentmail", error=True, data={"reason": error}))
+                state["inbox_poll"] = {"at": iso(now), "error": error, "failures": failures, "incident": incident}
                 self.storage.save(state)
             if manual and error:
                 raise HearthError(error)

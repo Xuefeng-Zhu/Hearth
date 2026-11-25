@@ -57,7 +57,7 @@ class Index:
         try:
             model = self.control(self.base)
         except ConnectorError as error:
-            if error.status != 404:
+            if error.status != 404 or error.missing_connection:
                 raise
             self.create(dense_available)
             model = self.control(self.base)

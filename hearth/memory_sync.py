@@ -3,9 +3,11 @@
 import threading
 import time
 
-from . import pinecone, recall
+from . import pinecone, recall, timeline
 from .connectors import ConnectorError
-from .storage import HearthError
+from .gateway_tools import scrub
+from .storage import HearthError, iso, new_id
+from .threads import MAIN_ORIGIN
 
 MODES = ("change", "startup", "sync", "rebuild")
 
@@ -20,15 +22,18 @@ class MemorySync:
         self.retry_at = 0
         self.retry_delay = 2
         self.retry_timer = None
+        self.retry_target = None
 
     def request(self, mode="change"):
-        if not self.app.memory_index.available(self.app.agent.config)["pinecone"]:
+        config = self.app.agent.config
+        if not self.app.memory_index.available(config)["pinecone"]:
             if mode in ("sync", "rebuild"):
                 raise HearthError("Connect Pinecone in Connections first.")
             return
         with self.lock:
             manual = mode in ("sync", "rebuild")
-            if manual or mode == "startup":
+            target = self.app.memory_index.target(config)
+            if manual or target != self.retry_target:
                 self.retry_at = 0
             if self.retry_timer:
                 self.retry_timer.cancel()
@@ -82,23 +87,30 @@ class MemorySync:
                     inspect=mode != "change", rebuild=mode == "rebuild",
                 )
             except (HearthError, OSError) as error:
-                self.job = job = {**self.job, "status": "failed", "error": recall.error_message(error)}
-                transient = isinstance(error, OSError) or (isinstance(error, ConnectorError)
-                            and error.status in pinecone.TRANSIENT and not error.unsupported)
+                transient = isinstance(error, OSError) or (
+                    isinstance(error, ConnectorError) and not error.unsupported and (
+                        error.status in pinecone.TRANSIENT[1:] or str(error) == "The gateway is unavailable."
+                    )
+                )
+                self.job = job = {**self.job, "status": "failed", "error": recall.error_message(error),
+                                  "retrying": transient}
+                self.log(agent, job, failed=True)
                 with self.lock:
-                    self.retry_at = time.monotonic() + (self.retry_delay if transient else 60)
-                    if transient:
-                        self.retry_delay = min(self.retry_delay * 2, 60)
-                    if self.pending not in ("sync", "rebuild", "startup"):
-                        if transient or self.pending == "change":
+                    target = self.app.memory_index.target(agent.config)
+                    same_target = target == self.app.memory_index.target(self.app.agent.config)
+                    if same_target:
+                        self.retry_target = target
+                        self.retry_at = time.monotonic() + (self.retry_delay if transient else 300)
+                        if transient:
+                            self.retry_delay = min(self.retry_delay * 2, 60)
+                    stop = same_target and self.pending not in ("sync", "rebuild")
+                    if stop:
+                        if transient or self.pending is not None:
                             # A retry retains startup inspection and backfill behavior.
-                            self.pending = mode if mode in ("startup", "change") else "startup"
+                            if self.pending is None or self.pending == "change":
+                                self.pending = mode if mode in ("startup", "change") else "startup"
                             self.defer()
                         self.running = False
-                        stop = True
-                    else:
-                        stop = False
-                self.log(agent, job, failed=True)
                 if stop:
                     return
             else:
@@ -110,8 +122,9 @@ class MemorySync:
                 self.retry_at, self.retry_delay = 0, 2
                 self.job = {**self.job, **result, "status": "complete",
                             "latency_ms": round((time.monotonic() - started) * 1_000)}
-                if result["work"] or mode != "change":
+                if result["work"] or mode != "change" or self.retry_target:
                     self.log(agent, self.job)
+                self.retry_target = None
 
     def save_index(self, entry, info):
         with self.app.operation:
@@ -138,9 +151,22 @@ class MemorySync:
         title = {"startup": "Pinecone startup backfill", "sync": "Pinecone memory sync",
                  "rebuild": "Pinecone index rebuilt", "change": "Pinecone memory updated"}[job["mode"]]
         if failed:
-            title = "Pinecone memory sync failed"
+            title = "Pinecone memory sync will retry" if job["retrying"] else "Pinecone memory sync failed"
+        elif job["mode"] == "startup" and not job["work"]:
+            title = "Pinecone startup check"
+        config = agent.config["pinecone"]
+        data = scrub({**job, "namespace": config["namespace"], "index": config["index"]})
         try:
-            agent.log_activity("memory", title, provider="pinecone", error=failed,
-                               data={**job, "namespace": agent.config["pinecone"]["namespace"]})
+            storage = self.app.storage
+            with storage.lock():
+                state = storage.load()
+                activity = state.setdefault("activity", [])
+                if failed:
+                    last = next((row["data"] for row in reversed(activity) if timeline.pinecone_sync(row, config)), {})
+                    if last.get("error") == data["error"] and bool(last.get("retrying")) == job["retrying"]:
+                        return
+                activity.append(timeline.entry("memory", title, MAIN_ORIGIN, id=new_id(), at=iso(),
+                                               provider="pinecone", error=failed and not job["retrying"], data=data))
+                storage.save(state)
         except OSError:
             pass

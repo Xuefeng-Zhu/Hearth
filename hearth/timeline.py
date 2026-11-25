@@ -26,6 +26,47 @@ def record(storage, kind, title, origin, **fields):
         storage.save(state)
 
 
+def pinecone_sync(row, target):
+    if row["kind"] != "memory" or row.get("provider") != "pinecone":
+        return False
+    data = row["data"]
+    index = target.get("name", target.get("index"))
+    return (data.get("mode") in {"startup", "change", "sync", "rebuild"}
+            and data.get("namespace") == target["namespace"]
+            and data.get("index", index) == index)
+
+
+def actionable(entries, state, pinecone, mail_connected):
+    poll = state.get("inbox_poll", {}) if mail_connected else {}
+    latest_sync = latest_poll = None
+    for row in entries:
+        if pinecone_sync(row, pinecone):
+            latest_sync = row
+        elif row["kind"] == "inbox" and row["title"] == "AgentMail inbox poll failed":
+            latest_poll = row
+    for row in entries:
+        kind, title, data = row["kind"], row["title"], row["data"]
+        is_pinecone = kind == "memory" and row.get("provider") == "pinecone" and data.get("mode")
+        if is_pinecone and (data.get("retrying") or (
+            data["mode"] == "startup" and data.get("status") == "complete" and data.get("work") == 0
+        )):
+            row["diagnostic"] = True
+        if not row.get("error"):
+            continue
+        if row.get("undone") or (kind == "tool" and title != "Chat interrupted"):
+            row["error"] = False
+        elif kind in {"brain", "search"} and title in {"Brain fallback", "Search fallback"}:
+            row["error"] = False
+        elif is_pinecone:
+            row["error"] = (row is latest_sync and pinecone["state"] == "Unavailable"
+                            and not data.get("retrying"))
+        elif kind == "inbox" and title == "AgentMail inbox poll failed":
+            row["error"] = (row is latest_poll and data.get("reason") == poll.get("error")
+                            and (poll.get("incident") == row["id"] if "incident" in poll else True))
+        if not row["error"]:
+            row["diagnostic"] = True
+
+
 ERROR_STATUSES = {"changing", "partial", "unknown", "sending", "request_unknown", "failed"}
 
 
@@ -97,7 +138,7 @@ def chat_entries(threads, thread_list, logged_recall):
             yield pending
 
 
-def entries(storage, threads, can_undo):
+def entries(storage, threads, can_undo, *, pinecone=None, mail_connected=False):
     from .pages import can_undo as can_undo_page
     with storage.lock():
         state = storage.load()
@@ -145,6 +186,8 @@ def entries(storage, threads, can_undo):
             rows.append(entry("reminder", f"{title} · {item['message']} · {status}{late}", item,
                               id=f"reminder:{item['id']}", at=item["delivered_at"], data=data,
                               error=any(info["status"] == "failed" for info in delivery.values())))
+        if pinecone is not None:
+            actionable(rows, state, pinecone, mail_connected)
     return [{**row, "thread_title": titles.get(row["thread_id"], row["thread_title"])} for row in rows]
 
 

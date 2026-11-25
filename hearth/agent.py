@@ -938,7 +938,7 @@ class Agent:
                     event("remembered", {})
                 if "error" in result:
                     self.log_activity("tool", TOOL_TITLES.get(name, "Tool request"),
-                                      error=True, data={"detail": result["error"]})
+                                      diagnostic=True, data={"detail": result["error"]})
                     event("tool_warning", {})
                 if "action" in result:
                     touched_state = True

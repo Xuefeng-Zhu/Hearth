@@ -327,10 +327,14 @@ class Application:
                      for action in actions if action.get("checkpoint")}
         return [known.get(item["id"], item) for item in self.checkpoints.list()]
 
-    def timeline_info(self):
+    def timeline_info(self, pinecone=None):
         with self.storage.lock():
             zone = saved(self.storage.load())["timezone"]
-        entries = timeline.entries(self.storage, self.threads, self.agent.can_undo)
+        if pinecone is None:
+            pinecone = self.memory_index.pinecone_status(self.agent.config)
+        entries = timeline.entries(self.storage, self.threads, self.agent.can_undo,
+                                   pinecone=pinecone,
+                                   mail_connected=bool(self.agent.config.get("agentmail", {}).get("connection_id")))
         represented = {row["data"]["checkpoint"]["id"] for row in entries
                        if row.get("action_id") and row["data"].get("checkpoint")}
         try:
