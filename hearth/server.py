@@ -728,8 +728,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             operation = self.path.rsplit("/", 1)[-1]
             if self.path.startswith("/api/inbox/"):
-                if operation == "poll" and not body:
-                    result = {"processed": self.app.inbox.poll()}
+                if operation == "poll" and (not body or (body.keys() == {"force"} and body["force"] is True)):
+                    result = {"processed": self.app.inbox.poll(force=bool(body))}
                 elif operation in {"accept", "edit", "dismiss", "undo"}:
                     result = self.app.inbox.update(operation, body)
                 else:

@@ -433,7 +433,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
     const feedback = get("inbox-feedback");
     if (manual) feedback.textContent = "Checking for forwarded email…";
     try {
-      const result = await api("/api/inbox/poll", {});
+      const result = await api("/api/inbox/poll", manual ? { force: true } : {});
       if (currentView() === "inbox") {
         await inbox();
         if (manual) feedback.textContent = result.processed ? `Processed ${result.processed} email(s).` : "Check complete.";

@@ -304,3 +304,24 @@ Appointment 2030-01-10T10:00:00Z.
         self.assertEqual(next_app.reminders.signing_key, self.app.reminders.signing_key)
         for name in ("scheduler-tick.token", "reminder-action.key"):
             self.assertEqual((self.storage.root / name).stat().st_mode & 0o777, 0o600)
+
+    def test_manual_inbox_check_fetches_mail_inside_browser_poll_interval(self):
+        self.connect()
+        now = datetime.now(timezone.utc)
+        self.assertEqual(self.app.inbox.poll(clock=now), 0)
+        self.gateway.messages = [{**self.message("new", "A new note", "Keep the blue bag."),
+                                  "timestamp": iso(now), "created_at": iso(now)}]
+        with HTTPServer(("127.0.0.1", 0), self.app) as server:
+            task = threading.Thread(target=server.serve_forever, daemon=True)
+            task.start()
+            try:
+                base = f"http://127.0.0.1:{server.server_port}"
+                opener = build_opener(ProxyHandler({}))
+                for body, count in (({}, 0), ({"force": True}, 1), ({"force": True}, 0)):
+                    request = Request(base + "/api/inbox/poll", json.dumps(body).encode(),
+                                      headers={"Content-Type": "application/json", "Origin": base})
+                    with opener.open(request, timeout=3) as response:
+                        self.assertEqual(json.load(response)["processed"], count)
+            finally:
+                server.shutdown()
+                task.join(2)
