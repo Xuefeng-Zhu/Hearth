@@ -6,7 +6,7 @@ from urllib.parse import quote
 from .connectors import CORE_PROVIDERS, GATEWAY_SEGMENT, MODELS_PATHS, MODEL_PATHS, ConnectorError, valid_provider
 from .gateway_tools import redact_text
 from .storage import HearthError, ROOT, atomic_write, iso
-from . import box, recall, router, search
+from . import box, pinecone, recall, router, search
 
 CATALOG = {entry["slug"]: entry for entry in json.loads((ROOT / "config/catalog.json").read_text(encoding="utf-8"))}
 DASHBOARD = "https://fly.io/dashboard/xuefeng-zhu/sprites/connectors"
@@ -118,7 +118,7 @@ def probe(gateway, config):
     provider = config["provider"]
     path = CATALOG[provider]["test_path"]
     if provider == "pinecone":
-        path = f"indexes/{quote(config['index'], safe='')}"
+        path = "indexes"
     elif provider == "agentmail" and config["inbox_id"]:
         path = f"v0/inboxes/{quote(config['inbox_id'], safe='')}"
     try:
@@ -195,6 +195,19 @@ class Connections:
                         self.merge(model, item)
         for provider in CORE_PROVIDERS[1:]:
             self.merge(config[provider], data.get(provider))
+        vector = data.get("pinecone")
+        if isinstance(vector, dict):
+            entry = config["pinecone"]
+            namespace = vector.get("namespace")
+            if isinstance(namespace, str) and pinecone.NAMESPACE.fullmatch(namespace):
+                # Earlier releases used hearth as a prefix for workspace hashes.
+                entry["namespace"] = "frank" if namespace == "hearth" and not vector.get("host") else namespace
+            host = vector.get("host")
+            if isinstance(host, str) and pinecone.INDEX_HOST.fullmatch(host):
+                entry["host"] = host
+            for field in ("cloud", "region", "embedding_model"):
+                if valid_model(value := vector.get(field)):
+                    entry[field] = value
         saved_gateway = data.get("gateway")
         if isinstance(saved_gateway, dict):
             config["gateway"] = {
@@ -245,6 +258,20 @@ class Connections:
             config["box_folders"] = folders
             atomic_write(self.path, json.dumps(config, indent=2) + "\n")
             self.config = config
+
+    def save_pinecone_index(self, entry, info):
+        with self.storage.lock():
+            config = self.load()
+            current = config["pinecone"]
+            if (entry["connection_id"] != self.selected.get("pinecone") or
+                    any(current[key] != entry[key] for key in ("index", "namespace"))):
+                return
+            updated = {"host": info["host"], "namespace": entry["namespace"],
+                       "embedding_model": info["embedding_model"]}
+            if any(current.get(key) != value for key, value in updated.items()):
+                current.update(updated)
+                atomic_write(self.path, json.dumps(config, indent=2) + "\n")
+                self.config = config
 
     @staticmethod
     def merge(config, saved):
@@ -457,6 +484,9 @@ class Connections:
         field = SETTINGS[provider]
         if config[provider][field] == value:
             return
+        if provider == "pinecone":
+            for key in ("host", "embedding_model"):
+                config[provider].pop(key, None)
         config[provider][field] = value
         self.persist(config, "Before saving Hearth connection settings")
         self.config = config

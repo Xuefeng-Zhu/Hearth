@@ -87,12 +87,13 @@ class Gateway:
         except HTTPError as error:
             unsupported, location = False, None
             with error:
-                if path.startswith("box/"):
+                if path.startswith(("box/", "pinecone/")):
                     if error.code == 403:
                         try:
                             detail = json.loads(error.read(4096))
                             unsupported = isinstance(detail, dict) and detail.get("error") in (
                                 "endpoint is not supported by the Box connector",
+                                "endpoint is not supported by the Pinecone connector",
                                 "request is not supported by this connector",
                             )
                         except (OSError, HTTPException, ValueError):

@@ -52,6 +52,8 @@ def action_entry(action, can_undo):
     return entry(kind, compact(title, 180), action, id=f"action:{action['id']}",
                  at=action.get("updated_at", action["at"]), provider=provider, model=action.get("model"),
                  error=error, action_id=action["id"], undoable=can_undo(action),
+                 undone=bool(action.get("undone")), undone_at=action.get("undone_at"),
+                 redoable=bool(action.get("undone") and action.get("memory_change")),
                  data={key: value for key, value in action.items() if key not in {"target", "response"}})
 
 

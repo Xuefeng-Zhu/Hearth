@@ -95,6 +95,7 @@ def message_artifacts(state, thread_id):
 
 class Artifacts:
     def __init__(self, storage, threads, connections, operation):
+        self.on_memory_change = lambda: None
         self.storage = storage
         self.threads = threads
         self.connections = connections
@@ -212,6 +213,40 @@ class Artifacts:
                 rows.append(row)
             return {**self.info(), "artifacts": [public(row) for row in rows], "box_error": error}
 
+    def memory_rows(self, previous):
+        if self.list()["box_error"]:
+            return None
+        with self.lock:
+            client = self.client()
+            if client is None:
+                return None
+            with self.storage.lock():
+                local = self.storage.load().get("artifacts", {})
+            represented = {row["box_id"]: row for row in local.values()
+                           if row.get("box_id") and row.get("box_connection") == self.connection()}
+            rows = {}
+            for row in self.remote.values():
+                linked = represented.get(row["box_id"])
+                if (linked and (linked.get("deleted") or linked.get("sync") != "synced")
+                        or row["format"] not in box.FORMATS
+                        or (type(row.get("size")) is int and row["size"] > box.MAX_BYTES)):
+                    continue
+                key = linked["id"] if linked else row["id"]
+                old = previous.get(key, {})
+                if old.get("revision") == row["revision"]:
+                    rows[key] = old
+                    continue
+                if linked and linked.get("version_id") == row.get("version_id") and "content" in linked:
+                    continue
+                try:
+                    content = redact_text(client.content(row["box_id"]))
+                except (ConnectorError, HearthError):
+                    if old:
+                        rows[key] = old
+                else:
+                    rows[key] = {**row, "id": key, "content": content}
+            return rows
+
     def find(self, identity):
         if not isinstance(identity, str) or not re.fullmatch(r"(?:[a-f0-9]{32}|box-[0-9]{1,30})", identity):
             raise HearthError("Invalid artifact.")
@@ -285,6 +320,7 @@ class Artifacts:
                     "operation": operation, "id": row["id"], "revision": row["revision"], "before": before}
             state.setdefault("artifacts", {})[row["id"]] = row
             self.storage.save(state)
+        self.on_memory_change()
 
     def synchronize(self, row, *, retry=False):
         client = self.for_row(row) if row.get("box_id") else self.client()
@@ -477,6 +513,7 @@ class Artifacts:
                 event = next(event for event in state["activity"] if event["id"] == action_id)
                 event.update(undone=True, undoable=False, undone_at=iso())
                 self.storage.save(state)
+            self.on_memory_change()
             return {"ok": True}
 
     def undo_update(self, row, before):

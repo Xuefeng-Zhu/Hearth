@@ -15,12 +15,13 @@ CREDENTIAL_FIELDS = {
 }
 CREDENTIAL_TEXT = re.compile(
     r"(?i)\b(?:sk-[A-Za-z0-9_-]{16,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{12,}"
-    r"|gh[pousr]_[A-Za-z0-9_]{16,}|hf_[A-Za-z0-9]{16,}|xox[bpars]-[A-Za-z0-9-]{10,}|sb_secret_[A-Za-z0-9_-]{10,}"
+    r"|pcsk_[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{16,}|hf_[A-Za-z0-9]{16,}|xox[bpars]-[A-Za-z0-9-]{10,}|sb_secret_[A-Za-z0-9_-]{10,}"
     r"|AIza[A-Za-z0-9_-]{30,}|eyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     r"|bearer\s+[A-Za-z0-9._~+/-]{12,})"
     r"|https?://[A-Za-z0-9.-]+\.sprites\.app\b[^\s\"<>]*"
     r"|postgres(?:ql)?://[^\s\"<>]+"
 )
+PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S)
 CREDENTIAL_ASSIGNMENT = re.compile(
     r"""(?ix) ( ["']? \b (?: api[\s_-]?key | access[\s_-]?token | refresh[\s_-]?token |
     sprites?[\s_-]?token | authorization | password | client[\s_-]?secret | private[\s_-]?key )
@@ -38,6 +39,7 @@ UPSTASH_READS = frozenset((
 
 
 def redact_text(text):
+    text = PRIVATE_KEY.sub(lambda match: "[redacted]" + "\n" * match[0].count("\n"), text)
     return CREDENTIAL_TEXT.sub("[redacted]", CREDENTIAL_ASSIGNMENT.sub(r'\1"[redacted]"', text))
 
 

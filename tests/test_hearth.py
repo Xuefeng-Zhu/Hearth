@@ -173,38 +173,6 @@ class HearthTest(unittest.TestCase):
         self.assertEqual(action["job"]["message"], "check the oven")
         self.assertEqual(self.storage.load()["jobs"], [action["job"]])
 
-    def test_semantic_index_is_written_after_checkpoint_and_reused_for_recall(self):
-        class PineconeGateway(Recorder):
-            def json(inner, config, path, body=None, headers=None):
-                inner.requests.append((path, body))
-                if path == "indexes/hearth-memory":
-                    return {"dimension": 2, "metric": "cosine"}
-                if path == "embed":
-                    return {"data": [{"values": [1, 0] if "vegetarian" in item["text"] or
-                                     body["parameters"]["input_type"] == "query" else [0, 1]}
-                                    for item in body["inputs"]]}
-                if path.endswith("/vectors/upsert"):
-                    self.assertEqual(len(self.checkpoints.list()), 1)
-                    inner.vectors = body["vectors"]
-                    return {"upsertedCount": len(inner.vectors)}
-                if path.endswith("/query"):
-                    self.assertEqual(body["vector"], [1, 0])
-                    return {"matches": [{"id": item["id"], "score": item["values"][0]}
-                                        for item in inner.vectors]}
-                self.fail("Unexpected Pinecone API path.")
-
-        self.config["pinecone"]["connection_id"] = "test-id"
-        gateway = PineconeGateway()
-        agent = Agent(self.storage, self.checkpoints, self.config, gateway)
-        for _ in range(2):
-            result = agent.memory_search("dietary preferences")
-            self.assertEqual(result["backend"], "pinecone")
-            hit = result["results"][0]
-            self.assertEqual((hit["path"], hit["line"], hit["similarity"]), ("people/maya.md", 3, 1.0))
-        paths = [path for path, _ in gateway.requests]
-        self.assertEqual(paths.count("indexes/hearth-memory/vectors/upsert"), 1)
-        self.assertEqual(paths.count("indexes/hearth-memory/query"), 2)
-
     def test_http_flow_streams_and_restores(self):
         app = Application(self.storage, self.checkpoints, self.config)
         server = HTTPServer(("127.0.0.1", 0), app)
@@ -253,13 +221,12 @@ class HearthTest(unittest.TestCase):
         self.assertTrue(any(row["kind"] == "chat" for row in timeline))
         self.assertEqual(get(path)["content"], "")
         self.assertEqual(get("/api/checkpoints")["checkpoints"][0]["id"], action["checkpoint"]["id"])
-        self.assertEqual(request("/api/undo", {"id": action["id"]})[1], 202)
-        for _ in range(25):
-            if get(path)["content"] == original:
-                break
-            time.sleep(.08)
+        self.assertEqual(request("/api/undo", {"id": action["id"]})[1], 200)
         self.assertEqual(get(path)["content"], original)
-        self.assertNotIn(card["id"], [row["id"] for row in get("/api/timeline")["entries"]])
+        undone, = [row for row in get("/api/timeline")["entries"] if row["id"] == card["id"]]
+        self.assertTrue(undone["redoable"])
+        self.assertEqual(request("/api/redo", {"id": action["id"]})[1], 200)
+        self.assertEqual(get(path)["content"], "")
 
     def test_timeline_stream_signals_scheduler_writes_and_projects_redacted_history(self):
         app = Application(self.storage, self.checkpoints, self.config)

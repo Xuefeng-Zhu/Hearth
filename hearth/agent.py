@@ -6,7 +6,7 @@ from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 
-from . import box, recall, router, search, timeline
+from . import box, memory_edits, recall, router, search, timeline
 from .artifacts import format_text
 from .connections import catalog_entry, with_model
 from .connectors import ConnectorError, Integrations, model_error
@@ -74,7 +74,9 @@ def schema(description, properties=None, required=()):
 STRING = {"type": "string"}
 TOOL_DEFINITIONS = {
     "memory_read": schema("Read a Markdown memory note.", {"path": STRING}, ("path",)),
-    "memory_search": schema("Find and cite relevant excerpts from memory and any enabled chat history.", {"query": STRING}, ("query",)),
+    "memory_search": schema("Find and cite relevant excerpts from memory, artifacts and enabled chat history.",
+                            {"query": STRING, "kind": {"type": "string", "enum": list(recall.KINDS)},
+                             "thread_id": STRING}, ("query",)),
     "memory_write": schema("Replace or create one or more Markdown notes after taking a checkpoint.", {
         "notes": {"type": "array", "items": {"type": "object", "properties": {"path": STRING, "content": STRING},
                                            "required": ["path", "content"], "additionalProperties": False}},
@@ -406,6 +408,8 @@ class Agent:
                 hits = self.memory_search(prompt[:1_000])["results"]
             finally:
                 event("tool_finished", {})
+            if any(hit.get("backend") == "pinecone" for hit in hits):
+                event("remembered", {})
             reference = {"Recalled memory (citation, path, line, heading, excerpt)": [
                 {key: hit[key] for key in ("citation", "path", "line", "heading", "excerpt")} for hit in hits
             ], label: context}
@@ -413,6 +417,8 @@ class Agent:
         finally:
             TURN_MEMORY.reset(token)
             CHAT_ORIGIN.reset(origin)
+            if self.memory["include_chat"]:
+                self.memory_index.changed()
 
     def reply(self, prompt, event, history, context):
         clock = datetime.now(timezone.utc)
@@ -529,7 +535,7 @@ class Agent:
             if not item:
                 return ""
             remembered[item["id"]] = {key: value for key, value in item.items() if key != "excerpt"}
-            label = item["heading"] if "thread_id" in item else item["path"]
+            label = item["heading"] if item.get("message_id") or item.get("artifact_id") else item["path"]
             return f"[{label}:{item['line']}]"
 
         content = recall.CITATION.sub(cite, content).strip()
@@ -624,6 +630,8 @@ class Agent:
                     result = {"error": "The tool received invalid arguments."}
                 finally:
                     event("tool_finished", {})
+                if name == "memory_search" and result.get("backend") == "pinecone" and result["results"]:
+                    event("remembered", {})
                 if "error" in result:
                     self.log_activity("tool", TOOL_TITLES.get(name, "Tool request"),
                                       error=True, data={"detail": result["error"]})
@@ -752,22 +760,30 @@ class Agent:
         if turn := TURN_MEMORY.get():
             turn["citations"].update((item["id"], item) for item in hits)
 
-    def memory_search(self, query):
+    def memory_search(self, query, kind=None, thread_id=None, *, budget=recall.CHAT_BUDGET):
         query = redact_text(require_text(query, 1_000))
+        filters = recall.filters_from({key: value for key, value in {"kind": kind, "thread_id": thread_id}.items()
+                                       if value is not None})
+        cache_key = (query, kind, thread_id)
         turn = TURN_MEMORY.get()
-        if turn and query in turn["queries"]:
-            return turn["queries"][query]
-        result = self.memory_index.run(self.config, self.memory, query, checkpoint=self.memory_sync_checkpoint,
+        if turn and cache_key in turn["queries"]:
+            return turn["queries"][cache_key]
+        started = time.monotonic()
+        if turn:
+            budget = max(0, budget - turn.get("recall_spent", 0))
+        result = self.memory_index.run(self.config, self.memory, query, filters=filters, budget=budget,
                                        skip_message=turn["message_id"] if turn else None)
         self.track_citations(result["results"])
         if turn:
-            turn["queries"][query] = result
-        if result["results"] or not turn or result["backend"] != "keyword":
+            turn["recall_spent"] = turn.get("recall_spent", 0) + time.monotonic() - started
+            turn["queries"][cache_key] = result
+        if result["results"] or not turn or result["backend"] == "pinecone" or result["warnings"]:
             count = len(result["results"])
-            self.log_activity("recall", f"Recalled {count} {'memory' if count == 1 else 'memories'}",
-                              provider=None if result["backend"] == "keyword" else result["backend"],
+            source = {"pinecone": "Pinecone", "huggingface": "Hugging Face"}.get(result["backend"], "Local")
+            self.log_activity("recall", f"Recalled {count} {'memory' if count == 1 else 'memories'} · {source}",
+                              provider=result["backend"] if result["backend"] in {"pinecone", "huggingface"} else None,
                               message_id=turn["message_id"] if turn else None,
-                              data={key: result[key] for key in ("results", "warnings", "backend", "latency_ms")}
+                              data={key: result[key] for key in ("results", "warnings", "backend", "latency_ms", "reranked")}
                               | {"query": query})
         return result
 
@@ -795,6 +811,7 @@ class Agent:
         content = file.read_text(encoding="utf-8") if file.is_file() else "# Remembered facts\n"
         entry = f"- {fact}"
         checkpoint = None
+        before = memory_edits.snapshot(self.storage, self.storage.load(), [path])
         if entry not in content.splitlines():
             updated = f"{content.rstrip()}\n\n{entry}\n"
             if len(updated) > MAX_NOTE:
@@ -803,9 +820,10 @@ class Agent:
             self.storage.write(path, updated)
         fields = {"status": "complete", "checkpoint": checkpoint, "paths": [path], "fact": fact}
         if action is None:
-            return self.add_action("remember", "Fact remembered", **fields)
-        action.update(title="Fact remembered", updated_at=iso(), **fields)
-        self.save_action(action)
+            action = self.add_action("remember", "Fact remembered", memory_before=before, **fields)
+        else:
+            action.update(title="Fact remembered", updated_at=iso(), **fields)
+            self.save_action(action, memory_before=before)
         return action
 
     def memory_write(self, notes):
@@ -822,17 +840,18 @@ class Agent:
             if note["path"] in paths or not isinstance(note["content"], str) or len(note["content"]) > MAX_NOTE:
                 raise HearthError("Use unique paths and at most 24,000 characters per note.")
             paths.add(note["path"])
+        before = memory_edits.snapshot(self.storage, self.storage.load(), paths)
         checkpoint = self.checkpoints.create("Before editing memory")
         action = self.add_action("memory", "Memory updated", status="changing",
                                  checkpoint=checkpoint, paths=sorted(paths))
         try:
             for note in notes:
-                self.storage.write(note["path"], note["content"])
+                self.storage.write(note["path"], redact_text(note["content"]))
         except OSError:
             action["status"] = "partial"
         else:
             action["status"] = "complete"
-        self.save_action(action)
+        self.save_action(action, memory_before=before)
         return {"action": action}
 
     def send_email(self, to, subject, text):
@@ -891,18 +910,22 @@ class Agent:
 
     @staticmethod
     def can_undo(action):
-        return bool(action and action.get("checkpoint") and action["kind"] != "gateway"
+        return bool(action and action.get("checkpoint") and not action.get("undone") and action["kind"] != "gateway"
                     and (action["kind"] != "email" or action["mocked"]))
 
-    def add_action(self, kind, title, **fields):
+    def add_action(self, kind, title, *, memory_before=None, forgotten_id=None, **fields):
         action = {"id": new_id(), "kind": kind, "title": title, "at": iso(), **CHAT_ORIGIN.get(), **fields}
-        self.save_action(action)
+        self.save_action(action, memory_before=memory_before, forgotten_id=forgotten_id)
         return action
 
-    def save_action(self, action):
+    def save_action(self, action, *, memory_before=None, forgotten_id=None):
         state = self.storage.load()
+        if memory_before is not None:
+            memory_edits.record(self.storage, state, action, memory_before, forgotten_id)
         state["actions"][action["id"]] = action
         self.storage.save(state)
+        if action.get("memory_change"):
+            self.memory_index.changed()
 
     def approve(self, action_id):
         with self.storage.lock():

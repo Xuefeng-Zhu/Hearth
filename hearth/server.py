@@ -10,12 +10,13 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, urlsplit
 
-from . import artifacts, box, recall, router, search, timeline, voice, voice_call
+from . import artifacts, box, memory_edits, recall, router, search, timeline, voice, voice_call
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
 from .connectors import Gateway, read_config
 from .gateway_tools import redact_text, scrub
+from .memory_sync import MemorySync
 from .storage import HearthError, ROOT, Storage, iso
 from .threads import MAIN, Threads, compact
 
@@ -62,6 +63,9 @@ class Application:
         self.call_check = None
         self.memory_index = recall.Recall(storage, self.gateway)
         self.reload_agent()
+        self.memory_sync = MemorySync(self)
+        self.memory_index.on_change = self.memory_sync.request
+        self.artifacts.on_memory_change = self.memory_sync.request
 
     def reload_agent(self, *, reset_brain=True):
         self.agent = Agent(self.storage, self.checkpoints, self.connections.active_config(), self.gateway,
@@ -78,13 +82,16 @@ class Application:
         self.brain = model["provider"]
         self.brain_reply = (self.brain, model["model"])
 
-    def scan_connections(self):
+    def scan_connections(self, *, sync_memory=False):
+        previous_target = self.memory_index.target(self.agent.config)
         if self.connections.scan():
             previous_models = self.agent.models
             if self.connections.active_config() != self.agent.config:
                 self.reload_agent(reset_brain=False)
             if self.agent.models != previous_models:
                 self.reset_brain_status()
+            if sync_memory and previous_target != self.memory_index.target(self.agent.config):
+                self.memory_sync.request("startup")
         self.connection_state = self.connections.report()
 
     def connection_info(self):
@@ -113,7 +120,12 @@ class Application:
     def memory_info(self):
         agent = self.agent
         return {"selection": agent.memory, "models": recall.MODELS, "folders": recall.FOLDERS,
-                "available": self.memory_index.available(agent.config), "reindex": self.reindex}
+                "available": self.memory_index.available(agent.config), "kinds": recall.KINDS,
+                **self.memory_sync_info()}
+
+    def memory_sync_info(self):
+        return {"reindex": self.reindex, "sync": self.memory_sync.job,
+                "pinecone": self.memory_index.pinecone_status(self.agent.config)}
 
     def search_info(self):
         agent = self.agent
@@ -158,8 +170,8 @@ class Application:
         thread = self.threads.describe(thread_id)
         for line, message in enumerate(self.threads.messages(thread_id), 1):
             identity = message.get("id") or f"{thread_id}:{line}"
-            if identity == message_id and message["role"] != "call":
-                return recall.chunk(f"chat/{thread_id}", line, line, message["content"], thread["title"],
+            if identity == message_id:
+                return recall.chunk(f"chat/{thread_id}", line, line, recall.chat_text(message), thread["title"],
                                     thread_id=thread_id, message_id=identity)
         raise HearthError("That chat memory no longer exists.")
 
@@ -167,12 +179,14 @@ class Application:
         path = require_text(body.get("path"), 120)
         # The index takes its corpus snapshot under the same lock order.
         with self.memory_index.lock, self.storage.lock():
+            state = self.storage.load()
+            message_id = None
             if path.startswith("chat/"):
                 thread_id = path.removeprefix("chat/")
                 message_id = require_text(body.get("message_id"), 80)
                 item = self.find_chat_memory(thread_id, message_id)
                 removed = [item]
-                state = self.storage.load()
+                before = memory_edits.snapshot(self.storage, state, message_id=message_id)
                 forgotten = state.setdefault("forgotten_chat", [])
                 if message_id in forgotten:
                     raise HearthError("This chat memory is already forgotten.")
@@ -181,8 +195,9 @@ class Application:
                 self.storage.save(state)
             else:
                 content = self.storage.read(path)
+                before = memory_edits.snapshot(self.storage, state, [path])
                 item_id = body.get("item_id")
-                removed = [item for item in recall.note_chunks(path, content)
+                removed = [item for item in recall.note_chunks(path, redact_text(content))
                            if item_id is None or item["id"] == item_id]
                 if item_id is not None and not removed:
                     raise HearthError("This excerpt changed. Search again before forgetting it.")
@@ -196,7 +211,8 @@ class Application:
                     self.storage.write(path, "".join(lines))
             self.memory_index.forget_vectors(removed)
             return self.agent.add_action("memory", "Memory forgotten", status="complete",
-                                         checkpoint=checkpoint, paths=[path])
+                                         checkpoint=checkpoint, paths=[path], memory_before=before,
+                                         forgotten_id=message_id)
 
     def info(self, thread_id=MAIN):
         with self.turn_lock:
@@ -301,7 +317,7 @@ class Application:
             def event(name, data):
                 phase = {"started": "thinking", "tool_started": "working", "tool_finished": "thinking",
                          "token": "thinking" if source == voice_call.SOURCE else "speaking",
-                         "reset": "thinking"}.get(name)
+                         "reset": "thinking", "remembered": "remembering"}.get(name)
                 if phase:
                     with self.turn_lock:
                         self.turn_activity[thread_id] = {"pose": phase, "detail": data.get("title")}
@@ -345,12 +361,17 @@ class Application:
             self.threads.require_side(thread_id)
             if operation == "rename" and body.keys() == {"thread_id", "title"}:
                 title = " ".join(redact_text(require_text(body["title"], 80)).split())
-                return self.threads.rename(thread_id, title)
+                thread = self.threads.rename(thread_id, title)
+                if self.agent.memory["include_chat"]:
+                    self.memory_sync.request()
+                return thread
             if operation == "delete" and body.keys() == {"thread_id"}:
                 thread = self.threads.describe(thread_id)
                 try:
                     checkpoint = self.checkpoints.create("Before deleting a Hearth side chat")
                     self.threads.delete(thread_id)
+                    if self.agent.memory["include_chat"]:
+                        self.memory_sync.request()
                 except OSError:
                     raise HearthError("Hearth could not checkpoint and delete this chat.") from None
                 return self.agent.add_action("thread", "Side chat deleted", status="complete", checkpoint=checkpoint,
@@ -363,11 +384,27 @@ class Application:
                 thread = self.threads.describe(thread_id)
                 quote = compact(redact_text(message["content"]), 500)
                 text = f"Shared from {thread['title']}\n\n> {quote}"
-                return self.threads.append(MAIN, "user", text, shared_from=thread_id)
+                message = self.threads.append(MAIN, "user", text, shared_from=thread_id)
+                if self.agent.memory["include_chat"]:
+                    self.memory_sync.request()
+                return message
         raise HearthError("Invalid chat request.")
 
+    def replay_memory(self, action_id, *, redo=False):
+        action = memory_edits.restore(self.storage, action_id, redo=redo)
+        self.memory_sync.request()
+        return action
+
+    def undo_action(self, action_id):
+        with self.storage.lock():
+            action = self.storage.load()["actions"].get(action_id)
+        if action and action.get("memory_change"):
+            return self.replay_memory(action_id), 200
+        self.start_restore(action_id)
+        return self.restore, 202
+
     def start_restore(self, action_id):
-        if self.reindex_running():
+        if self.reindex_running() or self.memory_sync.running:
             raise HearthError("Wait for memory reindexing to finish before restoring a checkpoint.")
         with self.turn_lock:
             if self.turns:
@@ -389,11 +426,14 @@ class Application:
                 self.restore = {"action_id": action["id"], "status": "failed"}
             else:
                 if self.checkpoints.mode == "local":
+                    selected = self.connections.selected
                     self.connections.reset()
+                    self.connections.selected = selected
                     self.reindex = None
                     self.call_check = None
                     self.reload_agent()
                     self.restore = None
+                    self.memory_sync.request("startup")
                     return
         if self.restore["status"] == "restoring":
             # A successful native restore restarts the server and discards this thread.
@@ -486,7 +526,7 @@ class Handler(BaseHTTPRequestHandler):
                 identity = parse_qs(url.query).get("id", [None])[0]
                 self.json(self.app.artifacts.detail(identity))
             elif url.path == "/api/memory/reindex":
-                self.json({"reindex": self.app.reindex})
+                self.json(self.app.memory_sync_info())
             elif url.path == "/api/memory/chat":
                 params = parse_qs(url.query)
                 thread = params.get("thread", [None])[0]
@@ -533,11 +573,11 @@ class Handler(BaseHTTPRequestHandler):
         if urlsplit(self.path).path in {"/api/voice/transcribe", "/api/voice/redact"}:
             self.post_voice()
             return
-        routes = {"/api/chat", "/api/approve", "/api/undo",
+        routes = {"/api/chat", "/api/approve", "/api/undo", "/api/redo",
                   "/api/connections/rescan", "/api/connections/test", "/api/connections/settings",
                   "/api/brain/test", "/api/brain/settings", "/api/brain/route", "/api/threads/create", "/api/threads/rename",
                   "/api/threads/delete", "/api/threads/share", "/api/memory/settings", "/api/memory/test",
-                  "/api/memory/search", "/api/memory/reindex", "/api/memory/forget",
+                  "/api/memory/search", "/api/memory/reindex", "/api/memory/sync", "/api/memory/forget",
                   "/api/search/settings", "/api/search/test"}
         if self.path not in routes:
             self.json({"error": "Page not found."}, 404)
@@ -580,9 +620,10 @@ class Handler(BaseHTTPRequestHandler):
                     action_id = require_text(body.get("id"), 40)
                     if self.path == "/api/approve":
                         result = self.app.agent.approve(action_id)
+                    elif self.path == "/api/redo":
+                        result = self.app.replay_memory(action_id, redo=True)
                     else:
-                        self.app.start_restore(action_id)
-                        result, status = self.app.restore, 202
+                        result, status = self.app.undo_action(action_id)
         except HearthError as error:
             result, status = {"error": str(error)}, 400
         except OSError:
@@ -626,6 +667,8 @@ class Handler(BaseHTTPRequestHandler):
         service = self.app.artifacts
         if operation == "settings":
             self.app.connections.save_preferences("artifacts", box.settings(body))
+            self.app.reload_agent(reset_brain=False)
+            self.app.memory_sync.request("startup")
             return service.info()
         if operation == "save-message" and body.keys() == {"thread_id", "message_id"}:
             return service.save_message(body["thread_id"], require_text(body["message_id"], 90))
@@ -662,6 +705,8 @@ class Handler(BaseHTTPRequestHandler):
                         raise voice.VoiceError("A checkpoint is being restored.", 409)
                     if operation == "report":
                         result = voice_call.save_report(self.app.threads, body)
+                        if self.app.agent.memory["include_chat"]:
+                            self.app.memory_sync.request()
                     else:
                         if body.keys() != {"thread_id", "query"}:
                             raise HearthError("Invalid call query.")
@@ -755,13 +800,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def update_connections(self, body):
         if self.path == "/api/connections/rescan" and not body:
-            self.app.scan_connections()
+            self.app.scan_connections(sync_memory=True)
         elif self.path == "/api/connections/test" and body.keys() == {"provider"}:
             self.app.connections.test(body["provider"])
             self.app.connection_state = self.app.connections.report()
         elif self.path == "/api/connections/settings" and body.keys() == {"provider", "value"}:
+            previous = self.app.memory_index.target(self.app.agent.config)
             self.app.connections.save(body["provider"], body["value"])
             self.app.reload_agent(reset_brain=False)
+            if previous != self.app.memory_index.target(self.app.agent.config):
+                self.app.memory_sync.request("startup")
         else:
             raise HearthError("Invalid connection request.")
         return self.app.connection_info()
@@ -793,33 +841,34 @@ class Handler(BaseHTTPRequestHandler):
         _, _, feature, operation = self.path.split("/")
         agent = self.app.agent
         if feature == "memory":
-            if operation == "search":
-                if body.keys() != {"query"}:
-                    raise HearthError("Enter a memory query.")
-                if self.app.reindex_running():
-                    raise HearthError("Wait for memory reindexing to finish, then try your query.")
-                return agent.memory_search(body["query"])
+            if operation == "search" and "query" in body and body.keys() <= {"query", "kind", "thread_id"}:
+                return agent.memory_search(**body)
+            if operation == "sync" and not body:
+                return self.app.memory_sync.request("sync")
             if operation == "reindex" and not body:
+                if self.app.memory_index.available(agent.config)["pinecone"]:
+                    return self.app.memory_sync.request("rebuild")
                 return self.app.start_reindex()
             if operation == "forget":
-                if self.app.reindex_running():
-                    raise HearthError("Wait for memory reindexing to finish before forgetting a memory.")
                 return self.app.forget_memory(body)
-        if operation == "test" and body.keys() == {"selection", "query"}:
-            if feature == "search":
+        if operation == "test" and {"selection", "query"} <= body.keys():
+            if feature == "search" and body.keys() == {"selection", "query"}:
                 return agent.run_search(body["query"], search.settings(body["selection"]))
-            if self.app.reindex_running():
-                raise HearthError("Wait for memory reindexing to finish, then test recall.")
-            query = redact_text(require_text(body["query"], 1_000))
-            return self.app.memory_index.run(agent.config, recall.settings(body["selection"]), query,
-                                             checkpoint=agent.memory_sync_checkpoint)
+            if feature == "memory" and body.keys() <= {"selection", "query", "kind", "thread_id"}:
+                query = redact_text(require_text(body["query"], 1_000))
+                filters = {key: body[key] for key in ("kind", "thread_id") if key in body}
+                return self.app.memory_index.run(agent.config, recall.settings(body["selection"]), query,
+                                                 filters=filters, budget=10)
         if operation == "settings":
             if feature == "memory" and self.app.reindex_running():
                 raise HearthError("Wait for memory reindexing to finish before saving settings.")
             selection = (recall if feature == "memory" else search).settings(body)
             self.app.connections.save_preferences(feature, selection)
             self.app.reload_agent(reset_brain=False)
-            return self.app.memory_info() if feature == "memory" else self.app.search_info()
+            if feature == "memory":
+                self.app.memory_sync.request()
+                return self.app.memory_info()
+            return self.app.search_info()
         raise HearthError("Invalid settings request.")
 
     def stream_chat(self, events):
@@ -863,7 +912,7 @@ def main():
     legacy_config = ROOT / "config/connectors.local.json"
     path = Path(config_path) if config_path else legacy_config if legacy_config.is_file() else None
     app = Application(storage, checkpoints, read_config(ROOT / "config/connectors.json"), config_path=path)
-    app.scan_connections()
+    app.scan_connections(sync_memory=True)
     with HTTPServer((args.host, args.port), app) as server:
         server.serve_forever()
 
