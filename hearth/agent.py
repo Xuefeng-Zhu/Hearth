@@ -2242,7 +2242,7 @@ class Agent:
 
     @staticmethod
     def can_undo(action):
-        if action and action.get("undo_task"):
+        if action and (action.get("undo_task") or action.get("memory_change")):
             return not action.get("undone")
         return bool(action and action.get("checkpoint") and not action.get("undone") and action["kind"] not in {"gateway", "browse"}
                     and (action["kind"] != "email" or action["mocked"]))

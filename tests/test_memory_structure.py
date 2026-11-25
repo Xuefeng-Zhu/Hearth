@@ -51,6 +51,7 @@ class MemoryStructureTest(unittest.TestCase):
         self.assertNotIn("Make the picnic lunch", agent.memory_context())
         self.assertIn("Preferred Name: Avery", agent.memory_context())
         migration, = self.storage.load()["actions"].values()
+        self.assertTrue(agent.can_undo(migration))
         self.app.replay_memory(migration["id"])
         self.assertEqual({path: self.storage.read(path) for path in self.storage.files()}, legacy)
         self.app.replay_memory(migration["id"], redo=True)

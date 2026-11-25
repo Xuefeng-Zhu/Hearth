@@ -286,6 +286,8 @@ class Application:
                 self.storage.save(state)
             else:
                 content = self.storage.read(path)
+                if "revision" in body and body["revision"] != memory.revision(content):
+                    raise HearthError("The note changed. Reload it before deleting.")
                 item_id = body.get("item_id")
                 changes = memory.related_changes(self.storage, path) if item_id is None else {}
                 before = memory_edits.snapshot(self.storage, state, [path, *changes])
