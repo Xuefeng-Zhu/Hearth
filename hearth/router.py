@@ -5,6 +5,7 @@ import re
 import time
 from statistics import median
 
+from . import file_intent
 from .connectors import MODEL_PATHS
 from .storage import HearthError, atomic_write
 
@@ -59,11 +60,11 @@ FAILURE_COOLDOWN = 5 * 60
 MAX_POOL = 32
 
 
-def classify(prompt, *, side=False):
+def classify(prompt, *, side=False, file_request=False):
     command = SIDE_COMMAND.match(prompt.strip())
     if command:
         side, prompt = True, prompt.strip()[command.end():]
-    if ACTION.search(prompt):
+    if file_request or file_intent.intent(prompt) or ACTION.search(prompt):
         return "tool"
     if CODE.search(prompt):
         return "code"

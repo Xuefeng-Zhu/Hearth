@@ -16,6 +16,17 @@ if [[ ! -d "$release" ]]; then
   mv -T -- "$staging/source" "$release"
 fi
 
+# Install into an isolated environment and only resolve dependencies when the lock changes.
+venv="$root/.venv"
+if [[ ! -x "$venv/bin/python" ]]; then
+  python3 -m venv "$venv"
+fi
+if ! cmp -s "$release/requirements.txt" "$venv/.hearth-requirements"; then
+  "$venv/bin/python" -m pip --disable-pip-version-check install -q -r "$release/requirements.txt"
+  cp -- "$release/requirements.txt" "$venv/.hearth-requirements"
+fi
+"$release/scripts/install-office-font.sh" "$root/config/fonts"
+
 ln -s "$release" "$staging/current"
 mv -Tf -- "$staging/current" "$root/current"
 for service in scheduler web; do

@@ -4,6 +4,7 @@ root=$(cd -L -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -L)
 cd -- "$root/current"
 export HEARTH_DATA_DIR="$root/data"
 export PYTHONDONTWRITEBYTECODE=1
+export HEARTH_CJK_FONT="$root/config/fonts/wqy-microhei.ttc"
 case "${1:-}" in
   web)
     export HEARTH_CHECKPOINTS=sprite
@@ -12,10 +13,10 @@ case "${1:-}" in
       HEARTH_PUBLIC_URL=$(< "$root/config/public-url")
     fi
     export HEARTH_CONNECTOR_CONFIG="$root/config/connectors.local.json"
-    exec python3 -m hearth.server --host 0.0.0.0 --port 8080
+    exec "$root/.venv/bin/python" -m hearth.server --host 0.0.0.0 --port 8080
     ;;
   scheduler)
-    exec python3 -m hearth.scheduler
+    exec "$root/.venv/bin/python" -m hearth.scheduler
     ;;
   *)
     printf '%s\n' 'Expected a Hearth service name.' >&2

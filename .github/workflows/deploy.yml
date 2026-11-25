@@ -24,6 +24,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install Python requirements and Chinese PDF font
+        run: |
+          python3 -m pip install -r requirements-test.txt
+          scripts/install-office-font.sh "$RUNNER_TEMP/hearth-fonts"
+          echo "HEARTH_CJK_FONT=$RUNNER_TEMP/hearth-fonts/wqy-microhei.ttc" >> "$GITHUB_ENV"
       - name: Python tests
         run: python3 -m unittest discover -s tests
       - name: Node tests

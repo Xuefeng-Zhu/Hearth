@@ -9,5 +9,5 @@ if [[ ! "$sprite_url" =~ ^https://[a-z0-9-]+\.sprites\.app/?$ ]]; then
   printf '%s\n' 'Could not discover the private Hearth Sprite URL.' >&2
   exit 1
 fi
-tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --exclude='__pycache__' -czf - hearth web memory config/connectors.json config/catalog.json scripts/run-service.sh |
+tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --exclude='__pycache__' -czf - hearth web memory config/connectors.json config/catalog.json requirements.txt scripts/run-service.sh scripts/install-office-font.sh |
   sprite exec --http-post --no-port-forward --stdin -o xuefeng-zhu -s hearth -- bash -c "$remote_script" hearth-install "$sprite_url"
