@@ -1,0 +1,26 @@
+name: Wake Hearth
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hearth-wake
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate and tick the private Sprite
+        env:
+          HEARTH_SPRITE_URL: ${{ secrets.HEARTH_SPRITE_URL }}
+          HEARTH_TICK_TOKEN: ${{ secrets.HEARTH_TICK_TOKEN }}
+          SPRITE_API_TOKEN: ${{ secrets.SPRITE_API_TOKEN }}
+        run: scripts/wake.sh

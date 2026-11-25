@@ -5,6 +5,8 @@ root="$HOME/hearth"
 mkdir -p -- "$root/config" "$root/releases"
 staging=$(mktemp -d "$root/releases/.incoming.XXXXXXXX")
 trap 'rm -rf -- "$staging"' EXIT
+printf '%s\n' "${1%/}" > "$staging/public-url"
+mv -Tf -- "$staging/public-url" "$root/config/public-url"
 cat > "$staging/bundle.tgz"
 read -r bundle_id _ < <(sha256sum "$staging/bundle.tgz")
 release="$root/releases/$bundle_id"

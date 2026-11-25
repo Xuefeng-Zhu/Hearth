@@ -7,6 +7,10 @@ export PYTHONDONTWRITEBYTECODE=1
 case "${1:-}" in
   web)
     export HEARTH_CHECKPOINTS=sprite
+    if [[ -f "$root/config/public-url" ]]; then
+      export HEARTH_PUBLIC_URL
+      HEARTH_PUBLIC_URL=$(< "$root/config/public-url")
+    fi
     export HEARTH_CONNECTOR_CONFIG="$root/config/connectors.local.json"
     exec python3 -m hearth.server --host 0.0.0.0 --port 8080
     ;;
