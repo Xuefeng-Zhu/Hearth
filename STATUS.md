@@ -1,5 +1,13 @@
 # Hearth status
 
+## Run 21 · Chat attachments and mobile polish
+
+- The private Hearth Sprite serves the attachment release and reports `{"ok": true, "checkpoints": "sprite"}`. Six served JavaScript and CSS assets matched the release. Chat accepts up to 10 files per message and 20 MiB per file. Attachments stay with the thread. The **Save to Box** card action uses the binary upload to the workspace’s **Attachments** folder.
+- The Hugging Face connector successfully ran **`Qwen/Qwen3-VL-235B-A22B-Instruct:fastest`** for the live photo. **`moonshotai/Kimi-K3.1-Pro:fastest`** is the vision fallback and was the chat brain for all three live answers. Hearth cited the photo, Chinese PDF, and XLSX. The workbook answer included the total from the first sheet and approval details from the second. [Hugging Face vision API](https://huggingface.co/docs/inference-providers/tasks/chat-completion), [Run 21 live answers](QA-REPORT.md#live-sprite-attachment-checks)
+- PDF extraction reads selectable text, with an 80-page ceiling. Extracted file context is capped at 12,000 characters with a truncation marker. Whisper handles audio through the same Hugging Face path as the mic. Mock returns a deterministic demo image description and extractive PDF summary.
+- Navigation uses one SVG icon set, with Settings fixed at the bottom. Call moved to the chat header, reply actions are icons, and Share to Main is in the message menu. Timestamps use the time zone in **Settings → Reminders**, defaulting to America/Los_Angeles. Spreadsheet previews keep headers intact and scroll horizontally.
+- Verified with 117 Python tests, seven Node tests, JavaScript syntax checks, and Chromium at 390 and 1440 px in both themes. Chromium exercised the picker input, paste, drop, and touch menu. The physical iPhone picker still needs a device check. [Run 21 checks and screenshots](QA-REPORT.md#run-21--chat-attachments-and-mobile-polish)
+
 ## Run 19 · Contrast, mobile navigation, and Chat
 
 - Hearth’s private Sprite uses the new Hugging Face pool in **Smart routing**. Kimi K3.1 Pro handles tools, planning, and multilingual turns. DeepSeek V4.1 Flash handles plain chat and is the first fallback. DeepSeek V4 Pro handles code and longer reasoning. Qwen3 Coder Next is the last pool fallback. Kimi and Flash are configured as the image-capable pair for the attachment work.

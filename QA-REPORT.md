@@ -1,5 +1,51 @@
 # Hearth QA for Hacksgiving
 
+## Run 21 · Chat attachments and mobile polish
+
+November 25, 2026 · Private Hearth Sprite
+
+### Demo script
+
+1. In **Settings → Brain**, choose **Mock** for the deterministic demo. Open a side chat and ask **Can you create a slide for Seattle trip?** The assistant says “Here's your Seattle trip deck.” above the PowerPoint card. Open the card with its preview icon.
+2. Choose the paperclip and add a photo and a PDF in one selection. Include a document with selectable text. On desktop, try dropping the workbook into Chat and pasting a clipboard image. On iPhone, the paperclip opens the native file picker. Watch the chips, remove any extra file, then send **Summarize the attached files**. An empty composer also sends ready attachments.
+3. Mock gives a fixed demo description for the photo and a short extractive summary for the PDF. Open the image, PDF, and XLSX cards or the reply’s **Sources**. Swipe the wide spreadsheet horizontally. Reload and check that the original message and previews return.
+4. Select **Copy** under the reply and look for **Copied**. Tap or long-press a side-chat message to reveal **Share to Main**. On desktop, right-click the message or focus it and press Enter. Call is in the top-right corner of the chat header, and Settings stays at the bottom of both navigation layouts.
+5. The box icon on the attachment card explicitly saves the original bytes to Box if connected. Once saved, the icon becomes **Open in Box**. Return to Smart routing to demonstrate live image, document, and audio understanding.
+
+### Live Sprite attachment checks
+
+The deployed release ran three independent uploads and chat turns in a temporary workspace on the private Sprite. Each returned a clickable attachment citation, an available preview, and a byte-identical download. All replies were in Chinese.
+
+| Attachment | Hearth’s answer | Upload through verified reply and preview |
+| --- | --- | --- |
+| Apollo 11 JPEG | Identified a white-suited astronaut standing on dusty lunar ground with boot prints and a reflection of the photographer and equipment in the visor. | 10.31 s |
+| 图书馆活动.pdf | The book club meets at 松林图书馆 on Saturday, December 12 at 2 p.m. It has 24 spots, requires advance registration, and attendees should bring a favorite book. | 4.79 s |
+| Seattle budget.xlsx | The budget is **US$155**. The second sheet identifies **林晓** as the approver and **SEA-274** as the reference. | 3.94 s |
+
+Qwen3-VL 235B A22B Instruct interpreted the JPEG through Hugging Face. Kimi K3.1 Pro wrote the three chat replies. [Apollo 11 photo from NASA](https://nssdc.gsfc.nasa.gov/imgcat/html/object_page/a11_h_40_5903.html)
+
+### Regression checks and captures
+
+- 117 Python tests and seven Node tests passed, and all frontend JavaScript passed `node --check`. The upload suite covers the exact 20 MiB boundary, unsupported and misleading MIME types, malformed multipart boundaries, same-origin requests, traversal and thread scope, Office and Chinese text extraction, truncation, vision fallback, Whisper dispatch, Mock, and the explicitly triggered Box binary upload. Box saving was checked with a test double.
+- Chromium passed all four theme and width combinations using a UTC browser profile. A version timestamp of `2026-11-25T01:16:00Z` read **Nov 24, 5:16 PM** in the artifact sheet. The mobile XLSX test checks that a long header stays on one line and that the sheet scrolls horizontally. The existing contrast sweep passed 11,201 measurements. Browser automation verified the native-picker input activation; physical iPhone interaction remains unverified.
+- The final deployment returned `{"ok": true, "checkpoints": "sprite"}`. The deployed composer, icon, time, chat, and stylesheet assets matched the local release.
+
+| Capture | 390 px light | 390 px dark | 1440 px light | 1440 px dark |
+| --- | --- | --- | --- | --- |
+| Attachments in chat | [Light](/workspace/tmp/hearth-qa/run21-attachments-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run21-attachments-390-dark.png) | [Light](/workspace/tmp/hearth-qa/run21-attachments-1440-light.png) | [Dark](/workspace/tmp/hearth-qa/run21-attachments-1440-dark.png) |
+| Attachment chips | [Light](/workspace/tmp/hearth-qa/run21-attachments-composer-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run21-attachments-composer-390-dark.png) | [Light](/workspace/tmp/hearth-qa/run21-attachments-composer-1440-light.png) | [Dark](/workspace/tmp/hearth-qa/run21-attachments-composer-1440-dark.png) |
+| Navigation | [Light](/workspace/tmp/hearth-qa/run21-nav-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run21-nav-390-dark.png) | [Light](/workspace/tmp/hearth-qa/run21-nav-1440-light.png) | [Dark](/workspace/tmp/hearth-qa/run21-nav-1440-dark.png) |
+| Reply actions | [Light](/workspace/tmp/hearth-qa/run21-chat-actions-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run21-chat-actions-390-dark.png) | [Light](/workspace/tmp/hearth-qa/run21-chat-actions-1440-light.png) | [Dark](/workspace/tmp/hearth-qa/run21-chat-actions-1440-dark.png) |
+| XLSX preview and version history | [Light](/workspace/tmp/hearth-qa/run21-xlsx-preview-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run21-xlsx-preview-390-dark.png) | | |
+
+The attachment screenshots use a photograph of Seattle from Puget Sound. [Pexels photograph](https://www.pexels.com/photo/seattle-skyline-and-puget-sound-from-ferry-28895463/)
+
+With Chromium installed, run the standalone browser regression from the repository root.
+
+```sh
+PYTHONPATH=. python tests/run21-browser.py --shots /tmp/hearth-shots
+```
+
 ## Run 19 · Contrast, navigation, and Chat
 
 November 25, 2026 UTC · Private Hearth Sprite
