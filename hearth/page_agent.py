@@ -251,4 +251,4 @@ def generate(agent, name, history, context, recent, sources, origin, emit):
         text = "网页做好了，点卡片就能预览。" if chinese else "Your page is ready to preview."
     else:
         text = "网页更新好了。" if chinese else "I updated your page."
-    return text, {"pages": [row]}, model
+    return text, {"artifacts": [row]}, model

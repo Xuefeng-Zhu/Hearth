@@ -9,6 +9,7 @@ from urllib.request import urlopen
 from zoneinfo import ZoneInfo
 
 from . import panels
+from .artifacts import page_artifacts
 from .gateway_tools import scrub
 from .reminder_config import quiet_until, saved
 from .storage import HearthError, iso, new_id
@@ -133,7 +134,8 @@ class Home:
                       key=lambda item: item.get("next_fire_at") or item["next_at"])
         inbox = sorted((card for card in state.get("inbox", {}).values() if card["status"] == "review"),
                        key=lambda card: card["received_at"], reverse=True)
-        files = sorted((item for item in state.get("artifacts", {}).values() if not item.get("deleted")),
+        local_files = [item for item in state.get("artifacts", {}).values() if not item.get("deleted")]
+        files = sorted([*local_files, *page_artifacts(state)],
                        key=lambda item: item.get("updated_at") or item["created_at"], reverse=True)
         pinecone = self.app.memory_index.pinecone_status(self.app.agent.config)
         rows = sorted((entry for entry in self.app.timeline_info()["entries"] if entry.get("at")),
@@ -163,7 +165,7 @@ class Home:
             "inbox": {"count": len(inbox), "items": [{"title": card.get("subject") or card.get("proposal", {}).get("title")
                                                      or "Untitled message", "at": card["received_at"]}
                                                     for card in inbox[:3]]},
-            "files": {"items": [{key: item[key] for key in ("id", "title", "format")} for item in files[:4]]},
+            "files": {"items": [{key: item[key] for key in ("id", "title", "format", "kind")} for item in files[:4]]},
             "memory": {"count": len(self.storage.files()), "last_sync": pinecone["last_sync"],
                        "pinecone": pinecone["state"], "record_count": pinecone["record_count"]},
             "activity": {"count": len(rows_today), "errors": sum(bool(row.get("error")) for row in rows_today),

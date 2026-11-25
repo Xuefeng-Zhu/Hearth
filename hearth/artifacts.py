@@ -71,6 +71,21 @@ def public(row, *, content=False):
     return result
 
 
+def page_artifact(row):
+    saved = row.get("box_files", {}).get(str(row["version"]))
+    result = {key: row[key] for key in ("id", "title", "updated_at", "thread_id", "thread_title")}
+    result.update(kind="page", format="html", filename=filename(row["title"], "html"),
+                  version_number=row["version"], sync="synced" if saved else "local")
+    if saved:
+        result["box_url"] = saved["url"]
+    return result
+
+
+def page_artifacts(state):
+    # Project both existing and new pages from the version store to keep a single source of truth.
+    return (page_artifact(row) for row in state.get("pages", {}).values() if row["version"] is not None)
+
+
 def message_artifacts(state, thread_id):
     by_message = {}
     for row in state.get("artifacts", {}).values():
@@ -187,9 +202,13 @@ class Artifacts:
                 except HearthError as exc:
                     error = str(exc)
             with self.storage.lock():
-                local = self.storage.load().get("artifacts", {})
+                state = self.storage.load()
+            local = state.get("artifacts", {})
             represented = {row["box_id"] for row in local.values()
                            if row.get("box_id") and row.get("box_connection") == self.connection()}
+            represented.update(saved["url"].removeprefix("https://app.box.com/file/")
+                               for page in state.get("pages", {}).values()
+                               for saved in page.get("box_files", {}).values())
             rows = [row for row in self.remote.values() if row["box_id"] not in represented]
             for row in local.values():
                 if row.get("deleted"):
@@ -199,7 +218,8 @@ class Artifacts:
                     if remote and not row.get("file_revision"):
                         row = {**row, "updated_at": remote["updated_at"], "size": remote["size"]}
                 rows.append(row)
-            return {**self.info(), "artifacts": [public(row) for row in rows], "box_error": error}
+            return {**self.info(), "artifacts": [*(public(row) for row in rows), *page_artifacts(state)],
+                    "box_error": error}
 
     def memory_rows(self, previous):
         if self.list()["box_error"]:
@@ -257,6 +277,12 @@ class Artifacts:
         return self.client() if row.get("box_connection") == self.connection() else None
 
     def detail(self, identity, *, versions=True):
+        from .pages import page_detail
+
+        with self.storage.lock():
+            state = self.storage.load()
+            if isinstance(identity, str) and (row := state.get("pages", {}).get(identity)) and row["version"] is not None:
+                return {**page_artifact(row), **page_detail(state, row)}
         with self.lock:
             saved = row = self.find(identity)
             if row["format"] in office.MIME_TYPES:
@@ -329,6 +355,14 @@ class Artifacts:
         raise HearthError("This artifact has no saved local copy.")
 
     def download(self, identity, *, inline=False):
+        from .pages import page_bytes
+
+        with self.storage.lock():
+            state = self.storage.load()
+            if isinstance(identity, str) and (row := state.get("pages", {}).get(identity)) and row["version"] is not None:
+                if inline:
+                    raise HearthError("Inline preview requires a local PDF.")
+                return page_artifact(row), page_bytes(self.storage, row, row["version"])
         with self.lock:
             row = self.find(identity)
             if inline and (row["format"] != "pdf" or not row.get("file_revision")):

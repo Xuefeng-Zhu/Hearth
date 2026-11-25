@@ -46,6 +46,9 @@ def action_entry(action, can_undo):
         title = f"{'Proposed' if status == 'pending' else 'Requested'} {request['method']} {request['path']}"
     elif kind == "reminder":
         title += f" · {action['job']['message']}"
+    elif kind == "page":
+        label = "Page created" if action["previous_version"] is None else "Page updated"
+        title = f"{label} · {title.partition(' · ')[2]}"
     elif action.get("paths"):
         title += f" · {', '.join(action['paths'])}"
     elif kind == "remember" and status == "complete":

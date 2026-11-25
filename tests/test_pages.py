@@ -17,11 +17,31 @@ from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import ConnectorError, read_config
 from hearth.page_public import ShareServer
 from hearth.server import Application, HTTPServer
-from hearth.storage import HearthError, ROOT, Storage
+from hearth.storage import HearthError, ROOT, Storage, atomic_write
 from hearth.threads import MAIN
 
 
 DEMO = "Make a page for our Thanksgiving dinner."
+
+
+def seed_legacy_page(app):
+    identity = "a" * 32
+    at = "2026-11-24T17:00:00+00:00"
+    title = "Weekend market guide"
+    raw = page_html.sanitize("<main><h1>Weekend market guide</h1><p>Saturday at 9 AM.</p></main>", title, {})
+    with app.storage.lock():
+        atomic_write(app.storage.live / "pages" / identity / "v1" / "index.html", raw)
+        state = app.storage.load()
+        state["pages"] = {identity: {"id": identity, "title": title, "version": 1, "updated_at": at,
+                                   "versions": [{"version": 1, "at": at, "note": "Built from chat."}],
+                                   "thread_id": MAIN, "thread_title": "Main"}}
+        state["actions"][identity] = {"id": identity, "kind": "page", "title": f"Built page · {title}",
+                                      "at": at, "status": "complete", "thread_id": MAIN, "thread_title": "Main",
+                                      "page_id": identity, "page_version": 1, "previous_version": None}
+        app.storage.save(state)
+        app.threads.append(MAIN, "assistant", "Your page is ready to preview.",
+                           pages=[{"id": identity, "title": title, "version": 1, "updated_at": at, "thread_id": MAIN}])
+    return identity, raw
 
 
 def request(origin, path, payload=None, *, method=None, headers=None, raw=None):
@@ -110,14 +130,15 @@ class PageHTTPTests(Running, unittest.TestCase):
     def build(self):
         message = self.chat(DEMO)
         self.assertEqual(message["content"], "Your page is ready to preview.")
-        self.assertEqual(len(message["pages"]), 1)
-        return message["pages"][0]
+        self.assertEqual(len(message["artifacts"]), 1)
+        return message["artifacts"][0]
 
-    def test_mock_build_and_private_document(self):
+    def test_mock_build_is_a_page_artifact_with_private_html(self):
         page = self.build()
         identity = page["id"]
-        index = self.json("/api/pages")
-        self.assertEqual(index["pages"], [page])
+        index = self.json("/api/artifacts")
+        self.assertEqual(index["artifacts"], [page])
+        self.assertEqual((page["kind"], page["format"], page["version_number"]), ("page", "html", 1))
         self.assertEqual(index["timezone"], "America/Los_Angeles")
         status, headers, raw = request(self.origin, f"/pages/{identity}")
         self.assertEqual(status, 200)
@@ -130,15 +151,45 @@ class PageHTTPTests(Running, unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("attachment; filename*=UTF-8''Thanksgiving%20dinner.html", headers["Content-Disposition"])
         self.assertEqual(raw, downloaded)
-        self.assertEqual(self.json("/api/state")["messages"][-1]["pages"], [page])
+        status, headers, downloaded = request(self.origin, f"/api/artifacts/file?id={identity}")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "text/html; charset=utf-8")
+        self.assertEqual(headers["Content-Security-Policy"], page_policy.CSP)
+        self.assertTrue(headers["Content-Disposition"].startswith("attachment;"))
+        self.assertEqual(raw, downloaded)
+        self.json(f"/api/artifacts/file?id={identity}&inline=1", expected=400)
+        self.assertEqual(self.json("/api/state")["messages"][-1]["artifacts"], [page])
+        self.assertEqual(self.json("/api/home")["builtin"]["files"]["items"],
+                         [{"id": identity, "title": page["title"], "format": "html", "kind": "page"}])
+
+    def test_existing_pages_appear_without_rewriting_versions_or_share_links(self):
+        identity, raw = seed_legacy_page(self.app)
+        token = secrets.token_urlsafe(32)
+        with self.storage.lock():
+            state = self.storage.load()
+            state["pages"][identity]["share"] = {"token": token, "origin": "", "version": 1, "status": "active"}
+            self.storage.save(state)
+            before = self.storage.state.read_bytes()
+        for _ in range(2):
+            art = self.json("/api/artifacts")["artifacts"]
+            self.assertEqual([(row["id"], row["kind"], row["version_number"]) for row in art], [(identity, "page", 1)])
+        detail = self.json(f"/api/artifacts/detail?id={identity}")
+        self.assertEqual(detail["versions"][0]["note"], "Built from chat.")
+        self.assertEqual(detail["share"]["url"], f"/p/{token}")
+        self.assertEqual(raw, request(self.origin, f"/p/{token}")[2])
+        self.assertEqual(raw, request(self.origin, f"/pages/{identity}")[2])
+        titles = [row["title"] for row in self.json("/api/timeline")["entries"] if row["kind"] == "page"]
+        self.assertEqual(titles, ["Page created · Weekend market guide"])
+        self.assertEqual(before, self.storage.state.read_bytes())
 
     def test_edit_revert_and_timeline_undo_are_versioned(self):
         identity = self.build()["id"]
         original = request(self.origin, f"/pages/{identity}/v/1")[2]
-        edited = self.chat("Make the header green.")["pages"][0]
-        self.assertEqual((identity, 2), (edited["id"], edited["version"]))
+        edited = self.chat("Make the header green.")["artifacts"][0]
+        self.assertEqual((identity, 2), (edited["id"], edited["version_number"]))
+        self.assertEqual(self.json("/api/artifacts")["artifacts"], [edited])
         self.assertIn(b"--hero:#245846", request(self.origin, f"/pages/{identity}")[2])
-        detail = self.json(f"/api/pages/detail?id={identity}")
+        detail = self.json(f"/api/artifacts/detail?id={identity}")
         self.assertEqual(detail["versions"][1]["note"], "Made the header green.")
         self.json("/api/pages/revert", {"id": identity, "version": 1, "current": 1}, expected=409)
         reverted = self.json("/api/pages/revert", {"id": identity, "version": 1, "current": 2})
@@ -147,6 +198,9 @@ class PageHTTPTests(Running, unittest.TestCase):
         timeline = [row for row in self.json("/api/timeline")["entries"] if row["kind"] == "page"]
         actions = {row["data"]["page_version"]: row for row in timeline}
         self.assertEqual(len(actions), 3)
+        self.assertEqual([actions[n]["title"] for n in (1, 2, 3)], [
+            "Page created · Thanksgiving dinner", "Page updated · Thanksgiving dinner", "Page updated · Thanksgiving dinner",
+        ])
         self.assertTrue(actions[3]["undoable"])
         self.assertFalse(actions[2]["undoable"])
         self.json("/api/undo", {"id": actions[1]["action_id"]}, expected=409)
@@ -154,6 +208,7 @@ class PageHTTPTests(Running, unittest.TestCase):
             result = self.json("/api/undo", {"id": actions[version]["action_id"]})
             self.assertTrue(result["undone"])
         self.assertEqual(self.json("/api/pages")["pages"], [])
+        self.assertEqual(self.json("/api/artifacts")["artifacts"], [])
         self.assertEqual(request(self.origin, f"/pages/{identity}")[0], 404)
 
     def test_share_requires_approval_stays_on_one_version_and_revokes(self):
@@ -163,7 +218,7 @@ class PageHTTPTests(Running, unittest.TestCase):
         self.assertEqual(blocked[0], 403)
         action = self.json("/api/pages/share", request_data)
         self.assertEqual(action["status"], "pending")
-        detail = self.json(f"/api/pages/detail?id={identity}")
+        detail = self.json(f"/api/artifacts/detail?id={identity}")
         self.assertNotIn("share", detail)
         self.assertEqual(detail["approval"]["id"], action["id"])
         self.json("/api/approve", {"id": action["id"]})
@@ -194,7 +249,7 @@ class PageHTTPTests(Running, unittest.TestCase):
             self.assertTrue(question["page_question"])
             self.assertEqual(self.json("/api/pages")["pages"], [])
             answer = self.chat("Noon.")
-            self.assertEqual(answer["pages"][0]["title"], "Lunch invite")
+            self.assertEqual(answer["artifacts"][0]["title"], "Lunch invite")
             self.chat("Make another lunch invite page.")
             unresolved = self.chat("I don't know.")
             self.assertNotIn("page_question", unresolved)
@@ -245,6 +300,10 @@ class PageHTTPTests(Running, unittest.TestCase):
             client.assert_not_called()
             body = {"id": identity, "version": 1}
             self.assertEqual(self.json("/api/pages/box", body), self.json("/api/pages/box", body))
+            with patch.object(self.app.artifacts, "walk", return_value={"box-456": {"box_id": "456"}}):
+                artifacts = self.json("/api/artifacts")["artifacts"]
+            self.assertEqual([(item["id"], item["sync"]) for item in artifacts], [(identity, "synced")])
+            self.assertEqual(artifacts[0]["box_url"], "https://app.box.com/file/456")
         row, raw, folder = receipts[0]
         self.assertEqual(len(receipts), 1)
         self.assertEqual(folders, [("42", ["Pages"])])

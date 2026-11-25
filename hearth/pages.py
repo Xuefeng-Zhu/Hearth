@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from . import box, page_html
-from .artifacts import filename
+from .artifacts import filename, page_artifact
 from .connectors import ConnectorError
 from .gateway_tools import redact_text
 from .page_policy import TOKEN
@@ -46,6 +46,30 @@ def card(row):
     return {key: row[key] for key in ("id", "title", "version", "updated_at", "thread_id")}
 
 
+def page_detail(state, row):
+    share = row.get("share")
+    details = {**card(row), "versions": row["versions"], "box_files": row.get("box_files", {})}
+    if share:
+        details["share"] = {"version": share["version"], "status": share["status"]}
+        if share["status"] == "active":
+            details["share"]["url"] = share["origin"] + "/p/" + share["token"]
+    pending = next((action for action in state["actions"].values() if action["kind"] == "page_share"
+                    and action["page_id"] == row["id"] and action["status"] == "pending"), None)
+    if pending:
+        details["approval"] = pending
+    return details
+
+
+def page_path(storage, row, version):
+    return storage.live / "pages" / row["id"] / f"v{version}" / "index.html"
+
+
+def page_bytes(storage, row, version):
+    if not 1 <= version <= len(row["versions"]):
+        raise PageError("Page version not found.", 404)
+    return page_path(storage, row, version).read_bytes()
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -56,7 +80,6 @@ class Pages:
         self.storage = storage
         self.artifacts = artifacts
         self.operation = operation
-        self.root = storage.live / "pages"
         self.share_config = Path(share_config) if share_config else None
         self.private_edge = private_edge
 
@@ -84,26 +107,10 @@ class Pages:
     def detail(self, identity):
         with self.storage.lock():
             state = self.storage.load()
-            row = row_for(state, identity)
-            share = row.get("share")
-            details = {**card(row), "versions": row["versions"], "box_files": row.get("box_files", {})}
-            if share:
-                details["share"] = {"version": share["version"], "status": share["status"]}
-                if share["status"] == "active":
-                    details["share"]["url"] = share["origin"] + "/p/" + share["token"]
-            pending = next((action for action in state["actions"].values() if action["kind"] == "page_share"
-                            and action["page_id"] == identity and action["status"] == "pending"), None)
-            if pending:
-                details["approval"] = pending
-            return details
-
-    def path(self, row, version):
-        return self.root / row["id"] / f"v{version}" / "index.html"
+            return page_detail(state, row_for(state, identity))
 
     def read(self, row, version):
-        if not 1 <= version <= len(row["versions"]):
-            raise PageError("Page version not found.", 404)
-        return self.path(row, version).read_bytes()
+        return page_bytes(self.storage, row, version)
 
     def document(self, identity, version=None):
         with self.storage.lock():
@@ -127,18 +134,19 @@ class Pages:
             else:
                 row = {"id": new_id(), "title": title, "version": None, "versions": [], **origin}
                 state.setdefault("pages", {})[row["id"]] = row
-            action = self.add_version(state, row, raw, note, "Edited" if identity else "Built")
-            return card(row), action
+            action = self.add_version(state, row, raw, note)
+            return page_artifact(row), action
 
-    def add_version(self, state, row, raw, note, verb):
+    def add_version(self, state, row, raw, note):
         before = row["version"]
         version = len(row["versions"]) + 1
         now = iso()
-        atomic_write(self.path(row, version), raw)
+        atomic_write(page_path(self.storage, row, version), raw)
         note = compact(redact_text(note), 160)
         row["versions"].append({"version": version, "at": now, "note": note})
         row.update(version=version, updated_at=now)
-        action = {"id": new_id(), "kind": "page", "title": f"{verb} page · {row['title']}",
+        event = "Page created" if before is None else "Page updated"
+        action = {"id": new_id(), "kind": "page", "title": f"{event} · {row['title']}",
                   "at": now, "status": "complete", "thread_id": row["thread_id"],
                   "thread_title": row["thread_title"], "page_id": row["id"],
                   "page_version": version, "previous_version": before, "note": note}
@@ -153,7 +161,7 @@ class Pages:
             row = row_for(state, identity)
             if row["version"] != current or current == version:
                 raise PageError("Choose another version from the current page history.", 409)
-            self.add_version(state, row, self.read(row, version), f"Reverted to v{version}.", "Restored")
+            self.add_version(state, row, self.read(row, version), f"Reverted to v{version}.")
         return self.detail(identity)
 
     def undo(self, action_id):

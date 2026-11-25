@@ -695,11 +695,14 @@ class Handler(BaseHTTPRequestHandler):
                 identity = params.get("id", [None])[0]
                 inline = params.get("inline") == ["1"]
                 item, raw = self.app.artifacts.download(identity, inline=inline)
-                content_type = box.FORMATS.get(item["format"], "application/octet-stream")
+                page = item["kind"] == "page"
+                content_type = "text/html; charset=utf-8" if page else box.FORMATS.get(
+                    item["format"], "application/octet-stream")
                 mode = "inline" if inline else "attachment"
                 filename = quote(item["filename"], safe="")
                 self.response_headers(200, content_type, len(raw), inline_pdf=inline,
-                                      disposition=f"{mode}; filename*=UTF-8''{filename}")
+                                      disposition=f"{mode}; filename*=UTF-8''{filename}",
+                                      page_csp=page_policy.CSP if page else None)
                 self.wfile.write(raw)
             elif url.path == "/api/memory/reindex":
                 self.json(self.app.memory_sync_info())
