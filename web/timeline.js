@@ -14,6 +14,7 @@ const kinds = {
   routing: ["Model routing", "M5 6h4m-2-2 2 2-2 2m8-2h4m-2-2 2 2-2 2M5 18h4l6-12m-2 12h6m-2-2 2 2-2 2"],
   brain: ["Model fallback", "M5 6h4m-2-2 2 2-2 2m8-2h4m-2-2 2 2-2 2M5 18h4l6-12m-2 12h6m-2-2 2 2-2 2"],
   voice: ["Voice", "M9 6a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0zm-4 5a7 7 0 1 0 14 0M12 18v3m-3 0h6"],
+  artifact: ["Artifact", "M5 3h9l5 5v13H5zM14 3v5h5M8 12h8m-8 4h8"],
   undo: ["Undo", "M9 5 4 10l5 5M4 10h10a5 5 0 0 1 0 10h-3"],
   email: ["Email", "M3 5h18v14H3zm0 1 9 7 9-7"],
   checkpoint: ["Checkpoint", "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 4v5l3 2"],
@@ -98,7 +99,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["checkpoint", "email", "gateway", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "voice"]
+    action: ["artifact", "checkpoint", "email", "gateway", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "voice"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -264,13 +265,15 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
     const button = card.querySelector(".timeline-undo");
     button.setAttribute("aria-expanded", String(!target.hidden));
     if (!target.hidden && !target.firstElementChild) {
-      target.append(element("p", "", "Restore this checkpoint? Newer chats, notes, and reminders will roll back. Delivered email stays delivered."));
+      const artifact = row.kind === "artifact";
+      target.append(element("p", "", artifact ? "Undo this artifact change?"
+        : "Restore this checkpoint? Newer chats, notes, and reminders will roll back. Delivered email stays delivered."));
       const cancel = control("Cancel", () => {
         confirmation = undefined;
         setConfirmation(card, row, action);
         button.focus();
       });
-      const restore = control("Restore checkpoint",
+      const restore = control(artifact ? "Undo change" : "Restore checkpoint",
         () => undo(action, { confirmed: true, timelineTitle: row.title }), "timeline-restore");
       restore.dataset.focus = "restore";
       target.append(cancel, restore);
@@ -341,7 +344,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
       }
     });
 
-    const action = row.data;
+    const action = row.kind === "artifact" ? { ...row.data, id: row.action_id } : row.data;
     if (row.undoable && !row.undone) {
       card.classList.add("has-undo");
       const confirm = element("div", "timeline-confirm");
@@ -453,10 +456,12 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
       turns: totals.chat, memory: totals.memory, actions: totals.action, connectors: totals.connector,
     })) get(`timeline-${id}`).textContent = value.toLocaleString();
     const last = get("timeline-last-undo");
-    const previousUndo = rows.find((row) => row.undone);
+    const previousUndo = rows.filter((row) => row.undone)
+      .sort((a, b) => stamp(b.undone_at || b.at) - stamp(a.undone_at || a.at))[0];
     if (previousUndo) {
-      if (last.firstElementChild?.dateTime !== previousUndo.at) {
-        last.replaceChildren(timeLabel(previousUndo.at));
+      const timestamp = previousUndo.undone_at || previousUndo.at;
+      if (last.firstElementChild?.dateTime !== timestamp) {
+        last.replaceChildren(timeLabel(timestamp));
         last.title = previousUndo.title;
       }
     } else {

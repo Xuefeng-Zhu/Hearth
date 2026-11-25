@@ -3,6 +3,7 @@ import { announcePose, looks, mascot, poseLabel, setLook, setPose } from "./avat
 import { createVoiceInput } from "./voice.js";
 import { callDuration, captionLine, createVoiceCall } from "./voice-call.js";
 import { createTimeline } from "./timeline.js";
+import { createArtifacts } from "./artifacts.js";
 
 const byId = (id) => document.getElementById(id);
 const nav = [...document.querySelectorAll("[data-view]")];
@@ -59,6 +60,13 @@ let settingsSection = "brain";
 let reindexPoll;
 const preferences = { memory: {}, search: {} };
 const timeline = createTimeline({ api, approve, undo, gatewayResults, isBusy: () => busy });
+const artifactLibrary = createArtifacts({
+  api, showNotice, openThread: openArtifactThread,
+  openConnections: () => openView("connections"),
+  refreshChat: async () => { if (view === "chat") await refreshView(); },
+  saveActivity: (thread, active) => avatarSignal(thread, active
+    ? { type: "tool_started", title: "Saving to Box" } : { type: "done" }),
+});
 const memoryNames = { auto: "Auto", keyword: "Keyword", huggingface: "Hugging Face embeddings", pinecone: "Pinecone" };
 const folderNames = { root: "Root · USER.md", people: "people/", topics: "topics/", daily: "daily/" };
 const brainProvider = byId("brain-provider");
@@ -192,9 +200,12 @@ function renderFace(local, messages, actions) {
   const items = active ? [...active.actions.values()]
     : (reply?.action_ids || []).map((id) => actions.get(id) || latest?.actions.get(id)).filter(Boolean);
   const details = byId("face-actions");
-  details.hidden = !items.length;
+  const linked = !active && (reply?.artifacts || state?.message_artifacts?.[reply?.id] || []);
+  details.hidden = !items.length && !linked?.length;
   if (details.hidden) details.open = false;
   details.querySelector(".cards").replaceChildren(...items.map((action) => actionCard(actions.get(action.id) || action)));
+  if (linked?.length) details.querySelector(".cards").append(artifactLibrary.chatActions(
+    reply, currentThread, linked, { allowSave: false }));
 }
 
 function applyAppearance() {
@@ -397,6 +408,11 @@ function messageBubble(role, content, { message, status } = {}) {
     share.className = "share-message";
     body.append(share);
   }
+  if (message?.id) item.dataset.messageId = message.id;
+  if (role === "assistant" && message?.id) {
+    const linked = message.artifacts || state?.message_artifacts?.[message.id] || [];
+    body.append(artifactLibrary.chatActions(message, currentThread, linked));
+  }
   item.append(body);
   transcript.append(item);
   return { avatar, cards, notices, text };
@@ -518,6 +534,7 @@ function rememberThread(thread) {
 
 function callCard(message) {
   const card = node("article", "card call-card");
+  card.dataset.messageId = message.id;
   const header = node("div", "card-header");
   header.append(node("h4", "", message.content), node("time", "call-card-duration", callDuration(message.duration)));
   card.append(header);
@@ -527,6 +544,7 @@ function callCard(message) {
     list.append(...message.lines.map(captionLine));
     details.append(node("summary", "", "Call transcript"), list);
     card.append(details);
+    card.append(artifactLibrary.chatActions(message, currentThread, state?.message_artifacts?.[message.id]));
   } else {
     card.append(node("p", "meta", "No transcript saved."));
   }
@@ -539,6 +557,7 @@ function renderChat(force = false) {
   const messages = state?.thread_id === currentThread ? state.messages : [];
   const local = [...turns].filter((turn) => turn.threadId === currentThread);
   const signature = JSON.stringify([currentThread, messages, threadList.map((thread) => thread.title), busy,
+    state?.message_artifacts,
     messages.flatMap((message) => (message.action_ids || []).map((id) => actions.get(id)))]);
   if (!force && signature === chatSignature) return;
   chatSignature = signature;
@@ -547,7 +566,8 @@ function renderChat(force = false) {
   transcript.replaceChildren();
   byId("welcome").hidden = currentThread !== mainThread.id || !!(messages.length || local.length);
   byId("side-welcome").hidden = currentThread === mainThread.id || !!(messages.length || local.length);
-  for (const message of messages) {
+  for (const [index, stored] of messages.entries()) {
+    const message = stored.id ? stored : { ...stored, id: `${currentThread}:${index + 1}` };
     if (message.role === "call") {
       transcript.append(callCard(message));
       continue;
@@ -1450,6 +1470,7 @@ async function openSettings(section) {
   }
   if (section === "brain") return openBrainSettings();
   if (section === "appearance") return;
+  if (section === "artifacts") return artifactLibrary.settings();
   if (section === "voice") {
     syncVoiceSettings();
     return voiceCall.syncSettings();
@@ -1524,6 +1545,7 @@ async function changePreferences(feature, operation) {
 
 async function refreshView() {
   if (view === "timeline") return timeline.show();
+  if (view === "artifacts") return artifactLibrary.show();
   if (!await refreshState()) return;
   if (view === "chat") renderChat();
   else if (view === "memory") await renderMemory();
@@ -1556,6 +1578,8 @@ async function openView(nextView, updateHistory = true) {
     await updateConnections("rescan");
   } else if (view === "settings") {
     await openSettings(settingsSection);
+  } else if (view === "artifacts") {
+    await artifactLibrary.show();
   } else if (!busy) {
     try {
       await refreshView();
@@ -1587,6 +1611,20 @@ async function selectThread(threadId, focus = false) {
     await refreshView();
   } catch (error) {
     if (currentThread === threadId) showNotice(error.message);
+  }
+}
+
+async function openArtifactThread(threadId, messageId) {
+  activateThread(threadId);
+  await openView("chat");
+  const message = [...transcript.querySelectorAll("[data-message-id]")].find((item) => item.dataset.messageId === messageId);
+  if (message) {
+    message.classList.add("artifact-anchor");
+    message.tabIndex = -1;
+    message.focus({ preventScroll: true });
+    message.scrollIntoView({ block: "center" });
+  } else if (threadId !== currentThread) {
+    showNotice("The source chat is no longer available.");
   }
 }
 
@@ -1761,6 +1799,20 @@ async function approve(action) {
 }
 
 async function undo(action, { confirmed = false, timelineTitle } = {}) {
+  if (action.artifact_id) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api("/api/artifacts/undo", { id: action.id });
+      await refreshView();
+      showNotice("Artifact change undone.");
+    } catch (error) {
+      showNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+    return;
+  }
   if (busy || (!confirmed && !window.confirm(`Restore checkpoint ${action.checkpoint.id}? This rolls back the workspace, including newer chat, memory, and reminders. Delivered email stays delivered.`))) return;
   setBusy(true);
   showNotice("Restoring checkpoint. Hearth may reconnect…");

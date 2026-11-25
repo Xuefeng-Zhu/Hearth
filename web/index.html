@@ -18,6 +18,7 @@
       <nav aria-label="Workspace">
         <button type="button" class="nav-link" data-view="chat" aria-current="page"><span class="nav-icon" aria-hidden="true">▤</span> Chat</button>
         <button type="button" class="nav-link" data-view="memory"><span class="nav-icon" aria-hidden="true">▱</span> Memory</button>
+        <button type="button" class="nav-link" data-view="artifacts"><span class="nav-icon" aria-hidden="true">▧</span> Artifacts</button>
         <button type="button" class="nav-link" data-view="timeline"><span class="nav-icon" aria-hidden="true">◷</span> Timeline</button>
         <button type="button" class="nav-link" data-view="connections"><span class="nav-icon" aria-hidden="true">⌘</span> Connections</button>
         <button type="button" class="nav-link" data-view="settings"><span class="nav-icon" aria-hidden="true">⚙</span> Settings</button>
@@ -133,10 +134,54 @@
           </article>
         </div>
       </section>
+      <section class="view panel" id="artifacts-view" aria-labelledby="view-title" hidden>
+        <div class="artifact-library">
+          <div class="section-intro artifact-intro">
+            <div><h2>Saved work</h2><p>Plans, lists, and documents from your chats and Box.</p></div>
+            <div class="artifact-box-control">
+              <span id="artifact-box-status" class="artifact-box-status" role="status">Checking Box…</span>
+              <button type="button" class="artifact-icon-button" id="artifact-refresh" aria-label="Refresh artifacts" title="Refresh artifacts">↻</button>
+            </div>
+          </div>
+          <div id="artifact-connection" class="artifact-connection" hidden>
+            <span id="artifact-connection-copy"></span>
+            <a href="#connections" id="artifact-connect">Open Connections</a>
+          </div>
+          <div class="artifact-toolbar">
+            <label class="artifact-search"><span aria-hidden="true">⌕</span>
+              <span class="visually-hidden">Search artifacts</span>
+              <input id="artifact-search" type="search" maxlength="160" placeholder="Search artifacts…">
+            </label>
+            <label>
+              <span class="visually-hidden">Filter by kind</span>
+              <select id="artifact-kind">
+                <option value="">All kinds</option>
+                <option value="plan">Plans</option><option value="list">Lists</option><option value="note">Notes</option>
+                <option value="transcript">Transcripts</option><option value="export">Exports</option>
+              </select>
+            </label>
+            <label>
+              <span class="visually-hidden">Sort artifacts</span>
+              <select id="artifact-sort"><option value="recent">Most recent</option><option value="name">Name A–Z</option></select>
+            </label>
+            <div class="artifact-layout-toggle" role="group" aria-label="Artifact layout">
+              <button type="button" id="artifact-grid" aria-label="Grid view" title="Grid view" aria-pressed="true">⊞</button>
+              <button type="button" id="artifact-list" aria-label="List view" title="List view" aria-pressed="false">☰</button>
+            </div>
+          </div>
+          <p class="artifact-count" id="artifact-count" role="status">Loading artifacts…</p>
+          <div class="artifact-collection" id="artifact-collection"></div>
+          <div id="artifact-empty" class="artifact-empty" hidden>
+            <span class="artifact-kind-icon" aria-hidden="true">▧</span>
+            <h3 id="artifact-empty-title">No artifacts yet</h3>
+            <p id="artifact-empty-hint">Ask Hearth to make a file, or save any reply as an artifact.</p>
+          </div>
+        </div>
+      </section>
       <section class="view panel" id="timeline-view" aria-labelledby="view-title" hidden>
         <div class="section-intro timeline-intro">
           <h2>Workspace activity</h2>
-          <p>See what Hearth did and restore changes from a checkpoint.</p>
+          <p>See what Hearth did and undo changes.</p>
         </div>
         <section class="timeline-today" aria-labelledby="timeline-today-title">
           <h3 id="timeline-today-title">Today at a glance</h3>
@@ -199,10 +244,27 @@
         <nav class="settings-nav" aria-label="Settings sections">
           <button type="button" data-settings="brain" aria-current="page">Brain</button>
           <button type="button" data-settings="memory">Memory</button>
+          <button type="button" data-settings="artifacts">Artifacts</button>
           <button type="button" data-settings="search">Search</button>
           <button type="button" data-settings="appearance">Appearance</button>
           <button type="button" data-settings="voice">Voice</button>
         </nav>
+        <div id="settings-artifacts" hidden>
+          <div class="section-intro"><h2>Artifacts</h2><p>Choose where Hearth saves your files and the default format.</p></div>
+          <form id="artifact-settings-form" class="card brain-form">
+            <label class="check-label"><input id="artifact-auto-save" type="checkbox" checked> Auto-save to Box</label>
+            <label for="artifact-format">Default format</label>
+            <select id="artifact-format">
+              <option value="md">Markdown</option><option value="txt">Plain text</option>
+              <option value="csv">CSV</option><option value="json">JSON</option>
+            </select>
+            <label for="artifact-folder">Box folder name</label>
+            <input id="artifact-folder" type="text" required maxlength="80" value="Hearth">
+            <p id="artifact-settings-connection" class="meta"></p>
+            <button class="primary" type="submit">Save settings</button>
+            <p id="artifact-settings-status" class="meta" role="status"></p>
+          </form>
+        </div>
         <div id="settings-brain">
           <div class="section-intro">
             <h2>Brain</h2>
@@ -504,6 +566,19 @@
         <button class="call-quiet" id="call-retry-save" type="button" hidden>Retry save</button>
         <button class="call-button" id="call-done" type="button" hidden>Done</button>
       </div>
+    </div>
+  </dialog>
+  <dialog class="artifact-drawer" id="artifact-drawer" aria-labelledby="artifact-drawer-title">
+    <div class="artifact-drawer-shell">
+      <header class="artifact-drawer-header">
+        <div id="artifact-detail-meta" class="artifact-badges"></div>
+        <button type="button" class="artifact-icon-button" id="artifact-close" aria-label="Close artifact" title="Close artifact">×</button>
+        <h2 id="artifact-drawer-title">Artifact</h2>
+        <p class="artifact-detail-filename" id="artifact-filename"></p>
+        <div class="artifact-detail-actions" id="artifact-actions"></div>
+        <p id="artifact-detail-status" class="artifact-detail-status" role="status"></p>
+      </header>
+      <div class="artifact-drawer-body" id="artifact-detail-body"></div>
     </div>
   </dialog>
 </body>
