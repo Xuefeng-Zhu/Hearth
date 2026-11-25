@@ -5,6 +5,7 @@ import re
 import threading
 import time
 from collections import deque
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from queue import Empty, SimpleQueue
@@ -258,6 +259,12 @@ class Application:
             if (job := jobs.get(action.get("job", {}).get("id"))) is not None:
                 action = {**action, "job": {**job, "cancelable": reminders.can_cancel(state, job)}}
             actions.append(action)
+        recent = datetime.now(timezone.utc) - timedelta(seconds=4)
+        sending = set()
+        for item in scheduler.email_records(state):
+            email = item.get("delivery", {}).get("email", {})
+            if email.get("sending") or (email.get("at") and datetime.fromisoformat(email["at"]) > recent):
+                sending.add(item["thread_id"])
         return {"thread_id": thread_id, "threads": [
                     {**thread, "busy": thread["id"] in active,
                      **({"activity": active[thread["id"]]} if active.get(thread["id"]) else {})}
@@ -265,8 +272,7 @@ class Application:
                 "messages": messages, "actions": actions,
                 "message_artifacts": artifacts.message_artifacts(state, thread_id),
                 "jobs": state["jobs"], "reminders": [reminders.public_item(item) for item in state["reminders"]],
-                "reminder_sending": list({item["thread_id"] for item in scheduler.email_records(state)
-                                          if item.get("delivery", {}).get("email", {}).get("sending")}),
+                "reminder_sending": sorted(sending),
                 "routing": state.get("routing", [])[-50:],
                 "whisper_available": bool(self.memory_index.hf_entry(self.agent.config)),
                 "voice_call_available": voice_call.PROVIDER in self.connections.selected,

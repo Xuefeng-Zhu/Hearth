@@ -409,7 +409,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
     if (editing.size && !force) return;
     try {
       const result = await api("/api/inbox");
-      if (currentView() !== "inbox") return;
+      if (currentView() !== "inbox" || (editing.size && !force)) return;
       const signature = JSON.stringify(result);
       if (signature === inboxSignature) return;
       inboxSignature = signature;

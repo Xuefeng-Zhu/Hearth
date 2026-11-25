@@ -94,10 +94,12 @@ def pending_occurrences(state, job):
 def can_cancel(state, job):
     occurrences = pending_occurrences(state, job)
     active = job["status"] == "scheduled" or (job["status"] == "complete" and bool(occurrences))
-    return active and all(
-        not any(info.get("uncertain") or info.get("sending") or (info["status"] == "sent" and not job["cron"])
-                for info in item.get("delivery", {"app": {"status": "sent"}}).values())
-        for item in occurrences)
+    deliveries = [info for item in occurrences
+                  for info in item.get("delivery", {"app": {"status": "sent"}}).values()]
+    if not active or any(info.get("uncertain") or info.get("sending") for info in deliveries):
+        return False
+    return (job["status"] == "scheduled" or any(info["status"] == "queued" for info in deliveries)
+            or not any(info["status"] == "sent" for info in deliveries))
 
 
 def next_due(state):

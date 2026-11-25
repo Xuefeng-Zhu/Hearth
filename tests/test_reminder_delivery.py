@@ -122,7 +122,7 @@ class DeliveryTest(unittest.TestCase):
         self.connect()
         self.app.reminders.save({"recipient": "user@example.com"})
         at = datetime(2030, 1, 4, 7, tzinfo=timezone.utc)
-        held = self.schedule(now=at)
+        held = self.schedule("both", now=at)
         urgent = self.schedule(now=at, urgent=True)
         self.due(at + timedelta(minutes=1))
         items = {row["job_id"]: row["delivery"]["email"] for row in self.storage.load()["reminders"]}
@@ -130,6 +130,9 @@ class DeliveryTest(unittest.TestCase):
         self.assertEqual(items[held["id"]]["reason"], "Quiet hours")
         self.assertEqual(items[held["id"]]["next_at"], "2030-01-04T15:00:00+00:00")
         self.app.reminders.cancel(held["id"])
+        canceled = next(row for row in self.storage.load()["reminders"] if row["job_id"] == held["id"])
+        self.assertEqual(canceled["delivery"]["app"]["status"], "sent")
+        self.assertEqual(canceled["delivery"]["email"]["status"], "canceled")
         self.due(at + timedelta(hours=9))
         self.assertEqual(len(self.send_calls()), 1)
         for value, expected in (("2030-03-10T09:00:00+00:00", "2030-03-10T14:00:00+00:00"),
