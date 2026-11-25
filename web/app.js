@@ -74,8 +74,6 @@ const artifactLibrary = createArtifacts({
   api, showNotice, openThread: openArtifactThread,
   openConnections: () => openView("connections"),
   refreshChat: async () => { if (view === "chat") await refreshView(); },
-  saveActivity: (thread, active) => avatarSignal(thread, active
-    ? { type: "tool_started", title: "Saving to Box" } : { type: "done" }),
 });
 const delivery = createReminders({
   api, openView, openSettings, currentView: () => view, currentSettings: () => settingsSection,
@@ -220,8 +218,7 @@ function renderFace(local, messages, actions) {
   details.hidden = !items.length && !linked?.length;
   if (details.hidden) details.open = false;
   details.querySelector(".cards").replaceChildren(...items.map((action) => actionCard(actions.get(action.id) || action)));
-  if (linked?.length) details.querySelector(".cards").append(artifactLibrary.chatActions(
-    reply, currentThread, linked, { allowSave: false }));
+  if (linked?.length) details.querySelector(".cards").append(artifactLibrary.chatActions(linked));
 }
 
 function applyAppearance() {
@@ -441,7 +438,7 @@ function messageBubble(role, content, { message, status } = {}) {
   if (message?.id) item.dataset.messageId = message.id;
   if (role === "assistant" && message?.id) {
     const linked = message.artifacts || state?.message_artifacts?.[message.id] || [];
-    body.append(artifactLibrary.chatActions(message, currentThread, linked));
+    if (linked.length) body.append(artifactLibrary.chatActions(linked));
   }
   item.append(body);
   return { item, avatar, cards, notices, text };
@@ -587,7 +584,6 @@ function callCard(message) {
     list.append(...message.lines.map(captionLine));
     details.append(node("summary", "", "Call transcript"), list);
     card.append(details);
-    card.append(artifactLibrary.chatActions(message, currentThread, state?.message_artifacts?.[message.id]));
   } else {
     card.append(node("p", "meta", "No transcript saved."));
   }

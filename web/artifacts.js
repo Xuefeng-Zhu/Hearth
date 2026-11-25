@@ -3,8 +3,11 @@ const kinds = {
   plan: ["Plan", "◫"], list: ["List", "☷"], note: ["Note", "▤"],
   transcript: ["Transcript", "◉"], export: ["Export", "⇩"],
 };
-const formats = { md: "Markdown", txt: "Plain text", csv: "CSV", json: "JSON" };
-const mimeTypes = { md: "text/markdown", txt: "text/plain", csv: "text/csv", json: "application/json" };
+const fileTypes = {
+  docx: ["DOCX", "▤"], pdf: ["PDF", "▧"], xlsx: ["XLSX", "▦"], pptx: ["PPTX", "▣"],
+};
+const legacyTypes = { md: "MD", txt: "TXT", csv: "CSV", json: "JSON" };
+const sizeFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 const statuses = { synced: "Synced to Box", saving: "Saving…", local: "Local only", error: "Sync error" };
 const updated = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
@@ -130,43 +133,118 @@ export function markdown(text, className = "artifact-markdown") {
   return content;
 }
 
-function preview(artifact) {
-  if (!Object.hasOwn(artifact, "content")) {
-    const text = artifact.size > 128 * 1024 ? "This file is too large to preview in Hearth." : "Open this file in Box to view it.";
-    return element("p", "artifact-no-preview", text);
+function fileURL(item, inline = false) {
+  return `/api/artifacts/file?id=${encodeURIComponent(item.id)}${inline ? "&inline=1" : ""}`;
+}
+
+function fileIcon(item) {
+  const type = fileTypes[item.format];
+  const icon = element("span", `artifact-kind-icon ${type ? `is-${item.format}` : ""}`,
+    type?.[1] || kinds[item.kind]?.[1] || "▧");
+  icon.setAttribute("aria-hidden", "true");
+  return icon;
+}
+
+function fileSize(size) {
+  if (!Number.isInteger(size)) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${sizeFormat.format(size / 1024)} KiB`;
+  return `${sizeFormat.format(size / (1024 * 1024))} MiB`;
+}
+
+function fileLink(item, box = false) {
+  const link = element("a", box ? "artifact-control artifact-box-link" : "artifact-control",
+    box ? "Open in Box ↗" : "Download");
+  if (box) {
+    link.href = item.box_url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  } else {
+    link.href = fileURL(item);
+    link.download = item.filename;
   }
-  if (artifact.format === "md") return markdown(artifact.content);
-  if (artifact.format === "csv") {
-    const wrap = element("div", "artifact-table");
-    const table = element("table");
-    const rows = csvRows(artifact.content);
-    for (const [index, row] of rows.slice(0, 201).entries()) {
-      const tr = table.insertRow();
-      for (const value of row.slice(0, 60)) {
-        const cell = element(index ? "td" : "th", "", value);
-        if (!index) cell.scope = "col";
-        tr.append(cell);
+  return link;
+}
+
+function tablePreview(rows) {
+  const wrap = element("div", "artifact-table");
+  const table = element("table");
+  for (const [index, row] of rows.entries()) {
+    const section = index ? (table.tBodies[0] || table.createTBody()) : table.createTHead();
+    const tr = section.insertRow();
+    for (const value of row) {
+      const cell = element(index ? "td" : "th", "", value ?? "");
+      if (!index) cell.scope = "col";
+      tr.append(cell);
+    }
+  }
+  wrap.append(table);
+  return wrap;
+}
+
+function bullets(lines) {
+  const list = element("ul");
+  list.append(...lines.map((line) => element("li", "", line)));
+  return list;
+}
+
+function preview(artifact) {
+  if (artifact.inline_pdf) {
+    const frame = element("iframe", "artifact-pdf");
+    frame.title = `${artifact.title} PDF preview`;
+    frame.src = fileURL(artifact, true) + "#toolbar=0&view=FitH";
+    return frame;
+  }
+  const data = artifact.preview;
+  if (artifact.format === "xlsx" && data) {
+    const sheet = element("div", "artifact-sheet");
+    sheet.append(element("h4", "", data.sheet), tablePreview(data.rows));
+    if (data.truncated) sheet.append(element("p", "meta", "Preview shows up to 200 rows and 50 columns."));
+    return sheet;
+  }
+  if (artifact.format === "pptx" && data) {
+    const deck = element("ol", "artifact-slides");
+    for (const slide of data.slides) {
+      const page = element("li");
+      if (slide.title) page.append(element("h4", "", slide.title));
+      if (slide.bullets.length) page.append(bullets(slide.bullets));
+      deck.append(page);
+    }
+    return deck;
+  }
+  if (artifact.format === "docx" && data) {
+    const doc = element("div", "artifact-document");
+    let list;
+    for (const block of data.blocks) {
+      if (block.type === "bullet") {
+        if (!list) {
+          list = element("ul");
+          doc.append(list);
+        }
+        list.append(element("li", "", block.text));
+      } else {
+        list = undefined;
+        doc.append(block.type === "table" ? tablePreview(block.rows)
+          : element(block.type === "heading" ? "h4" : "p", "", block.text));
       }
     }
-    wrap.append(table);
+    return doc;
+  }
+  if (artifact.format === "md" && Object.hasOwn(artifact, "content")) return markdown(artifact.content);
+  if (artifact.format === "csv" && Object.hasOwn(artifact, "content")) {
+    const rows = csvRows(artifact.content);
+    const wrap = tablePreview(rows.slice(0, 201).map((row) => row.slice(0, 60)));
     if (rows.length > 201 || rows.some((row) => row.length > 60)) {
-      wrap.append(element("p", "meta", "Preview shows up to 200 rows and 60 columns. Download for the full CSV."));
+      wrap.append(element("p", "meta", "Preview shows up to 200 rows and 60 columns."));
     }
     return wrap;
   }
-  return element("pre", "artifact-plain", artifact.content);
+  if (Object.hasOwn(artifact, "content")) return element("pre", "artifact-plain", artifact.content);
+  return element("p", "artifact-no-preview", artifact.download_available
+    ? "Download this file to view it." : "Open this file in Box to view it.");
 }
 
-function download(item) {
-  const url = URL.createObjectURL(new Blob([item.content], { type: mimeTypes[item.format] || "text/plain" }));
-  const link = element("a");
-  link.href = url;
-  link.download = item.filename;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-export function createArtifacts({ api, openThread, openConnections, showNotice, saveActivity, refreshChat }) {
+export function createArtifacts({ api, openThread, openConnections, showNotice, refreshChat }) {
   const collection = get("artifact-collection");
   const drawer = get("artifact-drawer");
   const detailBody = get("artifact-detail-body");
@@ -177,9 +255,8 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
   const settingsForm = get("artifact-settings-form");
   const settingsStatus = get("artifact-settings-status");
   const pending = new Set();
-  const savingMessages = new Set();
   let layout = localStorage.getItem("hearth-artifact-layout") === "list" ? "list" : "grid";
-  let snapshot, selected, request, detailRequest, opener, editMode = false, confirming = false;
+  let snapshot, selected, request, detailRequest, opener, confirming = false;
 
   function connection(info) {
     const { connected, box_error: error, settings } = info;
@@ -199,8 +276,12 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
   }
 
   function chips(item) {
-    return [badge(kinds[item.kind][0], `is-${item.kind}`), badge(item.source, item.source === "Box" ? "is-box" : ""),
-      badge(formats[item.format] || item.format?.toUpperCase() || "File")];
+    const format = fileTypes[item.format]?.[0] || legacyTypes[item.format] || item.format?.toUpperCase() || "File";
+    const labels = [badge(format, fileTypes[item.format] ? `is-${item.format}` : ""),
+      badge(kinds[item.kind]?.[0] || "File", `is-${item.kind}`)];
+    if (item.version_number) labels.push(badge(`v${item.version_number}`));
+    if (item.legacy) labels.push(badge("Legacy text"));
+    return labels;
   }
 
   function threadLink(item) {
@@ -217,8 +298,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
   function card(item) {
     const panel = element("article", "artifact-card");
     panel.dataset.kind = item.kind;
-    const icon = element("span", "artifact-kind-icon", kinds[item.kind][1]);
-    icon.setAttribute("aria-hidden", "true");
+    const icon = fileIcon(item);
     const header = element("div", "artifact-card-header");
     const badges = element("div", "artifact-badges");
     const heading = element("h3");
@@ -228,6 +308,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     heading.append(title);
     badges.append(...chips(item));
     header.append(heading, badges);
+    if (item.size != null) header.append(element("p", "artifact-card-size meta", fileSize(item.size)));
     const foot = element("div", "artifact-card-foot");
     const timestamp = clock(item.updated_at);
     timestamp.title = `Updated ${timestamp.textContent}`;
@@ -237,7 +318,8 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     }
     foot.append(sync, timestamp);
     const sources = element("div", "artifact-card-links");
-    if (item.thread_id) sources.append(threadLink(item));
+    if (fileTypes[item.format] || item.legacy) sources.append(fileLink(item));
+    if (item.box_url) sources.append(fileLink(item, true));
     if ((item.sync !== "synced" && snapshot.connected) && !pending.has(item.id)) {
       sources.append(control("Retry sync", () => retry(item), "artifact-text-button"));
     }
@@ -273,7 +355,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     get("artifact-empty").hidden = !!rows.length;
     get("artifact-empty-title").textContent = all.length ? "No matches" : "No artifacts yet";
     get("artifact-empty-hint").textContent = all.length ? "Try a different search or kind."
-      : "Ask Hearth to make a file, or save any reply as an artifact.";
+      : "Ask Hearth to create a Word document, PDF, spreadsheet, or slide deck.";
   }
 
   async function show() {
@@ -293,37 +375,14 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
 
   function renderDetail(item) {
     get("artifact-drawer-title").textContent = item.title;
-    get("artifact-filename").textContent = [item.filename, Number.isInteger(item.size) ? `${item.size.toLocaleString()} bytes` : ""]
+    get("artifact-filename").textContent = [item.filename, fileSize(item.size)]
       .filter(Boolean).join(" · ");
-    get("artifact-detail-meta").replaceChildren(...chips(item), syncLabel(item));
+    get("artifact-detail-meta").replaceChildren(fileIcon(item), ...chips(item), syncLabel(item));
     const actions = get("artifact-actions");
     actions.replaceChildren();
     detailStatus.textContent = item.sync_message || "";
-    const haveText = Object.hasOwn(item, "content");
-    if (haveText) {
-      const edit = control("Edit", () => {
-        editMode = true;
-        confirming = false;
-        renderDetail(item);
-        get("artifact-editor").focus();
-      });
-      edit.disabled = editMode;
-      actions.append(edit, control("Download", () => download(item)), control("Copy", async () => {
-        try {
-          await navigator.clipboard.writeText(item.content);
-          detailStatus.textContent = "Copied to clipboard.";
-        } catch {
-          detailStatus.textContent = "Clipboard unavailable. Use Download to keep a copy.";
-        }
-      }));
-    }
-    if (item.box_url) {
-      const link = element("a", "artifact-control artifact-box-link", "Open in Box ↗");
-      link.href = item.box_url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      actions.append(link);
-    }
+    if (item.download_available || Object.hasOwn(item, "content")) actions.append(fileLink(item));
+    if (item.box_url) actions.append(fileLink(item, true));
     if (item.sync !== "synced" && item.box_connected && !pending.has(item.id)) {
       actions.append(control("Retry sync", () => retry(item)));
     }
@@ -333,7 +392,6 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       if (confirming) get("artifact-confirm-delete").focus();
     }, "artifact-control artifact-danger");
     deletion.setAttribute("aria-expanded", String(confirming));
-    deletion.disabled = editMode;
     actions.append(deletion);
     detailBody.replaceChildren();
     if (confirming) {
@@ -357,29 +415,9 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       detailBody.append(source);
     }
     const paper = element("section", "artifact-paper");
-    paper.append(element("h3", "artifact-section-label", editMode ? "Edit file" : "Preview"));
-    if (editMode) {
-      const form = element("form", "artifact-edit");
-      const label = element("label", "visually-hidden", `${formats[item.format] || "Text"} content`);
-      label.htmlFor = "artifact-editor";
-      const field = element("textarea");
-      field.id = "artifact-editor";
-      field.maxLength = 128 * 1024;
-      field.value = item.content;
-      const save = element("button", "artifact-control artifact-box-link", "Save");
-      save.type = "submit";
-      form.append(label, field, save, control("Cancel", () => {
-        editMode = false;
-        renderDetail(item);
-        actions.firstElementChild?.focus();
-      }));
-      form.addEventListener("submit", (event) => {
-        event.preventDefault();
-        mutate("update", item, { revision: item.revision, content: field.value });
-      });
-      paper.append(form);
-    } else {
-      paper.append(preview(item));
+    paper.append(element("h3", "artifact-section-label", "Preview"), preview(item));
+    if (fileTypes[item.format] && item.source === "Hearth") {
+      paper.append(element("p", "artifact-edit-hint meta", "Ask Hearth to edit this file and save a new version."));
     }
     detailBody.append(paper);
     const versions = element("section", "artifact-versions");
@@ -396,7 +434,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       versions.append(list);
     } else if (!item.warnings?.length) {
       versions.append(element("p", "meta", item.version_source === "hearth"
-        ? "Hearth has no saved versions for this file." : "Box versions will appear after this file syncs."));
+        ? "Hearth has no saved versions for this file." : "Box will show the available version history."));
     }
     for (const warning of item.warnings || []) versions.append(element("p", "meta", warning));
     detailBody.append(versions);
@@ -411,7 +449,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     const token = Symbol();
     detailRequest = token;
     selected = id;
-    editMode = confirming = false;
+    confirming = false;
     const row = snapshot?.artifacts.find((item) => item.id === id);
     get("artifact-drawer-title").textContent = row?.title || "Artifact";
     get("artifact-detail-meta").replaceChildren();
@@ -457,12 +495,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       } else showNotice(error.message);
     } finally {
       pending.delete(item.id);
-      if (inDrawer && drawer.open && selected === item.id && editMode) {
-        for (const button of detailBody.querySelectorAll("button")) button.disabled = false;
-        for (const button of get("artifact-actions").querySelectorAll("button")) {
-          button.disabled = ["Edit", "Move to Trash"].includes(button.textContent);
-        }
-      } else if (inDrawer && drawer.open && selected === item.id) {
+      if (inDrawer && drawer.open && selected === item.id) {
         for (const button of drawer.querySelectorAll("button:not(#artifact-close)")) button.disabled = false;
       }
       await show();
@@ -473,15 +506,10 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     return mutate("retry", item, {});
   }
 
-  function worthSaving(item) {
-    const text = String(item?.content || "").trim();
-    if (text.length >= 600) return true;
-    return /^(#{1,6} |\|.*\||```|\s*(?:[-*] |\d+\. ).*\n\s*(?:[-*] |\d+\. ))/m.test(text);
-  }
-
-  function chatActions(item, threadId, linked = [], { allowSave = true } = {}) {
+  function chatActions(linked) {
     const actions = element("div", "artifact-chat-actions");
     for (const artifact of linked) {
+      if (!fileTypes[artifact.format]) continue;
       const verb = artifact.sync === "synced" ? "to Box" : "locally";
       const chip = control(`Saved “${artifact.title}” ${verb} ▸`, (event) => open(artifact.id, event.currentTarget),
         "artifact-chat-chip");
@@ -490,36 +518,11 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       chip.title = artifact.sync_message || "";
       actions.append(chip);
     }
-    if (!linked.some((artifact) => artifact.from_message) && allowSave && worthSaving(item)) {
-      const active = savingMessages.has(item.id);
-      const save = control(active ? "Saving…" : "Save as artifact", async () => {
-        if (savingMessages.has(item.id)) return;
-        savingMessages.add(item.id);
-        save.textContent = "Saving…";
-        save.disabled = true;
-        saveActivity(threadId, true);
-        try {
-          const result = await api("/api/artifacts/save-message", { thread_id: threadId, message_id: item.id });
-          if (result.sync_message) showNotice(result.sync_message);
-        } catch (error) {
-          showNotice(error.message);
-        } finally {
-          savingMessages.delete(item.id);
-          saveActivity(threadId, false);
-          save.textContent = "Save as artifact";
-          save.disabled = false;
-          await refreshChat().catch(() => {});
-        }
-      }, "artifact-text-button");
-      save.disabled = active;
-      actions.append(save);
-    }
     return actions;
   }
 
   function renderSettings(info) {
     get("artifact-auto-save").checked = info.settings.auto_save;
-    get("artifact-format").value = info.settings.format;
     get("artifact-folder").value = info.settings.folder_name;
     get("artifact-settings-connection").textContent = info.connected ? "Box connected." : "Box is disconnected. Files can still be saved locally.";
   }
@@ -540,7 +543,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     settingsStatus.textContent = "Saving settings…";
     try {
       renderSettings(await api("/api/artifacts/settings", { auto_save: get("artifact-auto-save").checked,
-        format: get("artifact-format").value, folder_name: get("artifact-folder").value }));
+        folder_name: get("artifact-folder").value }));
       settingsStatus.textContent = "Artifact settings saved.";
     } catch (error) {
       settingsStatus.textContent = error.message;

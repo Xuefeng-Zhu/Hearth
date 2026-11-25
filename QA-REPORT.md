@@ -1,5 +1,32 @@
 # Hearth QA for Hacksgiving
 
+## Run 18 · Office files
+
+November 25, 2026 UTC · Private Hearth Sprite
+
+Hugging Face Qwen3-Coder-Next created all four files from chat prompts. Each download returned the expected MIME type and extension, and the SHA-1 of its bytes matched the Box file metadata.
+
+| Format | File | Box file ID | Latest Box version |
+| --- | --- | --- | --- |
+| PDF | Thanksgiving plan | [2614758587725](https://app.box.com/file/2614758587725) | 1 |
+| DOCX | Kitchen prep guide | [2614755342889](https://app.box.com/file/2614755342889) | 1 |
+| XLSX | Shopping budget | [2614757771595](https://app.box.com/file/2614757771595) | 3 |
+| PPTX | 感恩节晚餐 | [2614755266074](https://app.box.com/file/2614755266074) | 3 |
+
+A follow-up added a Chinese dessert slide to the existing deck. Preview QA found a repeated title slide, so the generator now combines duplicate title slides and preserves their notes. The live deck was corrected in version 3. The workbook gained a Category column and a follow-up corrected the Total formulas to reference the Quantity and Unit cost columns. Both files kept their original Box IDs. The Box gateway returned HTTP 403 from its version-history endpoint, and the drawer showed the receipts saved by Hearth. Unit tests reopened the Office files, checked the Chinese text and the embedded PDF font, and verified the one-page PDF. The Sprite installs the pinned 1.5 MiB WenQuanYi Micro Hei package and embeds the needed glyphs in each Chinese PDF. [Debian package](https://packages.debian.org/bookworm/fonts-wqy-microhei), [Font license](https://metadata.ftp-master.debian.org/changelogs/main/f/fonts-wqy-microhei/fonts-wqy-microhei_0.2.0-beta-3.1_copyright)
+
+
+Chromium and Playwright passed at 1440×900 and 390×844 using a local relay to the private Sprite. The Browser plugin was unavailable. The sweep opened all four previews, verified browser downloads and Box links, checked drawer focus return and horizontal scrolling bounds, and found the file chip on the originating reply. Python passed 103 tests and Node passed five. All web JavaScript passed syntax checks.
+
+| Browser evidence | Capture |
+| --- | --- |
+| Artifacts list · 1440 px | [Desktop](/workspace/tmp/hearth-qa/run18-artifacts-desktop.png) |
+| Artifacts list · 390 px | [Mobile](/workspace/tmp/hearth-qa/run18-artifacts-mobile.png) |
+| PDF inline preview | [PDF](/workspace/tmp/hearth-qa/run18-preview-pdf.png) |
+| Word headings and paragraphs | [DOCX](/workspace/tmp/hearth-qa/run18-preview-docx.png) |
+| Excel first-sheet table | [XLSX desktop](/workspace/tmp/hearth-qa/run18-preview-xlsx.png), [XLSX mobile](/workspace/tmp/hearth-qa/run18-preview-xlsx-mobile.png) |
+| Chinese slide outline | [PPTX](/workspace/tmp/hearth-qa/run18-preview-pptx.png) |
+
 ## Mobile
 
 November 25, 2026 UTC · `main` · Sprite runtime commit `2acb786`
@@ -102,15 +129,16 @@ The Mock demo flow passed. Round 2 reproduced defects in Inbox polling, chat ren
 
 ## 90-second demo
 
-Use a demo workspace with **Mock** selected and **Auto-save to Box** off. Leave the email draft awaiting approval. The complete automated walkthrough took 18 seconds at each width, leaving time for narration.
+Use a demo workspace with **Mock** selected and **Auto-save to Box** off. Leave the sample email draft awaiting approval.
 
 | Time | Action |
 | --- | --- |
-| 0–15 s | Open Chat and select **Plan Thanksgiving dinner**. Show Ember changing poses while the tools run. |
-| 15–35 s | Show the streamed plan. Open **Remembered**, point to the source notes, and show the email draft and in-app reminder card. |
-| 35–52 s | Send `Remember topics/demo-oven.md: Preheat the oven at 3 pm.` Open **Memory** and select the saved note. |
-| 52–68 s | Search for `topics/demo-oven.md` in **Timeline**. Select **Undo** on its memory edit and confirm **Undo change**. Show **Undone** and verify the note disappeared from Memory. |
-| 68–90 s | Return to Chat, open **Saved “Thanksgiving plan” locally**, and select **Download**. |
+| 0–15 s | Open Chat and select **Plan Thanksgiving dinner**. Show Ember changing poses while Hearth recalls the sample notes and creates the two files. |
+| 15–30 s | Open **Remembered** to show the source notes. Point out the invitation awaiting approval and the in-app reminder. |
+| 30–48 s | Open **Saved “Thanksgiving plan” locally**. Scroll the inline PDF preview from the menu to the kitchen timeline, then select **Download**. |
+| 48–65 s | Open **Saved “Shopping list” locally**. Show the **Groceries** sheet preview with quantities in their own column and download the XLSX. |
+| 65–78 s | Open **Artifacts** and show the PDF and XLSX cards with their types, sizes, version 1, and local status. |
+| 78–90 s | Show the file’s **Hearth version history**. Explain that a connected brain can edit the file when asked, for example “add a column for cost.” |
 
 ## Round 1
 

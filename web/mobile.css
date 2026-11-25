@@ -330,7 +330,6 @@
       max(16px, env(safe-area-inset-left));
     overscroll-behavior: contain;
   }
-  .artifact-drawer .artifact-edit textarea { min-height: min(240px, 34dvh); }
   [data-keyboard] .artifact-drawer-shell { display: block; overflow: auto; }
   [data-keyboard] .artifact-drawer-body { overflow: visible; }
   .artifact-versions li { flex-wrap: wrap; }

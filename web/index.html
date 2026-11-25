@@ -152,7 +152,7 @@
       <section class="view panel" id="artifacts-view" aria-labelledby="view-title" hidden>
         <div class="artifact-library">
           <div class="section-intro artifact-intro">
-            <div><h2>Saved work</h2><p>Plans, lists, and documents from your chats and Box.</p></div>
+            <div><h2>Saved work</h2><p>Files created by Hearth and files in your Box folder.</p></div>
             <div class="artifact-box-control">
               <span id="artifact-box-status" class="artifact-box-status" role="status">Checking Box…</span>
               <button type="button" class="artifact-icon-button" id="artifact-refresh" aria-label="Refresh artifacts" title="Refresh artifacts">↻</button>
@@ -189,7 +189,7 @@
           <div id="artifact-empty" class="artifact-empty" hidden>
             <span class="artifact-kind-icon" aria-hidden="true">▧</span>
             <h3 id="artifact-empty-title">No artifacts yet</h3>
-            <p id="artifact-empty-hint">Ask Hearth to make a file, or save any reply as an artifact.</p>
+            <p id="artifact-empty-hint">Ask Hearth to create a Word document, PDF, spreadsheet, or slide deck.</p>
           </div>
         </div>
       </section>
@@ -341,14 +341,9 @@
           </div>
         </div>
         <div id="settings-artifacts" hidden>
-          <div class="section-intro"><h2>Artifacts</h2><p>Choose where Hearth saves your files and the default format.</p></div>
+          <div class="section-intro"><h2>Artifacts</h2><p>Choose where Hearth syncs your files in Box.</p></div>
           <form id="artifact-settings-form" class="card brain-form">
             <label class="check-label"><input id="artifact-auto-save" type="checkbox" checked> Auto-save to Box</label>
-            <label for="artifact-format">Default format</label>
-            <select id="artifact-format">
-              <option value="md">Markdown</option><option value="txt">Plain text</option>
-              <option value="csv">CSV</option><option value="json">JSON</option>
-            </select>
             <label for="artifact-folder">Box folder name</label>
             <input id="artifact-folder" type="text" required maxlength="80" value="Hearth">
             <p id="artifact-settings-connection" class="meta"></p>

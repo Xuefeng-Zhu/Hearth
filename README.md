@@ -4,15 +4,20 @@ Hearth is a private personal assistant that lives on a Fly.io Sprite. It keeps i
 
 ## Run locally
 
-Use Python 3.10 or later on Linux or macOS. The server uses the standard library, and the browser app serves its SDK locally. Use Node.js 22 or later for the browser module tests.
+Use Python 3.10 or later on Linux or macOS and Node.js 22 or later for the browser tests. On Linux with `dpkg-deb`, these commands install the dependencies and the Chinese PDF font.
 
 ```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python3 -m pip install -r requirements-test.txt
+scripts/install-office-font.sh .hearth/fonts
+export HEARTH_CJK_FONT="$PWD/.hearth/fonts/wqy-microhei.ttc"
 python3 -m unittest discover -s tests -v
 node --test tests/*.test.mjs
 python3 -m hearth.server
 ```
 
-Open `http://127.0.0.1:8080`. The web server starts the reminder worker. It uses `.hearth/` by default. Set `HEARTH_DATA_DIR` to run a separate workspace. The first startup copies the sample files from `memory/` to `live/memory/` within the data directory.
+On macOS, set `HEARTH_CJK_FONT` to the path of a local WenQuanYi Micro Hei TrueType font. Open `http://127.0.0.1:8080`. The web server starts the reminder worker. It uses `.hearth/` by default. Set `HEARTH_DATA_DIR` to run a separate workspace. The first startup copies the sample files from `memory/` to `live/memory/` within the data directory.
 
 ## Chat threads
 
@@ -52,15 +57,13 @@ Hearth mints room credentials through the Fly gateway. The browser uses them for
 
 ## Artifacts
 
-Ask Hearth to “save this as a doc,” “make me a shopping list file,” or “export my memory.” You can also choose **Save as artifact** under a reply or call transcript. Each saved file has a chat chip and a card in **Artifacts**. Markdown is the default. Hearth also supports plain text, CSV, and JSON.
+Ask Hearth to “make me a shopping list spreadsheet,” “create a PDF of the Thanksgiving plan,” or “make a slide deck.” Hearth creates DOCX, PDF, XLSX, and PPTX files. The reply links to the file, and **Artifacts** shows its type, size, version, and Box status. Existing text artifacts are still available as legacy files.
 
-Switch between grid and list on desktop, filter by kind, or sort by name or most recent update. Open any card to see which chat it came from, view the preview, edit, copy, or download the text, and open the original file in Box. Saving an edit to a synced file creates a new Box version. Hearth shows its saved version receipts when the connector cannot list Box versions. **Move to Trash** hides the artifact in Hearth and keeps the file in Box. Timeline offers item-level **Undo** for creation, edits, and Trash. Undoing a synced edit saves the previous content as a new version. [Box version history](https://developer.box.com/reference/get-files-id-versions)
+Open a file to preview it, download it, or open it in Box. PDFs display inline, Excel previews show the first 200 rows of the first sheet, and PowerPoint previews show an outline. To edit a file, ask Hearth for a change, such as “add a column for cost.” Hearth saves a local version and, when enabled, writes a new version of the same Box file. Hearth keeps version receipts locally. **Move to Trash** hides the file in Hearth. Timeline offers **Undo** for file changes and Trash.
 
-Add or refresh Box in **Connections**. **Settings → Artifacts** controls auto-save, the default file format, and the folder name. The first upload finds or creates **Hearth** in your Box root, along with **Plans**, **Lists**, **Notes**, **Transcripts**, and **Exports**. Hearth saves the folder IDs in `connectors.local.json` and lists files you add anywhere under the selected folder. Text previews and saves are limited to 128 KiB. Hearth redacts recognized credentials before saving and uses the Sprites gateway for Box access. [Box folder items API](https://developer.box.com/reference/get-folders-id-items), [Fly Sprites connectors](https://docs.fly.io/sprites/concepts/connectors)
+**Settings → Artifacts** controls auto-save and the Box folder name. Hearth finds or creates the folder on the first upload, keeps local copies available when Box is disconnected, and accepts files up to 50 MiB on the upload path. A failed sync can be retried in Artifacts. [Box folder items API](https://developer.box.com/reference/get-folders-id-items), [Fly Sprites connectors](https://docs.fly.io/sprites/concepts/connectors)
 
-Hearth sends multipart uploads through the Sprites connector at `upload/files/content` and `upload/files/{id}/content`. If the gateway rejects an upload as unsupported, Hearth shows **Saved locally — Box upload unavailable**. You can open, edit, download, or retry the local copy. [Live verification](STATUS.md)
-
-For the demo, open the seeded **Thanksgiving artifacts** side chat on the Sprite. With Mock selected, “Make Thanksgiving demo artifacts” creates a Thanksgiving plan, a shopping list CSV, and a seating chart in the current chat.
+Select **Plan Thanksgiving dinner** with Mock enabled to create **Thanksgiving plan.pdf** and **Shopping list.xlsx** for the demo.
 
 ## Reminders and email
 
