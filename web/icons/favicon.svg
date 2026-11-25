@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7b4a87"/><stop offset="1" stop-color="#4a2a57"/></linearGradient>
+<linearGradient id="flame" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffc27a"/><stop offset=".55" stop-color="#ff8a4c"/><stop offset="1" stop-color="#e8573a"/></linearGradient>
+<linearGradient id="core" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff1d6"/><stop offset="1" stop-color="#ffcf94"/></linearGradient>
+<radialGradient id="glow" cx=".5" cy=".6" r=".5"><stop offset="0" stop-color="#ffb36b" stop-opacity=".6"/><stop offset="1" stop-color="#ffb36b" stop-opacity="0"/></radialGradient>
+<linearGradient id="warm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9a55"/><stop offset="1" stop-color="#e0533a"/></linearGradient>
+<linearGradient id="fly" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#5b21b6"/></linearGradient>
+<linearGradient id="crust" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2b866"/><stop offset="1" stop-color="#c9803a"/></linearGradient>
+<linearGradient id="cream" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff6e8"/><stop offset="1" stop-color="#fbe6cc"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7b4a87"/><stop offset="1" stop-color="#4a2a57"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.72" r="0.5">
+      <stop offset="0" stop-color="#ffb36b" stop-opacity=".75"/><stop offset="1" stop-color="#ffb36b" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffc27a"/><stop offset=".55" stop-color="#ff8a4c"/><stop offset="1" stop-color="#e8573a"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff1d6"/><stop offset="1" stop-color="#ffcf94"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#fly)"/>
+  
+  <g transform="translate(256 300) scale(1.45) translate(-256 -288)">
+  <path d="M256 168 C 300 210, 342 246, 342 318 C 342 372, 304 408, 256 408 C 208 408, 170 372, 170 318 C 170 282, 188 258, 208 240 C 210 268, 222 282, 236 288 C 228 240, 236 200, 256 168 Z" fill="url(#flame)"/>
+  <path d="M256 270 C 280 292, 300 312, 300 344 C 300 372, 280 392, 256 392 C 232 392, 212 372, 212 344 C 212 314, 236 296, 256 270 Z" fill="url(#core)"/>
+  <circle cx="238" cy="338" r="9" fill="#3a1f45"/>
+  <circle cx="274" cy="338" r="9" fill="#3a1f45"/>
+  <path d="M246 360 q10 9 20 0" fill="none" stroke="#3a1f45" stroke-width="6" stroke-linecap="round"/>
+  </g></svg>

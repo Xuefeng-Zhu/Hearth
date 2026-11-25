@@ -28,6 +28,11 @@ STATIC = {
     "/voice-call.js": ("voice-call.js", "text/javascript; charset=utf-8"),
     "/vendor/vocalbridge.mjs": ("vendor/vocalbridge.mjs", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
+    "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
+    "/icons/icon.svg": ("icons/icon.svg", "image/svg+xml"),
+    "/icons/favicon.svg": ("icons/favicon.svg", "image/svg+xml"),
+    "/icons/apple-touch-icon.png": ("icons/apple-touch-icon.png", "image/png"),
+    "/icons/icon-512.png": ("icons/icon-512.png", "image/png"),
 }
 SIDE_COMMAND = re.compile(r"/(?:side|btw)(?:\s+(.+))?", re.I | re.S)
 

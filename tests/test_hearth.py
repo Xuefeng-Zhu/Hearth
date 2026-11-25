@@ -225,6 +225,17 @@ class HearthTest(unittest.TestCase):
 
         self.assertEqual(get("/health"), {"ok": True, "checkpoints": "local"})
         self.assertIn("Message Hearth", request("/")[0])
+        for asset, content_type in {
+            "manifest.webmanifest": "application/manifest+json",
+            "icons/icon.svg": "image/svg+xml",
+            "icons/favicon.svg": "image/svg+xml",
+            "icons/apple-touch-icon.png": "image/png",
+            "icons/icon-512.png": "image/png",
+        }.items():
+            with self.subTest(asset=asset), opener.open(f"{base}/{asset}", timeout=5) as response:
+                self.assertEqual(response.headers.get_content_type(), content_type)
+                self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+                self.assertEqual(response.read(), (Path("web") / asset).read_bytes())
         self.assertIn("USER.md", get("/api/memory")["files"])
         path = "/api/memory?path=topics%2Fthanksgiving.md"
         original = get(path)["content"]

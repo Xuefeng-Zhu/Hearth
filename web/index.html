@@ -3,15 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f8f6f2">
+  <meta name="theme-color" content="#6d28d9">
   <title>Hearth</title>
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
   <div class="layout">
     <aside class="sidebar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><span>Hearth</span></div>
+      <div class="brand"><img class="brand-mark" src="/icons/icon.svg" width="35" height="35" alt=""><span>Hearth</span></div>
       <nav aria-label="Workspace">
         <button type="button" class="nav-link" data-view="chat" aria-current="page"><span class="nav-icon" aria-hidden="true">▤</span> Chat</button>
         <button type="button" class="nav-link" data-view="memory"><span class="nav-icon" aria-hidden="true">▱</span> Memory</button>
@@ -73,7 +76,7 @@
           </section>
           <div class="chat-scroll" id="chat-scroll">
             <section class="welcome" id="welcome">
-              <span class="welcome-mark" aria-hidden="true">✦</span>
+              <img class="welcome-mark" src="/icons/icon.svg" width="60" height="60" alt="">
               <h2>What’s on your mind?</h2>
               <p>Make a plan, recall a detail, or set a reminder.</p>
               <div class="prompts">
@@ -83,7 +86,7 @@
               </div>
             </section>
             <section class="welcome" id="side-welcome" hidden>
-              <span class="welcome-mark" aria-hidden="true">✧</span>
+              <img class="welcome-mark" src="/icons/icon.svg" width="60" height="60" alt="">
               <h2>Start a side chat</h2>
               <p>Talk through a topic here. Hearth can refer to Main and uses the same memory.</p>
             </section>
