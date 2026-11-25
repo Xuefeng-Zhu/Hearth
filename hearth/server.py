@@ -431,6 +431,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.app.restore and self.app.restore["status"] == "restoring":
             self.json({"error": "A checkpoint is being restored."}, 409)
             return
+        if self.path == "/api/brain/route":
+            try:
+                self.json(self.update_brain(body))
+            except HearthError as error:
+                self.json({"error": str(error)}, 400)
+            return
         accepting_chat = self.path == "/api/chat" or self.path.startswith("/api/threads/")
         if not self.app.operation.acquire(blocking=accepting_chat):
             self.json({"error": "Hearth is working on another action."}, 409)

@@ -975,6 +975,7 @@ async function openBrainSettings() {
   poolRequest?.abort();
   poolRequest = undefined;
   poolProvider.replaceChildren();
+  byId("brain-pool").hidden = true;
   byId("routing-result").hidden = true;
   byId("routing-preview").replaceChildren();
   byId("routing-preview-status").textContent = "Loading routing preview…";
