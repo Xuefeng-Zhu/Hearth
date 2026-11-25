@@ -172,6 +172,22 @@ class HomeTest(unittest.TestCase):
                 panels.public_page("https://example.com")
             connect.assert_not_called()
 
+    def test_weather_failure_retains_forecast_and_retries_sooner(self):
+        value = {"temperature": 48, "code": 3}
+        with patch("hearth.home.weather_value", return_value=(home.DEFAULT_PLACE, value)):
+            self.assertTrue(self.app.home.refresh_weather(STAMP))
+        failed_at = STAMP + timedelta(minutes=30)
+        with patch("hearth.home.weather_value", side_effect=OSError):
+            self.assertTrue(self.app.home.refresh_weather(failed_at, due=True))
+        saved = self.app.home.snapshot()["builtin"]["weather"]
+        self.assertEqual((saved["value"], saved["updated_at"]), (value, iso(STAMP)))
+        self.assertIsNotNone(saved["error"])
+        with patch("hearth.home.weather_value", return_value=(home.DEFAULT_PLACE, value)) as request:
+            self.assertFalse(self.app.home.refresh_weather(failed_at + timedelta(minutes=4), due=True))
+            request.assert_not_called()
+            self.assertTrue(self.app.home.refresh_weather(failed_at + timedelta(minutes=5), due=True))
+        self.assertIsNone(self.app.home.settings()["error"])
+
     def test_weather_location_persists_and_uses_pacific_clock(self):
         with patch.object(self.app.home, "kick"):
             self.app.home.save_settings({"location": "Seattle, WA"})

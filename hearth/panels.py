@@ -5,6 +5,7 @@ import math
 import re
 import socket
 import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from http.client import HTTPConnection, HTTPSConnection, HTTPException
@@ -225,17 +226,22 @@ class PageText(HTMLParser):
 
 def public_page(url):
     """Follow bounded HTTP redirects, checking and pinning public DNS for every request."""
+    deadline = time.monotonic() + 25
     for _ in range(4):
         url = browserbase.page_url(url)
         parsed = urlsplit(url)
         secure = parsed.scheme == "https"
         port = parsed.port or (443 if secure else 80)
         addresses = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
-        if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
+        ips = [ipaddress.ip_address(row[4][0]) for row in addresses]
+        if not ips or any(not ip.is_global or ip.is_multicast for ip in ips):
             raise HearthError("The page does not resolve to a public address.")
         # Keep the original hostname for Host, TLS SNI, and certificate verification.
         connection_class = HTTPSConnection if secure else HTTPConnection
-        connection = connection_class(parsed.hostname, port=port, timeout=7)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise HearthError("The page took too long to respond.")
+        connection = connection_class(parsed.hostname, port=port, timeout=min(7, remaining))
         address = next((row[4][0] for row in addresses if row[0] == socket.AF_INET), addresses[0][4][0])
         connection._create_connection = lambda _, timeout, source: socket.create_connection((address, port), timeout, source)
         path = parsed.path or "/"
@@ -252,7 +258,15 @@ def public_page(url):
             content_type = response.headers.get_content_type()
             if content_type not in ("text/html", "text/plain", "application/xhtml+xml", "text/markdown"):
                 raise HearthError("The URL needs to return a readable web page.")
-            content = response.read(PAGE_LIMIT).decode("utf-8", errors="replace")
+            raw = bytearray()
+            while len(raw) < PAGE_LIMIT:
+                if time.monotonic() >= deadline:
+                    raise HearthError("The page took too long to respond.")
+                chunk = response.read1(min(16384, PAGE_LIMIT - len(raw)))
+                if not chunk:
+                    break
+                raw.extend(chunk)
+            content = raw.decode("utf-8", errors="replace")
         finally:
             connection.close()
         if content_type in ("text/html", "application/xhtml+xml"):

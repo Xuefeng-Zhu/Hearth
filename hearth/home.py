@@ -17,6 +17,7 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 DEFAULT_LOCATION = "Redmond, WA"
 DEFAULT_PLACE = {"name": DEFAULT_LOCATION, "latitude": 47.674, "longitude": -122.1215}
 WEATHER_MINUTES = 30
+WEATHER_RETRY_MINUTES = 5
 TITLES = {
     "today": "Today", "inbox": "Inbox to review", "weather": "Weather & clock", "files": "Recent files",
     "memory": "Memory", "activity": "Activity", "connections": "Connections health",
@@ -87,7 +88,8 @@ class Home:
         try:
             row = weather_state(self.storage.load())
             attempted = row["attempted_at"]
-            if due and attempted and datetime.fromisoformat(attempted) + timedelta(minutes=WEATHER_MINUTES) > now:
+            interval = WEATHER_RETRY_MINUTES if row["error"] else WEATHER_MINUTES
+            if due and attempted and datetime.fromisoformat(attempted) + timedelta(minutes=interval) > now:
                 return False
             if self.app.restoring():
                 return False
@@ -191,11 +193,10 @@ class Home:
             return row
 
     def panel_chat(self, identity):
-        snapshot = self.snapshot()
         if isinstance(identity, str) and identity in TITLES:
-            title, value = TITLES[identity], snapshot["builtin"][identity]
+            title, value = TITLES[identity], self.snapshot()["builtin"][identity]
         else:
-            row = panels.panel({"panels": snapshot["panels"]}, identity)
+            row = panels.panel(self.storage.load(), identity)
             title = row["title"]
             value = {key: row[key] for key in ("kind", "value", "updated_at", "error")}
         with self.storage.lock():
