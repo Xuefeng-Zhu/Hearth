@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8f6f2">
+  <title>Hearth</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">✦</span><span>Hearth</span></div>
+      <nav aria-label="Workspace">
+        <button type="button" class="nav-link" data-view="chat" aria-current="page"><span class="nav-icon" aria-hidden="true">▤</span> Chat</button>
+        <button type="button" class="nav-link" data-view="memory"><span class="nav-icon" aria-hidden="true">▱</span> Memory</button>
+        <button type="button" class="nav-link" data-view="timeline"><span class="nav-icon" aria-hidden="true">◷</span> Timeline</button>
+      </nav>
+      <div class="sidebar-footer" id="model-status">Connecting to Hearth…</div>
+    </aside>
+    <main>
+      <header class="header">
+        <h1 id="view-title">Chat</h1>
+        <span class="environment" id="environment"><span class="dot"></span><span id="environment-label">Connecting</span></span>
+      </header>
+      <p class="notice" id="notice" role="status" hidden></p>
+      <section class="view chat-view" id="chat-view" aria-labelledby="view-title">
+        <div class="chat-scroll" id="chat-scroll">
+          <section class="welcome" id="welcome">
+            <span class="welcome-mark" aria-hidden="true">✦</span>
+            <h2>What’s on your mind?</h2>
+            <p>Make a plan, recall a detail, or set a reminder.</p>
+            <div class="prompts">
+              <button type="button" data-prompt="Plan Thanksgiving dinner"><span aria-hidden="true">✧</span> Plan Thanksgiving dinner</button>
+              <button type="button" data-prompt="Read USER.md"><span aria-hidden="true">▱</span> Read my profile</button>
+              <button type="button" data-prompt="Checkpoint"><span aria-hidden="true">◷</span> Save a checkpoint</button>
+            </div>
+          </section>
+          <div class="transcript" id="transcript" aria-label="Conversation"></div>
+        </div>
+        <form class="composer" id="composer">
+          <label class="visually-hidden" for="message">Message Hearth</label>
+          <textarea id="message" maxlength="4000" rows="1" placeholder="Message Hearth…" required></textarea>
+          <button type="submit" id="send" aria-label="Send message">↑</button>
+        </form>
+      </section>
+      <section class="view panel" id="memory-view" aria-labelledby="view-title" hidden>
+        <div class="section-intro"><h2>Memory files</h2><p>Personal notes stored as Markdown in your workspace.</p></div>
+        <div class="memory-browser">
+          <div id="files" class="files" aria-label="Memory files"></div>
+          <article class="file-preview">
+            <h3 id="file-name">Select a note</h3>
+            <pre id="file-content"></pre>
+          </article>
+        </div>
+      </section>
+      <section class="view panel" id="timeline-view" aria-labelledby="view-title" hidden>
+        <div class="section-intro"><h2>Workspace activity</h2><p>Checkpoints, actions, and reminders from Hearth.</p></div>
+        <div class="timeline" id="timeline"></div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
