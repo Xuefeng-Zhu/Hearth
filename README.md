@@ -24,18 +24,26 @@ Use `Remind me to check the oven in 15 seconds` for a quick reminder demo. Use `
 
 ## Connect providers
 
-Open **Connections** in Hearth and use the guide on each provider’s card. Create the connector in Fly, then turn off **Allow all sprites**, set **Name Prefix** to `hearth`, and check **Authorized Sprites** before saving. Enter provider keys only in Fly’s connector form. [Fly dashboard connectors](https://fly.io/dashboard/xuefeng-zhu/sprites/connectors)
+Open **Connections** to browse or filter the full 61-entry Fly catalog. Meta Muse Spark, Pinecone, Tavily, and AgentMail appear first. The catalog includes Fly.io Machines as a Custom API preset. Hearth also lists providers returned by discovery that are newer than the checked-in catalog. [Fly ecosystem](https://fly.io/sprites/ecosystem/), [Sprites connector docs](https://docs.fly.io/sprites/concepts/connectors)
 
-Back in Hearth, click **Re-scan**. Hearth also scans during server startup, when the browser loads, and when you open Connections. It discovers the connection IDs, checkpoints before any settings change, and applies the new configuration immediately. Save the **Index name** for Pinecone or **Inbox ID** for AgentMail on the same page. **Test** runs one read-only check through the gateway for that provider. The checks for Muse Spark and Tavily use a short completion and a basic search, respectively, and can count toward provider usage.
+For any provider, choose **Open in Fly**, add the connector, turn off **Allow all sprites**, and set **Name Prefix** to `hearth`. Check **Authorized Sprites** before saving. Enter any provider credentials in Fly’s connector form. [Fly dashboard connectors](https://fly.io/dashboard/xuefeng-zhu/sprites/connectors)
 
-**Connected** means the gateway listed the connector and its read-only check succeeded. **Found but not authorized** means access was denied or a previously discovered ID is no longer listed. Fly’s Sprite-scoped discovery can hide connectors that have never granted access, so **Not set up** can also mean Hearth cannot see a connector yet. **Unreachable** means Hearth found a connector but the check failed. The header shows the active brain. A successful Muse Spark check enables it for the next chat.
+In Hearth, click **Re-scan**. Discovery also runs at server startup and when you open Hearth or its Connections tab. **Connected** means the gateway lists an authorized connection. **Found but not authorized** means the gateway denied or stopped listing a previously seen connection. **Not set up** means no connection is visible. A connector that has never granted access to this Sprite may be invisible to discovery. With multiple authorized connections for a provider, Hearth keeps the previously selected connection while it remains available.
+
+**Test** appears where Hearth has a read-only GET path. It makes one request after the provider is connected and reports the outcome separately from discovery. Save the **Index name** for Pinecone or **Inbox ID** for AgentMail on the same page. See [STATUS.md](STATUS.md) for settings for the four pinned connectors.
+
+### Use a connected provider in chat
+
+Ask Hearth to use a connected provider. On the Mock brain, use `Gateway github GET /user`. To supply JSON, use `Gateway github POST /repos/OWNER/REPO/issues | {"title":"Example"}` with a repository where you intend to open an issue.
+
+The generic gateway tool sends a provider-relative request through Sprites. GET executes immediately. Other methods show the method, path, and JSON body for review. **Approve** saves a checkpoint first, then sends one request. The card can show the response in the current browser session. A checkpoint restores Hearth’s workspace. Provider changes persist independently. Small JSON and text responses can be previewed in Hearth.
 
 ## How it works
 
-- `hearth.server` serves the browser app and JSON API. Chat uses server-sent events for reply text and action cards. The agent calls a fixed set of tools for memory, search, email proposals, reminders, and checkpoint requests.
+- `hearth.server` serves the browser app and JSON API. Chat uses server-sent events for reply text and action cards. The agent uses tools for memory, search, email proposals, reminders, and checkpoints. Any provider authorized by discovery is available to the generic gateway tool.
 - Memory lives in `USER.md`, `people/*.md`, `topics/*.md`, and `daily/YYYY-MM-DD.md`. Chat, actions, and reminders share a lock-protected JSON state file. The web and scheduler run as separate Sprite services.
-- The offline mock uses the same tool interface as the model adapters. Hearth tries Muse Spark first with the default order, followed by any configured Ollama Cloud or OpenRouter fallbacks, then the mock. An interrupted model turn stops after any executed tool to avoid replaying actions.
-- Provider calls go through the Sprites gateway without an Authorization header. Tavily supplies web search. Pinecone embeds and indexes note excerpts using a namespace tied to the current memory revision. Local keyword recall works offline and when Pinecone is unavailable. AgentMail sends only after approval. Without AgentMail, approval records a simulated send locally. [Provider setup details](STATUS.md)
+- The offline mock uses the same tool interface as the model adapters. Hearth tries Meta Muse Spark first, followed by connected providers in this order: OpenRouter, OpenAI, Anthropic, Gemini, and Ollama Cloud. Mock is the final fallback. The header shows the active brain. An interrupted model turn stops after any executed tool to avoid replaying actions.
+- Provider calls go through the Sprites gateway without an Authorization header. Hearth stores connector IDs and supported settings. Fly holds the credentials. Tavily supplies web search. Pinecone embeds and indexes note excerpts using a namespace tied to the current memory revision. Local keyword recall works offline and when Pinecone is unavailable. AgentMail sends only after approval. Without AgentMail, approval records a simulated send locally. [Provider setup details](STATUS.md)
 - Undo restores the entire Sprite filesystem, including later chat, memory, reminders, and deployed files. The local backend restores the application data directory. Delivered email and remote Pinecone data stay with their providers.
 
 ## Deploy privately
