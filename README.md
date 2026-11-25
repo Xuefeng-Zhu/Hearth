@@ -34,13 +34,13 @@ Use `Remind me to check the oven in 15 seconds` for a quick reminder demo. Use `
 
 ## Connect providers
 
-Open **Connections** to browse or filter the full 61-entry Fly catalog. Meta Muse Spark, Pinecone, Tavily, and AgentMail appear first. The catalog includes Fly.io Machines as a Custom API preset. Hearth also lists providers returned by discovery that are newer than the checked-in catalog. [Fly ecosystem](https://fly.io/sprites/ecosystem/), [Sprites connector docs](https://docs.fly.io/sprites/concepts/connectors)
+Open **Connections** to browse the 61-entry Fly catalog and any additional providers returned by discovery. **Configured** lists connections authorized for this Sprite. **Not configured** shows the rest of the catalog with setup steps. The badges show each tab’s total. Search and filter by category within a tab, or follow the other-tab match link to carry your filters across. Hearth opens **Configured** by default when it finds a connection and remembers your selection. Use the left and right arrow keys to switch tabs. [Fly ecosystem](https://fly.io/sprites/ecosystem/), [Sprites connector docs](https://docs.fly.io/sprites/concepts/connectors)
 
-For any provider, choose **Open in Fly**, add the connector, turn off **Allow all sprites**, and set **Name Prefix** to `hearth`. Check **Authorized Sprites** before saving. Enter any provider credentials in Fly’s connector form. [Fly dashboard connectors](https://fly.io/dashboard/xuefeng-zhu/sprites/connectors)
+Choose **Add in Fly**, add the connector, turn off **Allow all sprites**, and set **Name Prefix** to `hearth`. Check **Authorized Sprites** before saving. Enter any provider credentials in Fly’s connector form. [Fly dashboard connectors](https://fly.io/dashboard/xuefeng-zhu/sprites/connectors)
 
-In Hearth, click **Re-scan**. Discovery also runs at server startup and when you open Hearth or its Connections tab. **Connected** means the gateway lists an authorized connection. **Found but not authorized** means the gateway denied or stopped listing a previously seen connection. **Not set up** means no connection is visible. A connector that has never granted access to this Sprite may be invisible to discovery. With multiple authorized connections for a provider, Hearth keeps the previously selected connection while it remains available.
+In Hearth, click **Refresh**. A newly authorized connector moves to **Configured** and is briefly highlighted there. Discovery also runs at server startup and when you open Hearth or Connections. **Found but not authorized** means the gateway denied or stopped listing a previously seen connection. **Not set up** means no connection is visible. With multiple authorized connections for a provider, Hearth keeps the previously selected connection while it remains available.
 
-**Test** appears where Hearth has a read-only GET path. It makes one request after the provider is connected and reports the outcome separately from discovery. Save the **Index name** for Pinecone or **Inbox ID** for AgentMail on the same page. See [STATUS.md](STATUS.md) for settings for the four pinned connectors.
+Each configured card shows the access rule, the Hearth features that can use the connector, and the last check result. **Test** runs a read-only provider check when available and checks Sprites gateway authorization for other connectors. Save the **Index name** for Pinecone or **Inbox ID** for AgentMail on the same page. See [STATUS.md](STATUS.md) for settings for the four pinned connectors.
 
 ### Choose the brain
 
