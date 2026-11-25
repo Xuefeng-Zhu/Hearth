@@ -358,7 +358,11 @@ class HearthTest(unittest.TestCase):
         body, _ = request("/api/chat", {"message": "Wipe topics/thanksgiving.md"})
         self.assertIn("event: token", body)
         self.assertEqual(request("/api/state", headers={"If-None-Match": original_tag})[1], 200)
-        action = get("/api/state")["actions"][-1]
+        approval = get("/api/state")["actions"][-1]
+        self.assertEqual(approval["status"], "pending")
+        self.assertEqual(get(path)["content"], original)
+        result = json.loads(request("/api/approvals/approve", {"id": approval["id"]})[0])
+        action = next(row for row in get("/api/state")["actions"] if row["id"] == result["effect_action"])
         timeline = get("/api/timeline")["entries"]
         card, = [row for row in timeline if row.get("action_id") == action["id"]]
         self.assertTrue(card["undoable"])

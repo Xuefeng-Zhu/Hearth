@@ -5,7 +5,7 @@ import re
 import time
 from statistics import median
 
-from . import file_intent
+from . import file_intent, tasks
 from .connectors import MODEL_PATHS
 from .storage import HearthError, atomic_write
 
@@ -154,7 +154,7 @@ def classify(prompt, *, side=False, file_request=False, image_attachment=False):
         side, prompt = True, prompt.strip()[command.end():]
     if image_attachment:
         return "vision"
-    if file_request or file_intent.intent(prompt) or panel_request(prompt) or browse_intent(prompt) or ACTION.search(prompt):
+    if file_request or file_intent.intent(prompt) or panel_request(prompt) or browse_intent(prompt) or tasks.CREATE_REQUEST.search(prompt) or ACTION.search(prompt):
         return "tool"
     if CODE.search(prompt):
         return "code"

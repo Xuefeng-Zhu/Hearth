@@ -143,7 +143,11 @@ class BrowsingTest(unittest.TestCase):
             prompt = f"Open {PAGE} and take a screenshot"
             with patch("hearth.browserbase.time.sleep"):
                 events = self.collect(app.enqueue("main", prompt))
-            self.assertTrue(dict(events)["browse_active"]["mock"])
+                approval = dict(events)["action"]
+                self.assertEqual(approval["status"], "pending")
+                self.assertIn("spend", approval["categories"])
+                self.assertNotIn("browse_active", dict(events))
+                events = self.collect(app.enqueue("main", "", approval=approval["id"]))
             message = dict(events)["done"]["message"]
             attachment = message["browse_images"][0]
             self.assertEqual(browserbase.screenshot_path(app.storage, attachment["name"]).read_bytes(),

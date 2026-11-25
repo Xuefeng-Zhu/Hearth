@@ -81,7 +81,7 @@ def action_entry(action, can_undo):
         title += f" · {action['email']['subject']}"
         if not action.get("mocked") and status != "pending":
             provider = "agentmail"
-    elif kind == "gateway":
+    elif kind == "gateway" and not action.get("tool"):
         request = action["request"]
         provider = request["provider"]
         title = f"{'Proposed' if status == 'pending' else 'Requested'} {request['method']} {request['path']}"
@@ -94,6 +94,8 @@ def action_entry(action, can_undo):
         title += f" · {', '.join(action['paths'])}"
     elif kind == "remember" and status == "complete":
         title = f"Memory saved · {action['fact']}"
+    if action.get("tool") and kind == "gateway":
+        provider = action["request"]["provider"]
     return entry(kind, compact(title, 180), action, id=f"action:{action['id']}",
                  at=action.get("updated_at", action["at"]), provider=provider, model=action.get("model"),
                  error=error, action_id=action["id"], undoable=can_undo(action),

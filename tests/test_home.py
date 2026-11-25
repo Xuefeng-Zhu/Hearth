@@ -32,8 +32,7 @@ class HomeTest(unittest.TestCase):
         return Application(self.storage, LocalCheckpoints(self.storage), config)
 
     def execute(self, name, **arguments):
-        with self.storage.lock():
-            return self.app.agent.execute(name, arguments)
+        return self.app.agent.execute(name, arguments)
 
     def test_recent_files_use_latest_identity_and_include_current_page(self):
         def file(identity, title, offset, **extra):
@@ -190,7 +189,9 @@ class HomeTest(unittest.TestCase):
             self.app.agent.chat("What should I know about this panel?", lambda *_: None, thread["id"])
         with self.storage.lock():
             self.assertIn("Cranberries", self.app.threads.messages(thread["id"])[-1]["content"])
-        self.execute("delete_panel", id=identity)
+        action = self.execute("delete_panel", id=identity)["action"]
+        self.assertEqual(action["status"], "pending")
+        self.app.agent.approve(action["id"])
         self.assertNotIn(identity, self.app.home.snapshot()["layout"]["order"])
 
     def test_connector_get_and_public_url_source(self):

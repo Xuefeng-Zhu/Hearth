@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import artifacts, box, browserbase, home, inbox, memory_edits, page_policy, pages, recall, reminders, router, scheduler, search, timeline, uploads, voice, voice_call
+from . import approvals, artifacts, box, browserbase, home, inbox, memory_edits, page_policy, pages, recall, reminders, router, scheduler, search, tasks, timeline, uploads, voice, voice_call
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -37,6 +37,8 @@ STATIC = {
     "/time.js": ("time.js", "text/javascript; charset=utf-8"),
     "/attachments.js": ("attachments.js", "text/javascript; charset=utf-8"),
     "/reminders.js": ("reminders.js", "text/javascript; charset=utf-8"),
+    "/automation.js": ("automation.js", "text/javascript; charset=utf-8"),
+    "/automation.css": ("automation.css", "text/css; charset=utf-8"),
     "/reminder-action": ("reminder-action.html", "text/html; charset=utf-8"),
     "/reminder-action.js": ("reminder-action.js", "text/javascript; charset=utf-8"),
     "/avatar.js": ("avatar.js", "text/javascript; charset=utf-8"),
@@ -91,14 +93,17 @@ class Application:
         self.reminders = reminders.Reminders(self)
         self.inbox = inbox.Inbox(self)
         self.home = home.Home(self)
+        self.task_runner = tasks.Runner(self)
+        approvals.upgrade_legacy(self.agent)
 
     def scheduler_tick(self):
         fired = scheduler.run_due(self.storage, tick=True)
         self.reminders.deliver(wait=True)
+        task_runs = self.task_runner.tick()
         polled = self.inbox.poll(force=True)
         info = self.reminders.info()
         return {"fired": fired, "processed": polled, "last_tick": info["last_tick"], "next_due": info["next_due"],
-                "panels_refreshed": self.home.run_due()}
+                "panels_refreshed": self.home.run_due(), "task_runs": task_runs}
 
     def restoring(self):
         return bool(self.restore and self.restore["status"] == "restoring")
@@ -115,6 +120,7 @@ class Application:
                     if woke:
                         threading.Thread(target=self.inbox.poll, kwargs={"force": True}, daemon=True).start()
                     self.reminders.deliver()
+                    self.task_runner.kick()
                     if woke or now >= next_home:
                         self.home.kick()
                         next_home = now + 10
@@ -126,6 +132,7 @@ class Application:
     def reload_agent(self, *, reset_brain=True):
         self.agent = Agent(self.storage, self.checkpoints, self.connections.active_config(), self.gateway,
                            self.memory_index, self.artifacts, self.uploads, self.pages)
+        self.agent.application = self
         if reset_brain:
             self.reset_brain_status()
         self.connection_state = self.connections.report()
@@ -290,6 +297,8 @@ class Application:
             threads = self.threads.list()
             if not any(thread["id"] == thread_id for thread in threads):
                 thread_id = MAIN
+            if approvals.expire(state, datetime.now(timezone.utc)):
+                self.storage.save(state)
             messages = self.threads.messages(thread_id)
             message_uploads = self.uploads.for_messages(thread_id, messages)
         jobs = {job["id"]: job for job in state["jobs"]}
@@ -297,6 +306,8 @@ class Application:
         for action in state["actions"].values():
             if (job := jobs.get(action.get("job", {}).get("id"))) is not None:
                 action = {**action, "job": {**job, "cancelable": reminders.can_cancel(state, job)}}
+            if effect := state["actions"].get(action.get("effect_action")):
+                action = {**action, "effect_undone": bool(effect.get("undone"))}
             actions.append(action)
         recent = datetime.now(timezone.utc) - timedelta(seconds=4)
         sending = set()
@@ -329,7 +340,10 @@ class Application:
 
     def timeline_info(self, pinecone=None):
         with self.storage.lock():
-            zone = saved(self.storage.load())["timezone"]
+            state = self.storage.load()
+            if approvals.expire(state, datetime.now(timezone.utc)):
+                self.storage.save(state)
+            zone = saved(state)["timezone"]
         if pinecone is None:
             pinecone = self.memory_index.pinecone_status(self.agent.config)
         entries = timeline.entries(self.storage, self.threads, self.agent.can_undo,
@@ -380,7 +394,7 @@ class Application:
         self.call_check = (connection_id, {"at": iso(), "status": "passed", "kind": "token"})
         return reply
 
-    def enqueue(self, thread_id, prompt, *, source=None, approval=None, attachment_ids=None):
+    def enqueue(self, thread_id, prompt, *, source=None, approval=None, attachment_ids=None, task_run=None):
         command = (SIDE_COMMAND.fullmatch(prompt)
                    if thread_id == MAIN and source is None and not approval and not attachment_ids else None)
         if command:
@@ -394,7 +408,7 @@ class Application:
                                **({"attachments": attachments} if attachments else {})}))
         with self.turn_lock:
             pending = self.turns.get(thread_id)
-            queued = (prompt, events, source, approval, attachments)
+            queued = (prompt, events, source, approval, attachments, task_run)
             if pending is not None:
                 pending.append(queued)
             else:
@@ -405,7 +419,7 @@ class Application:
     def run_turns(self, thread_id):
         while True:
             with self.turn_lock:
-                prompt, events, source, approval, attachments = self.turns[thread_id][0]
+                prompt, events, source, approval, attachments, task_run = self.turns[thread_id][0]
             agent = self.agent
 
             def event(name, data):
@@ -439,6 +453,7 @@ class Application:
                     agent.run_browse_approval(approval, thread_id, event)
                 else:
                     agent.chat(prompt, event, thread_id, source=source,
+                               **({"task_run": task_run} if task_run else {}),
                                **({"attachments": attachments} if attachments else {}))
             except HearthError as error:
                 event("error", {"message": str(error)})
@@ -509,6 +524,8 @@ class Application:
     def undo_action(self, action_id):
         with self.storage.lock():
             action = self.storage.load()["actions"].get(action_id)
+        if action and action.get("undo_task"):
+            return tasks.undo_delete(self.storage, action_id), 200
         if action and action["kind"] == "page":
             return self.pages.undo(action_id), 200
         if action and action["kind"] == "reminder":
@@ -519,6 +536,8 @@ class Application:
         return self.restore, 202
 
     def start_restore(self, action_id):
+        if self.task_runner.worker.locked():
+            raise HearthError("Wait for recurring task processing to finish before restoring a checkpoint.")
         if self.reindex_running() or self.memory_sync.running:
             raise HearthError("Wait for memory reindexing to finish before restoring a checkpoint.")
         with self.turn_lock:
@@ -662,6 +681,12 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     self.response_headers(200, "image/png", len(body))
                     self.wfile.write(body)
+            elif url.path == "/api/approvals":
+                self.json({"approvals": approvals.records(self.app.storage)})
+            elif url.path == "/api/approvals/settings":
+                self.json(approvals.policy(self.app.storage.load()))
+            elif url.path == "/api/tasks":
+                self.json(tasks.mutate(self.app.storage, "list", {}))
             elif url.path == "/api/reminders/settings":
                 self.json(self.app.reminders.info())
             elif url.path == "/api/reminders":
@@ -773,6 +798,9 @@ class Handler(BaseHTTPRequestHandler):
                     self.json(self.app.scheduler_tick())
                 except (HearthError, OSError):
                     self.json({"error": "Hearth could not run the scheduler tick."}, 500)
+            return
+        if self.path.startswith(("/api/approvals/", "/api/tasks/")):
+            self.post_automation()
             return
         if self.path.startswith("/api/home/"):
             self.post_home()
@@ -1005,6 +1033,40 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"error": "Attachment not found in this chat."}, 404)
         except (BrokenPipeError, ConnectionResetError):
             pass
+
+    def post_automation(self):
+        try:
+            body = self.body()
+            operation = self.path.rsplit("/", 1)[-1]
+            with self.app.operation:
+                if self.app.restoring():
+                    self.json({"error": "A checkpoint is being restored."}, 409)
+                    return
+                if self.path.startswith("/api/approvals/"):
+                    if operation == "settings":
+                        result = approvals.settings(self.app.storage, body)
+                    elif operation in {"approve", "edit", "decline"}:
+                        result = approvals.decide(self.app.agent, require_text(body.get("id"), 40), operation,
+                                                  body.get("changes"))
+                    else:
+                        raise HearthError("Choose an approval action.")
+                elif operation == "delete" and body.keys() == {"id"}:
+                    result = self.app.agent.execute("delete_recurring_task", body)
+                    action = result["action"]
+                    if action["status"] == "pending":
+                        with self.app.storage.lock():
+                            self.app.threads.append(MAIN, "assistant", action["title"] + "?", action_ids=[action["id"]])
+                elif operation in {"preview", "create", "update", "pause", "run"}:
+                    result = tasks.mutate(self.app.storage, operation, body)
+                    if operation == "run":
+                        self.app.task_runner.kick()
+                else:
+                    raise HearthError("Choose a recurring task action.")
+            self.json(result)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+        except (OSError, TypeError, ValueError):
+            self.json({"error": "Hearth could not update automation data."}, 400)
 
     def post_reminders(self):
         try:

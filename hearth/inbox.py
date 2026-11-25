@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.error import URLError
 from zoneinfo import ZoneInfo
 
-from . import artifacts, mail_content, office, scheduler, timeline
+from . import approvals, artifacts, mail_content, office, scheduler, tasks, timeline
 from .connectors import ConnectorError
 from .reminder_config import KINDS, NOT_CONNECTED, saved
 from .reminders import cancel, change_occurrence
@@ -66,9 +66,12 @@ class Inbox:
 
     def list(self):
         with self.storage.lock():
-            cards = self.storage.load().get("inbox", {}).values()
+            state = self.storage.load()
+            cards = state.get("inbox", {}).values()
             entries = sorted((public(card) for card in cards), key=lambda card: card["received_at"], reverse=True)
-        return {"cards": entries, **self.reminders.info()}
+        now = datetime.now(timezone.utc)
+        return {"cards": entries, "task_notifications": tasks.inbox_rows(state, now),
+                "approvals": approvals.records(self.storage, clock=now), **self.reminders.info()}
 
     def poll(self, *, force=False, manual=False, clock=None):
         now = clock or datetime.now(timezone.utc)
@@ -346,6 +349,20 @@ class Inbox:
                     self.storage.save(state)
                     continue
                 ack = card["acknowledge"]
+                if approvals.needs_approval(state, ("send",)):
+                    subject = f"Re: {card['title']}"
+                    sender = card["sender"]
+                    row = approvals.proposal(state, "email_acknowledgment",
+                                             {"to": sender, "text": ack["text"], "inbox": mailbox["id"],
+                                              "message_id": card["message_id"]}, ("send",), ORIGIN,
+                                             {"kind": "email", "title": "Reply to forwarded email", "target": sender,
+                                              "recipients": [sender], "binding": self.app.agent.gateway_target(client.config),
+                                              "email": {"to": [sender], "subject": subject, "text": ack["text"]},
+                                              "editable": {"text": ack["text"]}, "mocked": False}, now=now, dedupe=key)
+                    card.pop("acknowledge")
+                    self.storage.save(state)
+                    self.app.threads.append("main", "assistant", "Review this email reply.", action_ids=[row["id"]])
+                    continue
             try:
                 if datetime.fromisoformat(ack["created_at"]) < now - timedelta(hours=22):
                     raise ConnectorError("Acknowledgment expired.", 410)

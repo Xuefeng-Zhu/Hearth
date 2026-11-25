@@ -253,3 +253,4 @@ class Integrations:
         )
         if not data.get("message_id"):
             raise ConnectorError("AgentMail returned an unknown delivery status.")
+        return {"message_id": data["message_id"]}

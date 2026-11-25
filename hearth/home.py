@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 from zoneinfo import ZoneInfo
 
-from . import panels
+from . import approvals, panels
 from .artifacts import page_artifacts
 from .gateway_tools import scrub
 from .reminder_config import quiet_until, saved
@@ -175,7 +175,8 @@ class Home:
                        | {"name": (weather["place"] or {}).get("name", weather["location"])},
         }
         return scrub({"layout": panels.layout(state), "builtin": built, "panels": state.get("panels", {}),
-                      "timezone": config["timezone"], "clock_zone": str(PACIFIC), **self.app.brain_status()})
+                      "timezone": config["timezone"], "clock_zone": str(PACIFIC), **self.app.brain_status()}) | {
+                          "approvals": approvals.records(self.storage, pending=True, clock=now)}
 
     def adjust(self, body):
         with self.storage.lock():
