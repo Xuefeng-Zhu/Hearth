@@ -114,7 +114,7 @@ function detailFields(row, gatewayResponse) {
     ["Reply", data.reply],
     ["Routing", data.reason || data.routing?.reason],
     ["Model order", join(data.order?.map(routedModel))],
-    ["Notes", data.detail || join(data.notices)],
+    ["Notes", data.detail || data.error || (row.kind === "inbox" && data.reason) || join(data.notices)],
     ["Memory files", join(data.paths) || data.path],
     ["Excerpt", data.excerpt],
     ["Memory backend", data.backend && (row.connector || "Keyword")],
@@ -192,7 +192,7 @@ function readReceipts() {
   }
 }
 
-export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
+export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onFilter }) {
   const feed = get("timeline");
   const filterBar = get("timeline-filters");
   const query = get("timeline-search");
@@ -208,6 +208,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
   let ready = false;
   let filter = localStorage.getItem(filterKey);
   if (!Object.hasOwn(categories, filter)) filter = "all";
+  let todayErrors = false;
   let stream;
   let revision = 0;
   let request;
@@ -225,6 +226,8 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
   setPose(sleeping, { pose: "sleeping" });
 
   const selectFilter = (value) => {
+    if (todayErrors) onFilter();
+    todayErrors = false;
     filter = value;
     localStorage.setItem(filterKey, value);
     render();
@@ -398,6 +401,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
     if (!ready) return;
     const now = Date.now();
     today = dayKey(now);
+    const activeFilter = todayErrors ? "error" : filter;
     const restored = new Set(receipts.map((row) => row.data.checkpoint.id));
     const rows = [...entries.filter((row) => !(row.kind === "checkpoint" && !row.action_id
       && restored.has(row.data.checkpoint.id))), ...receipts]
@@ -432,14 +436,15 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
         if (matches.connector && row.kind !== "routing" && row.data?.status !== "pending") totals.connector++;
       }
       if ((threads.value && row.thread_id !== threads.value) || (text && !searchText(row).includes(text))) continue;
+      if (todayErrors && key !== today) continue;
       for (const category of Object.keys(categories)) if (matches[category]) counts[category]++;
-      if (!matches[filter]) continue;
+      if (!matches[activeFilter]) continue;
       if (!days.has(key)) days.set(key, { value, items: [] });
       days.get(key).items.push(buildCard(row));
     }
     for (const [id, { chip, count, label }] of Object.entries(chips)) {
       count.textContent = counts[id];
-      chip.setAttribute("aria-pressed", String(id === filter));
+      chip.setAttribute("aria-pressed", String(id === activeFilter));
       chip.setAttribute("aria-label", `${label}, ${counts[id]}`);
     }
     for (const [id, value] of Object.entries({
@@ -562,6 +567,15 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
     request?.abort();
   }
 
+  function setTodayErrors(enabled) {
+    todayErrors = enabled;
+    if (enabled) {
+      threads.value = "";
+      query.value = "";
+    }
+    render();
+  }
+
   function restored(action, title) {
     const original = entries.find((row) => row.action_id === action.id && row.undoable);
     const row = {
@@ -603,5 +617,5 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
     return !!card;
   }
 
-  return { show, hide, refresh, setBusy, restored, focusReminder };
+  return { show, hide, refresh, setBusy, restored, focusReminder, setTodayErrors };
 }

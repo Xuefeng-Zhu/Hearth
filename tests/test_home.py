@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from hearth import home, panels
+from hearth import home, panels, timeline
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import read_config
 from hearth.server import Application
@@ -34,6 +34,54 @@ class HomeTest(unittest.TestCase):
     def execute(self, name, **arguments):
         with self.storage.lock():
             return self.app.agent.execute(name, arguments)
+
+    def test_recent_files_use_latest_identity_and_include_current_page(self):
+        def file(identity, title, offset, **extra):
+            return {"id": identity, "title": title, "format": "pptx", "kind": "plan",
+                    "updated_at": iso(STAMP + timedelta(minutes=offset)), **extra}
+
+        with self.storage.lock():
+            state = self.storage.load()
+            state["artifacts"] = {
+                "old": file("same-id", "Older revision", 1),
+                "new": file("same-id", "Seattle Trip", 2),
+                "qa": file("qa", "Seattle Trip", 4),
+                "distinct": file("distinct", "Seattle Trip", 0),
+                "deleted": file("deleted", "Deleted slides", 5, deleted=True),
+            }
+            state["home_excluded_artifacts"] = ["qa"]
+            state["pages"] = {"page": {"id": "page", "title": "Trip itinerary", "version": 2, "thread_id": "main",
+                                       "thread_title": "Main", "updated_at": iso(STAMP + timedelta(minutes=3))}}
+            self.storage.save(state)
+        files = self.app.home.snapshot(STAMP)["builtin"]["files"]["items"]
+        self.assertEqual([(row["id"], row["title"], row["kind"]) for row in files], [
+            ("page", "Trip itinerary", "page"), ("same-id", "Seattle Trip", "plan"),
+            ("distinct", "Seattle Trip", "plan"),
+        ])
+
+    def test_activity_keeps_actionable_errors_and_retains_retry_history(self):
+        with self.storage.lock():
+            state = self.storage.load()
+            state["activity"] = [
+                timeline.entry("tool", "Reading a note", {}, id="handled", at=iso(STAMP),
+                               error=True, data={"detail": "That memory file does not exist."}),
+                timeline.entry("inbox", "AgentMail inbox poll failed", {}, id="recovered", at=iso(STAMP),
+                               error=True, data={"reason": "AgentMail returned HTTP 400."}),
+                timeline.entry("memory", "Pinecone memory sync will retry", {}, id="retry", at=iso(STAMP),
+                               error=True, data={"mode": "startup", "retrying": True}, provider="pinecone"),
+                timeline.entry("tool", "Chat interrupted", {}, id="actionable", at=iso(STAMP),
+                               error=True, data={"detail": "Please retry."}),
+                timeline.entry("tool", "Chat interrupted", {}, id="yesterday", at=iso(STAMP - timedelta(days=1)),
+                               error=True, data={"detail": "Please retry."}),
+            ]
+            self.storage.save(state)
+        with patch("hearth.home.weather_value", side_effect=OSError):
+            self.assertTrue(self.app.home.refresh_weather(STAMP))
+        activity = self.app.home.snapshot(STAMP)["builtin"]["activity"]
+        self.assertEqual((activity["count"], activity["errors"]), (1, 1))
+        rows = {row["id"]: row for row in self.app.timeline_info()["entries"]}
+        self.assertEqual({row["id"] for row in rows.values() if row.get("error")}, {"actionable", "yesterday"})
+        self.assertTrue(all(rows[identity]["diagnostic"] for identity in ("handled", "recovered", "retry")))
 
     def test_tool_validation_and_atomic_batch(self):
         for bad in [

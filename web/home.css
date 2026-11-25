@@ -152,6 +152,7 @@
 
 .home-metric + .home-rows, .home-metric + .home-detail { margin-top: 8px; }
 .home-card .home-error + .home-rows { margin-top: 5px; }
+.home-card a.home-error { text-decoration: underline; }
 .home-rows li { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
 .home-rows time { flex: none; font-size: .75rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .home-rows li > span:not(.home-status, .home-bullet) {

@@ -189,7 +189,7 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
         return [open];
       }));
     } else if (id === "memory") {
-      body.append(labelCount(data.count, "note in memory", "notes in memory"));
+      body.append(labelCount(data.count, "saved note"));
       const status = node("p", "home-detail");
       const pinecone = data.pinecone;
       const tone = /error|failed|unavailable/i.test(pinecone) ? "error" : /^(ready|connected|synced)$/i.test(pinecone) ? "ok" : "neutral";
@@ -197,7 +197,7 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
       body.append(status);
       if (data.record_count != null) {
         const records = node("p", "home-detail");
-        records.append(node("span", "", "Indexed records"), node("span", "", data.record_count.toLocaleString()));
+        records.append(node("span", "", "Indexed chunks"), node("span", "", number.format(data.record_count)));
         body.append(records);
       }
       const sync = node("p", "home-detail");
@@ -205,14 +205,21 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
       body.append(sync);
     } else if (id === "activity") {
       body.append(labelCount(data.count, "event today", "events today"));
-      if (data.errors) body.append(node("p", "home-error", `${data.errors} ${data.errors === 1 ? "error" : "errors"} today`));
+      if (data.errors) {
+        const link = node("a", "home-link home-error",
+          `${data.errors} actionable ${data.errors === 1 ? "error" : "errors"} today`);
+        link.href = "#timeline/errors";
+        body.append(link);
+      }
       body.append(rows(data.items, "No activity yet.", (item) => [activityTime(item.at), node("span", "", item.title)]));
     } else if (id === "connections") {
       if (data.error) body.append(node("p", "home-error", data.error));
-      body.append(rows(data.items, "No configured connectors.", (item) => [
-        node("span", "", item.name),
-        dotLabel(item.ok ? item.state || "OK" : "Error", item.state === "Connecting" ? "neutral" : item.ok ? "ok" : "error"),
-      ]));
+      body.append(rows(data.items, "No configured connectors.", (item) => {
+        const label = { ok: "OK", error: "Error", not_connected: "Not connected" }[item.status];
+        const badge = dotLabel(label, item.status === "not_connected" ? "neutral" : item.status);
+        badge.title = item.detail;
+        return [node("span", "", item.name), badge];
+      }));
     } else if (id === "weather") {
       const pair = node("div", "home-weather");
       const clock = node("div", "");

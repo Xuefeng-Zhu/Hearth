@@ -63,6 +63,7 @@ let busy = false;
 let connectionState;
 let workspaceModel;
 let workspaceConnectorError = false;
+let homeConnectorError = false;
 const workspaceStatusLabels = document.querySelectorAll("[data-workspace-status]");
 let connectionRequest;
 let connectionTabPreference = localStorage.getItem(connectionTabStorage);
@@ -89,7 +90,15 @@ const attachmentDraft = createAttachments({
     if (follow) scrollDown();
   },
 });
-const timeline = createTimeline({ api, approve, undo, gatewayResults, isBusy: () => busy });
+const timelineErrorRoute = "#timeline/errors";
+const timeline = createTimeline({
+  api, approve, undo, gatewayResults, isBusy: () => busy,
+  onFilter() {
+    if (location.hash === timelineErrorRoute) {
+      history.replaceState({ hearthView: "timeline" }, "", location.pathname + location.search);
+    }
+  },
+});
 const artifactLibrary = createArtifacts({
   api, showNotice, openThread: openArtifactThread,
   openConnections: () => openView("connections"),
@@ -102,7 +111,7 @@ const homePage = createHome({
   onData(data) {
     setTimeZone(data.timezone);
     const connections = data.builtin.connections;
-    workspaceConnectorError = !!connections.error || connections.items.some((entry) => !entry.ok);
+    homeConnectorError = !!connections.error || connections.items.some((entry) => entry.status === "error");
     renderBrain(data);
   },
 });
@@ -1019,7 +1028,8 @@ function renderBrain({ model, model_id: id }) {
 }
 
 function renderWorkspaceStatus() {
-  const status = !navigator.onLine ? "Offline" : workspaceConnectorError ? "Connector error"
+  const connectorError = view === "home" ? homeConnectorError : workspaceConnectorError;
+  const status = !navigator.onLine ? "Offline" : connectorError ? "Connector error"
     : workspaceModel === "mock" ? "Mock mode" : "";
   for (const label of workspaceStatusLabels) {
     label.textContent = status;
@@ -1319,7 +1329,9 @@ function syncWorkspaceRoute() {
     if (location.hash === "#pages") history.replaceState(history.state, "", artifactHash(filter));
     if (view === "artifacts") artifactLibrary.selectFormat(filter);
     else openView("artifacts", false);
-  } else if (view === "connections" || view === "artifacts") {
+  } else if (location.hash === timelineErrorRoute) {
+    openView("timeline", false);
+  } else if (view === "connections" || view === "artifacts" || view === "timeline") {
     openView(history.state?.hearthView || "home", false);
   }
 }
@@ -2079,7 +2091,8 @@ async function openView(nextView, updateHistory = true) {
   mobile.closeDrawer();
   if (nextView !== "chat") voice.cancel();
   if (updateHistory) {
-    const routedView = isConnectionsRoute() ? "connections" : artifactFilterFromHash(location.hash) ? "artifacts" : null;
+    const routedView = isConnectionsRoute() ? "connections" : artifactFilterFromHash(location.hash) ? "artifacts"
+      : location.hash === timelineErrorRoute ? "timeline" : null;
     const hash = nextView === "connections" ? connectionHash() : nextView === "artifacts" ? artifactHash() : null;
     if (hash && nextView !== routedView) {
       if (!routedView) history.replaceState({ ...history.state, hearthView: view }, "");
@@ -2103,6 +2116,8 @@ async function openView(nextView, updateHistory = true) {
     byId(`${item.dataset.view}-view`).hidden = !active;
   }
   paintAvatars();
+  renderWorkspaceStatus();
+  if (view === "timeline") timeline.setTodayErrors(location.hash === timelineErrorRoute);
   if (view === "connections") {
     renderConnections();
     const mailCard = delivery.connections();
@@ -2761,7 +2776,7 @@ setInterval(async () => {
 setInterval(() => { if (!document.hidden) delivery.poll(); }, 60_000);
 applyAppearance();
 renderWorkspaceStatus();
-if (isConnectionsRoute() || artifactFilterFromHash(location.hash)) syncWorkspaceRoute();
+if (isConnectionsRoute() || artifactFilterFromHash(location.hash) || location.hash === timelineErrorRoute) syncWorkspaceRoute();
 else openView(requestedThread ? "chat" : "home", false);
 if (!document.hidden) delivery.poll();
 if (!isConnectionsRoute()) updateConnections("rescan");

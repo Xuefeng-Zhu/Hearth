@@ -68,6 +68,8 @@ class PineconeHTTP:
         path = "/".join(rest)
         self.requests.append((provider, method, path, body, request))
         if provider == "huggingface":
+            if path == "v1/models":
+                return self.response({"data": []})
             return self.response([[1, *([0] * 383)] for _ in body["inputs"]])
         if provider == "box":
             path = path.removeprefix("2.0/")
@@ -255,10 +257,16 @@ class PineconeMemoryTest(unittest.TestCase):
         self.assertEqual(app.connection_info()["providers"]["pinecone"]["test_status"], "denied")
         failed = app.home.snapshot()["builtin"]
         self.assertEqual(failed["memory"]["pinecone"], "Unavailable")
-        self.assertFalse(next(row for row in failed["connections"]["items"] if row["id"] == "pinecone")["ok"])
+        self.assertEqual(next(row for row in failed["connections"]["items"] if row["id"] == "pinecone")["status"],
+                         "error")
+        self.assertEqual(failed["activity"]["errors"], 1)
 
         self.http.allow_create = True
+        create_attempts = len(self.requests("create-for-model"))
         app.scan_connections(sync_memory=True)
+        self.assertEqual(len(self.requests("create-for-model")), create_attempts)
+        self.assertFalse(app.memory_sync.running)
+        app.memory_sync.request("sync")
         self.assertEqual(self.wait()["status"], "complete")
         current = app.home.snapshot()["builtin"]
         memory = current["memory"]
@@ -266,7 +274,8 @@ class PineconeMemoryTest(unittest.TestCase):
         self.assertEqual(memory["record_count"], len(self.http.records["frank"]))
         self.assertTrue(memory["last_sync"])
         connection = next(row for row in current["connections"]["items"] if row["id"] == "pinecone")
-        self.assertEqual((connection["ok"], connection["state"]), (True, "Ready"))
+        self.assertEqual(connection["status"], "ok")
+        self.assertEqual(current["activity"]["errors"], 0)
         entry = app.connection_info()["providers"]["pinecone"]
         self.assertEqual((entry["index_state"], entry["index_error"], entry["test_status"], entry["test_detail"]),
                          ("Ready", None, None, None))

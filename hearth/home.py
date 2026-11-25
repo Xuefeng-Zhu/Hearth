@@ -30,6 +30,20 @@ def weather_state(state):
             "updated_at": None, "attempted_at": None, "error": None, "revision": "", **state.get("weather", {})}
 
 
+def recent_artifacts(state):
+    excluded = set(state.get("home_excluded_artifacts", []))
+    files = [item for item in state.get("artifacts", {}).values() if not item.get("deleted")]
+    files.extend(page_artifacts(state))
+    files.sort(key=lambda item: item.get("updated_at") or item["created_at"], reverse=True)
+    recent = {}
+    for item in files:
+        if item["id"] not in excluded:
+            recent.setdefault(item["id"], {key: item[key] for key in ("id", "title", "format", "kind")})
+        if len(recent) == 4:
+            break
+    return list(recent.values())
+
+
 def open_meteo(host, path, parameters):
     with urlopen(f"https://{host}.open-meteo.com/v1/{path}?{urlencode(parameters)}", timeout=7) as response:
         return json.loads(response.read(96 * 1024))
@@ -134,27 +148,13 @@ class Home:
                       key=lambda item: item.get("next_fire_at") or item["next_at"])
         inbox = sorted((card for card in state.get("inbox", {}).values() if card["status"] == "review"),
                        key=lambda card: card["received_at"], reverse=True)
-        local_files = [item for item in state.get("artifacts", {}).values() if not item.get("deleted")]
-        files = sorted([*local_files, *page_artifacts(state)],
-                       key=lambda item: item.get("updated_at") or item["created_at"], reverse=True)
         pinecone = self.app.memory_index.pinecone_status(self.app.agent.config)
-        rows = sorted((entry for entry in self.app.timeline_info()["entries"] if entry.get("at")),
+        rows = sorted((entry for entry in self.app.timeline_info(pinecone)["entries"]
+                       if entry.get("at") and not entry.get("diagnostic")),
                       key=lambda entry: datetime.fromisoformat(entry["at"]), reverse=True)
         zone = ZoneInfo(config["timezone"])
         today = now.astimezone(zone).date()
         rows_today = [row for row in rows if datetime.fromisoformat(row["at"]).astimezone(zone).date() == today]
-        report = self.app.connection_info(pinecone)
-        connections = []
-        for identity, entry in report["providers"].items():
-            if entry["status"] not in ("connected", "unauthorized"):
-                continue
-            index_state = entry.get("index_state")
-            ok = (entry["status"] == "connected" and entry.get("test_status") not in ("failed", "denied")
-                  and index_state != "Unavailable")
-            item = {"id": identity, "name": entry["name"], "ok": ok}
-            if index_state and ok:
-                item["state"] = index_state
-            connections.append(item)
         weather = weather_state(state)
         built = {
             "today": {"quiet_until": iso(quiet) if quiet else None,
@@ -165,12 +165,12 @@ class Home:
             "inbox": {"count": len(inbox), "items": [{"title": card.get("subject") or card.get("proposal", {}).get("title")
                                                      or "Untitled message", "at": card["received_at"]}
                                                     for card in inbox[:3]]},
-            "files": {"items": [{key: item[key] for key in ("id", "title", "format", "kind")} for item in files[:4]]},
+            "files": {"items": recent_artifacts(state)},
             "memory": {"count": len(self.storage.files()), "last_sync": pinecone["last_sync"],
                        "pinecone": pinecone["state"], "record_count": pinecone["record_count"]},
             "activity": {"count": len(rows_today), "errors": sum(bool(row.get("error")) for row in rows_today),
                          "items": [{key: row[key] for key in ("at", "title", "kind")} for row in rows[:5]]},
-            "connections": {"items": connections, "error": report.get("scan_error")},
+            "connections": self.app.connections.health(pinecone),
             "weather": {key: weather[key] for key in ("location", "value", "updated_at", "attempted_at", "error")}
                        | {"name": (weather["place"] or {}).get("name", weather["location"])},
         }
