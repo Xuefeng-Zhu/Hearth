@@ -4,10 +4,11 @@ Hearth is a private personal assistant that lives on a Fly.io Sprite. It keeps i
 
 ## Run locally
 
-Use Python 3.10 or later on Linux or macOS. The server, browser app, and tests use the standard library and browser APIs.
+Use Python 3.10 or later on Linux or macOS. The server and browser app use the standard library and browser APIs. Use Node.js 22 or later for the avatar tests.
 
 ```sh
 python3 -m unittest discover -s tests -v
+node --test tests/avatar-state.test.mjs
 python3 -m hearth.server
 ```
 
@@ -17,11 +18,25 @@ Open `http://127.0.0.1:8080`. Run `python3 -m hearth.scheduler` in a second term
 
 **Main** is the pinned conversation. Click **New side chat** or send `/side <message>` or `/btw <message>` from Main to start a separate thread. The first message supplies its title. Use **Rename** or **Delete** in the thread header. On mobile, choose a thread from the dropdown.
 
-Each thread streams independently. A dot marks a thread with work in progress. You can switch threads and send immediately, or send a follow-up in a busy thread. Follow-ups run in order after the current reply. Pending turns are held in memory until they start, so a server restart clears the queue.
+Each thread streams independently. A miniature avatar shows its current activity. When the avatar is off, a dot marks threads with work in progress. You can switch threads and send immediately, or send a follow-up in a busy thread. Follow-ups run in order after the current reply. Pending turns are held in memory until they start, so a server restart clears the queue.
 
 All threads share Hearth's Markdown memory, reminders, and approval queue. Timeline and approval cards show the source thread. Side chats can read recent Main excerpts. Main sees each side chat's title and short summary. **Share to Main** copies a short quote from a side-chat message into Main. It leaves the original in place and starts no model turn.
 
 Deleting a side chat requires confirmation and saves a checkpoint first. Timeline offers **Undo** on the deletion entry. The restore rolls back the entire workspace to the checkpoint. Shared actions and approvals stay in Timeline after a thread is deleted.
+
+### Ember avatar
+
+Use the menu next to the thread title to choose **Off**, **Beside chat**, or **Full screen**. Full screen shows a large avatar with live reply captions and expandable action cards. Press **Esc** to return to chat. The avatar listens while you type or dictate, shows the current tool action, moves its mouth as the reply streams, and reacts to memory citations, completed turns, warnings, and reminders. It rests after two minutes of inactivity.
+
+In **Settings → Appearance**, choose Ember, Kettle, Moss sprite, Cloud, or Paper lantern, and use the preset color or pick your own. All five share the same poses. Motion follows your system’s reduced-motion preference, and the avatar announces state changes through a polite status region. The view, preset, and color are saved in this browser.
+
+### Voice input
+
+Use the mic button in Main or any side chat. Click it again to finish, or hold **Space** in an empty composer and release to finish. **Esc** cancels the recording or pending transcription. The composer shows the live microphone level and, with Browser selected, interim words where the browser supplies them.
+
+In **Settings → Voice**, **Auto** selects Hugging Face Whisper when the connector is authorized and Browser otherwise. Whisper can detect the spoken language automatically. Browser uses its default speech language in Auto, or you can select a language such as English or 中文. The default limit is 60 seconds. The transcript goes into the composer for editing by default. Enable **Send automatically after transcription** to submit the result while preserving any existing draft. Voice settings are saved in this browser.
+
+Microphone access requires HTTPS or localhost and browser permission. Browser uses the browser’s speech service. Whisper sends audio through the Sprites gateway to Hugging Face. Hearth processes the upload in memory and runs both engines’ final transcripts through the same credential redactor used for typed prompts.
 
 ## Demo
 
@@ -31,6 +46,8 @@ Deleting a side chat requires confirmation and saves a checkpoint first. Timelin
 4. In **Timeline**, find the **Memory updated** action and click **Undo**. Confirm the checkpoint restore. When Hearth reconnects, reopen the note to see its original content.
 
 Use `Remind me to check the oven in 15 seconds` for a quick reminder demo. Use `Schedule check the oven | 0 17 * * 4` for a weekly Thursday reminder at 17:00 UTC. Timeline shows upcoming and delivered reminders.
+
+Choose **Mock** under **Settings → Brain** before running the Thanksgiving demo to see the full avatar sequence. The listening and warning previews are labeled as part of the demo. The notes, draft, reminder, streamed reply, and memory citations use the normal Hearth workflow.
 
 ## Connect providers
 
