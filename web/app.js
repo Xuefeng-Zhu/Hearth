@@ -8,7 +8,8 @@ const chatScroll = byId("chat-scroll");
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 const modelNames = {
   mock: "Mock", meta: "Muse Spark", openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Claude",
-  gemini: "Gemini", ollama: "Ollama Cloud",
+  gemini: "Gemini", ollama: "Ollama Cloud", huggingface: "Hugging Face", digitalocean: "DigitalOcean Inference",
+  fireworks: "Fireworks", nscale: "Nscale", parasail: "Parasail", zerogpu: "ZeroGPU", echo: "Echo by Fulcrum",
 };
 const connectorSettings = {
   pinecone: { field: "index", label: "Index name", placeholder: "hearth-memory", maxLength: 45 },
@@ -27,6 +28,12 @@ let busy = false;
 let timelineTimer;
 let connectionState;
 let connectionRequest;
+let brainSettings;
+let brainBusy = false;
+let modelRequest;
+const brainProvider = byId("brain-provider");
+const brainModel = byId("brain-model");
+const customModel = byId("brain-custom");
 
 function node(tag, className, text) {
   const item = document.createElement(tag);
@@ -69,6 +76,7 @@ function setBusy(value) {
   for (const item of document.querySelectorAll(".cards button, #timeline .card button, [data-prompt]")) {
     item.disabled = value;
   }
+  setBrainControls();
 }
 
 function scrollDown() {
@@ -85,10 +93,12 @@ function messageBubble(role, content) {
   const body = node("div");
   const text = node("p", "", content);
   const cards = node("div", "cards");
-  body.append(text, cards);
+  const notices = node("div");
+  notices.setAttribute("role", "status");
+  body.append(notices, text, cards);
   item.append(body);
   transcript.append(item);
-  return { cards, text };
+  return { cards, notices, text };
 }
 
 function actionCard(action) {
@@ -127,6 +137,7 @@ function actionCard(action) {
   }
   if (action.paths) card.append(node("p", "", action.paths.join(", ")));
   if (action.job) card.append(node("p", "", action.job.message), node("p", "meta", date(action.job.next_at)));
+  if (action.detail) card.append(node("p", "", action.detail));
   if (action.checkpoint) {
     card.append(node("p", "meta", `Checkpoint ${action.checkpoint.id}`));
     if (action.kind !== "gateway" && (action.kind !== "email" || action.mocked)) card.append(button("Undo", () => undo(action)));
@@ -141,6 +152,7 @@ function renderChat() {
   byId("welcome").hidden = state.messages.length > 0;
   for (const message of state.messages) {
     const bubble = messageBubble(message.role, message.content);
+    for (const notice of message.notices || []) bubble.notices.append(node("p", "model-warning", notice));
     for (const id of new Set(message.action_ids || [])) {
       if (actions.has(id)) bubble.cards.append(actionCard(actions.get(id)));
     }
@@ -151,11 +163,15 @@ function renderChat() {
 async function refreshState() {
   state = await api("/api/state", undefined, AbortSignal.timeout(6000));
   byId("environment-label").textContent = state.checkpoints === "sprite" ? "Private Sprite" : "Local workspace";
-  renderBrain(state.model);
+  renderBrain(state);
 }
 
-function renderBrain(model) {
-  byId("model-status").textContent = `Brain · ${modelNames[model] || "Unavailable"}`;
+function renderBrain({ model, model_id: id }) {
+  const name = modelNames[model] || "Unavailable";
+  const label = id && model !== "mock" ? `${name} · ${id.split("/").at(-1)}` : name;
+  const status = byId("model-status");
+  status.textContent = `Brain · ${label}`;
+  status.title = id && model !== "mock" ? `${name} · ${id}` : name;
 }
 
 async function selectFile(path) {
@@ -324,7 +340,7 @@ function renderConnections() {
   count.hidden = false;
   count.textContent = matches ? `${matches} of ${entries.length} providers` : "No providers match your filters.";
   if (connectionRequest) setConnectionsBusy(true);
-  renderBrain(connectionState.model);
+  renderBrain(connectionState);
 }
 
 function setConnectionsBusy(value) {
@@ -369,6 +385,137 @@ function updateConnections(operation, body = {}) {
   return connectionRequest;
 }
 
+function brainChoice() {
+  return brainSettings?.providers.find((entry) => entry.provider === brainProvider.value);
+}
+
+function brainDraft() {
+  return {
+    provider: brainProvider.value,
+    model: brainChoice() ? brainModel.value || customModel.value.trim() : "",
+  };
+}
+
+function setBrainControls() {
+  const choice = brainChoice();
+  const locked = !brainSettings || brainBusy || busy;
+  const usable = !choice || (choice.available && choice.supported);
+  const custom = !!choice && !brainModel.value;
+  const needsModel = !!choice && !brainDraft().model;
+  brainProvider.disabled = locked;
+  brainModel.disabled = locked || !usable || !!modelRequest;
+  customModel.disabled = brainModel.disabled;
+  byId("brain-custom-field").hidden = !custom;
+  byId("brain-test").disabled = byId("brain-save").disabled = locked || !usable || !!modelRequest || needsModel;
+}
+
+function brainFeedback(message = "") {
+  byId("brain-feedback").hidden = !message;
+  byId("brain-feedback").textContent = message;
+}
+
+async function loadBrainModels() {
+  modelRequest?.abort();
+  modelRequest = undefined;
+  const choice = brainChoice();
+  const detail = byId("brain-provider-detail");
+  const modelDetail = byId("brain-model-detail");
+  byId("brain-model-fields").hidden = !choice;
+  if (!choice) {
+    detail.textContent = brainProvider.value === "auto"
+      ? "Hearth tries Muse Spark first, then other connected chat providers, then Mock."
+      : "Use Hearth’s offline demo model.";
+    setBrainControls();
+    return;
+  }
+  detail.textContent = choice.available ? "Connected through Fly Sprites." : "This saved provider is disconnected.";
+  const saved = brainSettings.selection;
+  const selected = saved.provider === choice.provider ? saved.model : choice.default_model;
+  brainModel.replaceChildren(new Option("Enter a model ID…", ""));
+  customModel.value = selected;
+  modelDetail.textContent = choice.available ? "Loading chat models…" : "Re-scan in Connections after authorizing this provider.";
+  if (!choice.available || !choice.supported) {
+    setBrainControls();
+    return;
+  }
+  const controller = modelRequest = new AbortController();
+  setBrainControls();
+  try {
+    const { models, detail } = await api(`/api/brain/models?provider=${encodeURIComponent(choice.provider)}`,
+      undefined, controller.signal);
+    if (modelRequest !== controller) return;
+    brainModel.prepend(...models.map((model) => new Option(model, model)));
+    brainModel.value = models.includes(selected) ? selected : selected ? "" : models[0] || "";
+    modelDetail.textContent = detail || `${models.length} chat models available.`;
+  } catch (error) {
+    if (modelRequest === controller) modelDetail.textContent = error.message;
+  } finally {
+    if (modelRequest === controller) {
+      modelRequest = undefined;
+      setBrainControls();
+    }
+  }
+}
+
+async function openBrainSettings() {
+  if (brainBusy) return;
+  brainSettings = undefined;
+  setBrainControls();
+  brainFeedback();
+  byId("brain-test-result").hidden = true;
+  try {
+    await updateConnections("rescan");
+    if (view !== "settings") return;
+    brainSettings = await api("/api/brain");
+    const saved = brainSettings.selection.provider;
+    const providers = brainSettings.providers.map((entry) => {
+      const suffix = !entry.available ? " (disconnected)" : !entry.supported ? " (chat unavailable)" : "";
+      const option = new Option(entry.name + suffix, entry.provider);
+      option.disabled = !entry.supported;
+      return option;
+    });
+    brainProvider.replaceChildren(new Option("Auto", "auto"), ...providers, new Option("Mock", "mock"));
+    brainProvider.value = saved;
+    renderBrain(brainSettings);
+    brainFeedback(brainSettings.scan_error || "");
+    await loadBrainModels();
+  } catch (error) {
+    brainFeedback(error.message);
+  }
+}
+
+function clearBrainTest() {
+  brainFeedback();
+  byId("brain-test-result").hidden = true;
+}
+
+async function updateBrain(operation) {
+  if (brainBusy || busy || modelRequest) return;
+  const draft = brainDraft();
+  brainBusy = true;
+  setBrainControls();
+  if (operation === "test") byId("brain-test-result").hidden = true;
+  brainFeedback(operation === "test" ? "Testing the selected model…" : "Saving brain settings…");
+  try {
+    const result = await api(`/api/brain/${operation}`, draft);
+    if (operation === "test") {
+      byId("brain-test-latency").textContent = `Test reply · ${result.latency_ms.toLocaleString()} ms`;
+      byId("brain-test-reply").textContent = result.reply;
+      byId("brain-test-result").hidden = false;
+      brainFeedback();
+    } else {
+      brainSettings = result;
+      renderBrain(result);
+      brainFeedback("Brain settings saved.");
+    }
+  } catch (error) {
+    brainFeedback(error.message);
+  } finally {
+    brainBusy = false;
+    setBrainControls();
+  }
+}
+
 async function refreshView() {
   await refreshState();
   if (view === "chat") renderChat();
@@ -391,6 +538,8 @@ async function openView(nextView) {
   }
   if (view === "connections") {
     await updateConnections("rescan");
+  } else if (view === "settings") {
+    await openBrainSettings();
   } else if (!busy) {
     try {
       await refreshView();
@@ -434,6 +583,7 @@ async function chat(prompt) {
         if (name === "token") reply.text.textContent = text += payload.text;
         if (name === "action") reply.cards.append(actionCard(payload));
         if (name === "reset") reply.text.textContent = (text = "") || payload.message || "Thinking…";
+        if (name === "model_warning") reply.notices.append(node("p", "model-warning", payload.message));
         if (name === "done") done = true;
         if (name === "error") throw new Error(payload.message);
         scrollDown();
@@ -519,6 +669,24 @@ byId("composer").addEventListener("submit", (event) => {
 byId("connector-search").addEventListener("input", renderConnections);
 byId("connector-category").addEventListener("change", renderConnections);
 byId("rescan-connections").addEventListener("click", () => updateConnections("rescan"));
+brainProvider.addEventListener("change", () => {
+  clearBrainTest();
+  loadBrainModels();
+});
+brainModel.addEventListener("change", () => {
+  clearBrainTest();
+  setBrainControls();
+  if (!brainModel.value) customModel.focus();
+});
+customModel.addEventListener("input", () => {
+  clearBrainTest();
+  setBrainControls();
+});
+byId("brain-test").addEventListener("click", () => updateBrain("test"));
+byId("brain-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  updateBrain("settings");
+});
 input.addEventListener("input", resizeInput);
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {

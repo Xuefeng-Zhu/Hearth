@@ -118,6 +118,22 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .connector-controls { display: flex; align-items: center; gap: 7px; }
 .connector-controls input { min-width: 0; flex: 1; border: 1px solid #dcd1db; border-radius: 7px; background: white; color: inherit; padding: 6px 8px; }
 .connector-controls button { margin-top: 0; }
+.header-status #model-status { display: block; overflow: hidden; text-overflow: ellipsis; max-width: min(450px, 64vw); }
+.brain-form { max-width: 580px; padding: 22px; }
+.brain-form label { display: block; margin-bottom: 6px; color: #514257; font-size: 13px; font-weight: 650; }
+.brain-form select, .brain-form input {
+  width: 100%; min-width: 0; min-height: 42px; padding: 8px 10px; border: 1px solid #dcd1db;
+  border-radius: 8px; background: white; color: inherit;
+}
+.brain-form .meta { font-size: 13px; }
+#brain-model-fields, #brain-custom-field { margin-top: 18px; }
+.brain-controls { display: flex; gap: 8px; margin-top: 18px; }
+.brain-controls button { margin: 0; min-height: 36px; padding-inline: 15px; }
+.brain-controls #brain-save { background: var(--accent); border-color: var(--accent); color: white; }
+.brain-form .brain-feedback { color: #51305b; margin-top: 12px; }
+.brain-test-result { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: #f4eef4; }
+.brain-test-result .meta { margin-top: 0; }
+.message .model-warning { color: #694518; background: #f6ede2; border-radius: 8px; padding: 7px 10px; margin-bottom: 8px; font-size: 13px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 
 @media (max-width: 880px) {
@@ -144,8 +160,9 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 
 @media (max-width: 420px) {
   .connection-filters { grid-template-columns: minmax(0, 1fr) minmax(0, .8fr); gap: 8px; }
+  .nav-link .nav-icon { display: none; }
 }
 
 @media (max-width: 380px) {
-  .nav-link .nav-icon { display: none; }
+  .nav-link { font-size: 12px; }
 }

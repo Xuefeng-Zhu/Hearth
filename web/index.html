@@ -17,6 +17,7 @@
         <button type="button" class="nav-link" data-view="memory"><span class="nav-icon" aria-hidden="true">▱</span> Memory</button>
         <button type="button" class="nav-link" data-view="timeline"><span class="nav-icon" aria-hidden="true">◷</span> Timeline</button>
         <button type="button" class="nav-link" data-view="connections"><span class="nav-icon" aria-hidden="true">⌘</span> Connections</button>
+        <button type="button" class="nav-link" data-view="settings"><span class="nav-icon" aria-hidden="true">⚙</span> Settings</button>
       </nav>
     </aside>
     <main>
@@ -35,7 +36,7 @@
             <h2>What’s on your mind?</h2>
             <p>Make a plan, recall a detail, or set a reminder.</p>
             <div class="prompts">
-              <button type="button" data-prompt="Plan Thanksgiving dinner"><span aria-hidden="true">✧</span> Plan Thanksgiving dinner</button>
+              <button type="button" data-prompt="Plan Thanksgiving dinner using my sample notes. Read topics/thanksgiving.md and the guests’ notes, draft an invitation to their sample email addresses for my approval, and set an in-app reminder for two minutes from now to confirm the headcount and allergies."><span aria-hidden="true">✧</span> Plan Thanksgiving dinner</button>
               <button type="button" data-prompt="Read USER.md"><span aria-hidden="true">▱</span> Read my profile</button>
               <button type="button" data-prompt="Checkpoint"><span aria-hidden="true">◷</span> Save a checkpoint</button>
             </div>
@@ -87,6 +88,37 @@
           <h3 id="catalog-title">More providers</h3>
           <div class="connection-grid" id="catalog-connections"></div>
         </section>
+      </section>
+      <section class="view panel" id="settings-view" aria-labelledby="view-title" hidden>
+        <div class="section-intro">
+          <h2>Brain</h2>
+          <p>Choose which connected model Hearth uses for chat.</p>
+        </div>
+        <form class="card brain-form" id="brain-form">
+          <label for="brain-provider">Provider</label>
+          <select id="brain-provider" aria-describedby="brain-provider-detail" disabled>
+            <option value="auto">Auto</option>
+          </select>
+          <p class="meta" id="brain-provider-detail">Checking connections…</p>
+          <div id="brain-model-fields" hidden>
+            <label for="brain-model">Model</label>
+            <select id="brain-model" aria-describedby="brain-model-detail"></select>
+            <div id="brain-custom-field" hidden>
+              <label for="brain-custom">Custom model ID</label>
+              <input type="text" id="brain-custom" maxlength="150" autocomplete="off" spellcheck="false" placeholder="Enter a model ID">
+            </div>
+            <p class="meta" id="brain-model-detail" role="status"></p>
+          </div>
+          <div class="brain-controls">
+            <button type="button" id="brain-test" disabled>Test</button>
+            <button type="submit" id="brain-save" disabled>Save</button>
+          </div>
+          <p class="brain-feedback" id="brain-feedback" role="status" hidden></p>
+          <div class="brain-test-result" id="brain-test-result" role="status" hidden>
+            <p class="meta" id="brain-test-latency"></p>
+            <pre id="brain-test-reply"></pre>
+          </div>
+        </form>
       </section>
     </main>
   </div>
