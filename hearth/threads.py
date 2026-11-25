@@ -40,15 +40,17 @@ class Threads:
             raise HearthError("That chat no longer exists.")
         return index[thread_id]
 
-    def messages(self, thread_id, limit=None):
+    def messages(self, thread_id, limit=None, *, dialogue_only=False):
         self.require(thread_id)
         path = self.path(thread_id)
         if not path.is_file():
             legacy = self.storage.load().get("messages", []) if thread_id == MAIN else []
             return legacy if limit is None else legacy[-limit:]
         with path.open(encoding="utf-8") as stream:
-            lines = stream if limit is None else deque(stream, maxlen=limit)
-            return [json.loads(line) for line in lines]
+            messages = (json.loads(line) for line in stream)
+            if dialogue_only:
+                messages = (message for message in messages if message["role"] != "call")
+            return list(messages if limit is None else deque(messages, maxlen=limit))
 
     def append(self, thread_id, role, content, **fields):
         self.require(thread_id)
@@ -72,8 +74,11 @@ class Threads:
         path = self.path(thread_id)
         if not title and path.is_file():
             with path.open(encoding="utf-8") as stream:
-                first = json.loads(next(stream))
-            title = compact(first["content"], 54)
+                for line in stream:
+                    first = json.loads(line)
+                    if first["role"] != "call":
+                        title = compact(first["content"], 54)
+                        break
         return {"id": thread_id, "title": title or SIDE_TITLE}
 
     def list(self):
@@ -114,11 +119,11 @@ class Threads:
     def context(self, thread_id):
         if thread_id != MAIN:
             recent = [{"role": message["role"], "excerpt": compact(message["content"], 390)}
-                      for message in self.messages(MAIN, limit=6)]
+                      for message in self.messages(MAIN, limit=6, dialogue_only=True)]
             return "Recent Main excerpts for read-only reference", recent
         summaries = []
         for thread in self.list()[1:]:
-            recent = self.messages(thread["id"], limit=2)
+            recent = self.messages(thread["id"], limit=2, dialogue_only=True)
             if not recent:
                 continue
             summary = next((message["summary"] for message in reversed(recent) if message.get("summary")),

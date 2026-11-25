@@ -239,7 +239,9 @@ class Agent:
         self.memory = recall.settings(config.get("memory", {}))
         self.search_settings = search.settings(config.get("search", {}))
         self.memory_index = memory_index or recall.Recall(storage, self.tools.gateway)
-        self.gateway_connections = config.get("gateway", {})
+        # Voice-session credentials belong only in the dedicated token response.
+        self.gateway_connections = {name: entry for name, entry in config.get("gateway", {}).items()
+                                    if name != "vocalbridge"}
         self.brain_mode, self.models, self.unavailable_provider = router.setup(config)
         self.brain_stats = router.BrainStats(storage)
 
@@ -283,14 +285,15 @@ class Agent:
         return {"reply": redact_text(text)[:1_000], "latency_ms": round((time.monotonic() - start) * 1_000),
                 "provider": model["provider"], "model": model["model"]}
 
-    def chat(self, prompt, event, thread_id=MAIN):
+    def chat(self, prompt, event, thread_id=MAIN, *, source=None):
         prompt = redact_text(require_text(prompt, 4_000))
+        origin_fields = {"source": source} if source else {}
         with self.storage.lock():
-            message = self.threads.append(thread_id, "user", prompt)
+            message = self.threads.append(thread_id, "user", prompt, **origin_fields)
             thread = self.threads.describe(thread_id)
-            history = self.threads.messages(thread_id, limit=16)
+            history = self.threads.messages(thread_id, limit=16, dialogue_only=True)
             label, context = self.threads.context(thread_id)
-        origin = CHAT_ORIGIN.set({"thread_id": thread_id, "thread_title": thread["title"]})
+        origin = CHAT_ORIGIN.set({"thread_id": thread_id, "thread_title": thread["title"], **origin_fields})
         demo = self.models[0]["provider"] == "mock" and prompt.casefold() == THANKSGIVING_DEMO.casefold()
         turn = {"prompt": prompt, "message_id": message["id"], "queries": {}, "citations": {},
                 "event": event, "demo": demo}
@@ -429,6 +432,8 @@ class Agent:
 
         content = recall.CITATION.sub(cite, content).strip()
         fields = {"action_ids": action_ids, "notices": notices, "routing": routing}
+        if source := CHAT_ORIGIN.get().get("source"):
+            fields["source"] = source
         if remembered:
             fields["remembered"] = list(remembered.values())
         if thread_id != MAIN:

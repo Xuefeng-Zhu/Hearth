@@ -85,7 +85,11 @@ class Gateway:
         except HTTPError as error:
             error.close()
             raise ConnectorError("The gateway rejected the request.", error.code) from None
-        except (HTTPException, URLError, OSError):
+        except (TimeoutError, URLError) as error:
+            if isinstance(getattr(error, "reason", error), TimeoutError):
+                raise ConnectorError("The gateway request timed out.", 504) from None
+            raise ConnectorError("The gateway is unavailable.") from None
+        except (HTTPException, OSError):
             raise ConnectorError("The gateway is unavailable.") from None
 
     def json(self, config, path, body=None, headers=None, *, timeout=25, allow_array=False):
@@ -96,6 +100,8 @@ class Gateway:
         try:
             with response:
                 data = json.loads(response.read(8 * 1024 * 1024))
+        except TimeoutError:
+            raise ConnectorError("The gateway response timed out.", 504) from None
         except (HTTPException, OSError, ValueError):
             raise ConnectorError("The connector returned an unreadable response.") from None
         if not isinstance(data, (dict, list) if allow_array else dict):

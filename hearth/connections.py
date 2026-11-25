@@ -98,6 +98,8 @@ def catalog_entry(provider):
 
 
 def connector_uses(provider):
+    if provider == "vocalbridge":
+        return ["Voice call"]
     uses = []
     if provider in MODEL_PATHS:
         uses.append("Brain")
@@ -160,6 +162,7 @@ class Connections:
         self.found = set()
         self.available = set()
         self.checks = {}
+        self.check_times = {}
         self.last_scan = None
 
     def load(self):
@@ -392,6 +395,7 @@ class Connections:
             return False
         self.checks = {provider: check for provider, check in self.checks.items()
                        if provider in selected and selected[provider] == self.selected.get(provider)}
+        self.check_times = {provider: at for provider, at in self.check_times.items() if provider in self.checks}
         self.config, self.selected = config, selected
         self.found, self.available = found, set(authorized)
         self.last_scan = iso()
@@ -407,6 +411,7 @@ class Connections:
             self.checks[provider] = probe(self.gateway, {**settings, **self.gateway_entry(provider, connection_id)})
         else:
             self.checks[provider] = self.test_authorization(provider, connection_id)
+        self.check_times[provider] = iso()
 
     def test_authorization(self, provider, connection_id):
         try:

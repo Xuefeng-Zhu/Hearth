@@ -160,7 +160,7 @@ class Recall:
                 path = f"chat/{thread['id']}"
                 for line, message in enumerate(self.threads.messages(thread["id"]), 1):
                     identity = message.get("id") or f"{thread['id']}:{line}"
-                    if identity in forgotten or not message["content"].strip():
+                    if message["role"] == "call" or identity in forgotten or not message["content"].strip():
                         continue
                     items.append(chunk(path, line, line, message["content"], thread["title"],
                                        thread_id=thread["id"], message_id=identity))

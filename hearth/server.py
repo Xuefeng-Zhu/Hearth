@@ -10,13 +10,13 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, urlsplit
 
-from . import recall, router, search, voice
+from . import recall, router, search, voice, voice_call
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
 from .connectors import Gateway, read_config
 from .gateway_tools import redact_text
-from .storage import HearthError, ROOT, Storage
+from .storage import HearthError, ROOT, Storage, iso
 from .threads import MAIN, Threads, compact
 
 STATIC = {
@@ -25,6 +25,8 @@ STATIC = {
     "/avatar.js": ("avatar.js", "text/javascript; charset=utf-8"),
     "/avatar-state.js": ("avatar-state.js", "text/javascript; charset=utf-8"),
     "/voice.js": ("voice.js", "text/javascript; charset=utf-8"),
+    "/voice-call.js": ("voice-call.js", "text/javascript; charset=utf-8"),
+    "/vendor/vocalbridge.mjs": ("vendor/vocalbridge.mjs", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 SIDE_COMMAND = re.compile(r"/(?:side|btw)(?:\s+(.+))?", re.I | re.S)
@@ -45,6 +47,7 @@ class Application:
         self.turn_activity = {}
         self.restore = None
         self.reindex = None
+        self.call_check = None
         self.memory_index = recall.Recall(storage, self.gateway)
         self.reload_agent()
 
@@ -142,7 +145,7 @@ class Application:
         thread = self.threads.describe(thread_id)
         for line, message in enumerate(self.threads.messages(thread_id), 1):
             identity = message.get("id") or f"{thread_id}:{line}"
-            if identity == message_id:
+            if identity == message_id and message["role"] != "call":
                 return recall.chunk(f"chat/{thread_id}", line, line, message["content"], thread["title"],
                                     thread_id=thread_id, message_id=identity)
         raise HearthError("That chat memory no longer exists.")
@@ -198,6 +201,7 @@ class Application:
                 "messages": messages, "actions": list(state["actions"].values()),
                 "jobs": state["jobs"], "reminders": state["reminders"], "routing": state.get("routing", []),
                 "whisper_available": bool(self.memory_index.hf_entry(self.agent.config)),
+                "voice_call_available": voice_call.PROVIDER in self.connections.selected,
                 "restore": self.restore,
                 "checkpoints": self.checkpoints.mode, **self.brain_status()}
 
@@ -209,8 +213,40 @@ class Application:
                      for action in actions if action.get("checkpoint")}
         return [known.get(item["id"], item) for item in self.checkpoints.list()]
 
-    def enqueue(self, thread_id, prompt):
-        command = SIDE_COMMAND.fullmatch(prompt) if thread_id == MAIN else None
+    def call_status(self):
+        provider = voice_call.PROVIDER
+        connection_id = self.connections.selected.get(provider)
+        checks = []
+        if self.connections.last_scan:
+            status = "configured" if connection_id else "missing"
+            checks.append({"at": self.connections.last_scan, "status": status, "kind": "discovery"})
+        test = self.connections.checks.get(provider)
+        if test and (at := self.connections.check_times.get(provider)):
+            status, detail = test
+            checks.append({"at": at, "status": status, "detail": detail, "kind": "authorization"})
+        check = self.call_check
+        if connection_id and check and check[0] == connection_id:
+            checks.append(check[1])
+        last = max(reversed(checks), key=lambda item: item["at"], default=None)
+        return {"configured": bool(connection_id), "last_check": last,
+                **({"participant_name": voice_call.participant_name(self.storage)} if connection_id else {})}
+
+    def call_token(self):
+        provider = voice_call.PROVIDER
+        connection_id = self.connections.selected.get(provider)
+        if not connection_id:
+            raise voice.VoiceError(voice_call.SETUP, 409)
+        connection = self.connections.gateway_entry(provider, connection_id)
+        try:
+            reply = voice_call.mint(self.gateway, connection, voice_call.participant_name(self.storage))
+        except voice.VoiceError as error:
+            self.call_check = (connection_id, {"at": iso(), "status": "failed", "kind": "token", "detail": str(error)})
+            raise
+        self.call_check = (connection_id, {"at": iso(), "status": "passed", "kind": "token"})
+        return reply
+
+    def enqueue(self, thread_id, prompt, *, source=None):
+        command = SIDE_COMMAND.fullmatch(prompt) if thread_id == MAIN and source is None else None
         if command:
             prompt = require_text(command[1], 4_000)
         with self.storage.lock():
@@ -221,21 +257,22 @@ class Application:
         with self.turn_lock:
             pending = self.turns.get(thread_id)
             if pending is not None:
-                pending.append((prompt, events))
+                pending.append((prompt, events, source))
             else:
-                self.turns[thread_id] = deque([(prompt, events)])
+                self.turns[thread_id] = deque([(prompt, events, source)])
                 threading.Thread(target=self.run_turns, args=(thread_id,), daemon=True).start()
         return events
 
     def run_turns(self, thread_id):
         while True:
             with self.turn_lock:
-                prompt, events = self.turns[thread_id][0]
+                prompt, events, source = self.turns[thread_id][0]
             agent = self.agent
 
             def event(name, data):
                 phase = {"started": "thinking", "tool_started": "working", "tool_finished": "thinking",
-                         "token": "speaking", "reset": "thinking"}.get(name)
+                         "token": "thinking" if source == voice_call.SOURCE else "speaking",
+                         "reset": "thinking"}.get(name)
                 if phase:
                     with self.turn_lock:
                         self.turn_activity[thread_id] = {"pose": phase, "detail": data.get("title")}
@@ -245,7 +282,7 @@ class Application:
                 events.put((name, data))
 
             try:
-                agent.chat(prompt, event, thread_id)
+                agent.chat(prompt, event, thread_id, source=source)
             except Exception:
                 event("error", {"message": "Hearth could not finish this turn. Check Timeline for any completed actions."})
             finally:
@@ -318,6 +355,7 @@ class Application:
                 if self.checkpoints.mode == "local":
                     self.connections.reset()
                     self.reindex = None
+                    self.call_check = None
                     self.reload_agent()
                     self.restore = None
                     return
@@ -355,7 +393,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy",
-                         "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+                         "default-src 'self'; connect-src 'self' wss://*.livekit.cloud https://*.livekit.cloud; "
+                         "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
         if content_type == "text/event-stream":
             self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
@@ -380,6 +419,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.json(self.app.info(thread_id))
             elif url.path == "/api/connections":
                 self.json(self.app.connection_info())
+            elif url.path == "/api/voice/call/status":
+                self.json(self.app.call_status())
             elif url.path == "/api/brain":
                 self.json(self.app.brain_info())
             elif url.path == "/api/brain/models":
@@ -411,14 +452,14 @@ class Handler(BaseHTTPRequestHandler):
         except HearthError as error:
             self.json({"error": str(error)}, 400)
 
-    def body(self):
+    def body(self, limit=24_000):
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
             raise HearthError("Send this request from Hearth.")
         if self.headers.get_content_type() != "application/json":
             raise HearthError("Expected a JSON request.")
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 24_000:
+            if not 0 < length <= limit:
                 raise ValueError
             body = json.loads(self.rfile.read(length))
         except ValueError:
@@ -428,6 +469,9 @@ class Handler(BaseHTTPRequestHandler):
         return body
 
     def do_POST(self):
+        if self.path.startswith("/api/voice/call/"):
+            self.post_call()
+            return
         if urlsplit(self.path).path in {"/api/voice/transcribe", "/api/voice/redact"}:
             self.post_voice()
             return
@@ -491,6 +535,67 @@ class Handler(BaseHTTPRequestHandler):
             self.stream_chat(stream)
         else:
             self.json(result, status)
+
+    def post_call(self):
+        operation = self.path.removeprefix("/api/voice/call/")
+        if operation not in ("token", "query", "report"):
+            self.json({"error": "Page not found."}, 404)
+            return
+        try:
+            origin = self.headers.get("Origin")
+            fetch_site = self.headers.get("Sec-Fetch-Site")
+            if fetch_site not in (None, "none", "same-origin") or (origin and not self.same_origin(origin)):
+                raise voice.VoiceError("Send this request from Hearth.", 403)
+            body = self.body(voice_call.MAX_REPORT_BYTES if operation == "report" else 24_000)
+            if operation == "token":
+                if body:
+                    raise HearthError("Invalid call token request.")
+                result = self.app.call_token()
+            else:
+                with self.app.operation:
+                    if self.app.restore and self.app.restore["status"] == "restoring":
+                        raise voice.VoiceError("A checkpoint is being restored.", 409)
+                    if operation == "report":
+                        result = voice_call.save_report(self.app.threads, body)
+                    else:
+                        if body.keys() != {"thread_id", "query"}:
+                            raise HearthError("Invalid call query.")
+                        events = self.app.enqueue(body["thread_id"], require_text(body["query"], 4_000),
+                                                  source=voice_call.SOURCE)
+                if operation == "query":
+                    result = self.call_reply(events)
+        except voice.VoiceError as error:
+            self.json({"error": str(error)}, error.status)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+        except OSError:
+            self.json({"error": "Hearth could not update workspace data."}, 500)
+        else:
+            self.json(result)
+
+    def same_origin(self, origin):
+        try:
+            parts = urlsplit(origin)
+        except ValueError:
+            return False
+        scheme = self.headers.get("X-Forwarded-Proto", "http")
+        return (parts.scheme in ("http", "https") and parts.scheme == scheme
+                and bool(parts.netloc) and parts.netloc.lower() == self.headers.get("Host", "").lower()
+                and not (parts.path or parts.query or parts.fragment or parts.username or parts.password))
+
+    @staticmethod
+    def call_reply(events):
+        deadline = time.monotonic() + 115
+        try:
+            while (remaining := deadline - time.monotonic()) > 0:
+                packet = events.get(timeout=remaining)
+                if packet is None or packet[0] == "error":
+                    raise voice.VoiceError("Hearth could not answer. Check Timeline for any completed actions.", 502)
+                if packet[0] == "done":
+                    return {"reply": packet[1]["message"]["content"]}
+        except Empty:
+            pass
+        raise voice.VoiceError("Hearth is still working. Check the thread for the reply.", 504)
 
     def post_voice(self):
         url = urlsplit(self.path)
