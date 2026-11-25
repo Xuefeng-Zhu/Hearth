@@ -3,7 +3,7 @@
 ## Verified
 
 - Semantic recall and selectable web search are deployed on the private Sprite. An isolated workspace running the deployed release created a native checkpoint and reindexed seven excerpts with Hugging Face BGE Small. For “who can't eat nuts,” Keyword missed the synthetic allergy note. Hugging Face returned it at line 3 with cosine similarity 0.684 and keyword overlap 0. A live Hugging Face chat turn cited that line, and Chromium opened it from the **Remembered** chip.
-- The Hugging Face gateway also returned vectors for BGE Base and Multilingual E5. Auto recall fell through to Hugging Face after Pinecone returned HTTP 404 for the configured index.
+- The Hugging Face gateway also returned vectors for BGE Base and Multilingual E5. The deployed workspace’s Auto reindex embedded six excerpts with Hugging Face after Pinecone returned HTTP 404 for the configured index.
 - Exa was the only connected search provider and returned live results for Python pathlib. Chromium showed its connected state, the other five providers’ **Connect in Connections** buttons, and the live Test results. Both Settings panels fit at 390px. Desktop captures are at `/workspace/tmp/hearth-qa/hearth-memory-settings.png` and `/workspace/tmp/hearth-qa/hearth-search-settings.png`.
 - Forty-one tests pass. The new and updated tests cover semantic and keyword ranking, incremental edits and cache reuse, all-thread recall scope, source citations, reindex and Forget checkpoints, auto-remember approval, six gateway adapters, search tool availability, and Timeline failover.
 

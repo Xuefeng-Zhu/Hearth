@@ -1138,9 +1138,10 @@ async function approve(action) {
       sent: "Email sent.", simulated: "Simulated send recorded. Undo is available on the card.",
       unknown: "AgentMail could not confirm delivery. Check your inbox’s sent messages.",
     };
-    showNotice(action.kind === "gateway"
-      ? (result.status === "complete" ? "Connector request completed." : "The gateway could not confirm the request.")
-      : message[result.status]);
+    if (action.kind === "remember") showNotice("Fact remembered.");
+    else if (action.kind === "gateway") showNotice(result.status === "complete"
+      ? "Connector request completed." : "The gateway could not confirm the request.");
+    else showNotice(message[result.status]);
   } catch (error) {
     showNotice(error.message);
   } finally {

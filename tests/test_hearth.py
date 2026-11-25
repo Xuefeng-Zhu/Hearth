@@ -44,6 +44,9 @@ class HearthTest(unittest.TestCase):
         events = self.chat("Plan Thanksgiving dinner")
         self.assertEqual((events[-1][0], events[-1][1]["provider"]), ("done", "mock"))
         self.assertGreater(sum(name == "token" for name, _ in events), 5)
+        remembered = events[-1][1]["message"]["remembered"]
+        self.assertEqual({hit["path"] for hit in remembered},
+                         {"topics/thanksgiving.md", "people/maya.md", "people/daniel.md"})
         draft, reminder = [data for name, data in events if name == "action"]
         self.assertEqual(draft["email"]["to"], ["daniel@example.invalid", "maya@example.invalid"])
         self.assertEqual(draft["status"], "pending")

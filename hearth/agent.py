@@ -149,9 +149,15 @@ def mock_completion(messages, emit, clock, *, tool_names=()):
             return tool_call("schedule", {"message": "Confirm the Thanksgiving headcount and check for food allergies.",
                                          "at": iso(clock + timedelta(minutes=2))})
         else:
-            family = [re.split(r"\bDemo email:", hit["excerpt"], maxsplit=1)[0].strip().lstrip("# ")
-                      for hit in prior[1]["results"] if hit["path"].startswith("people/")]
+            family = []
+            for hit in prior[1]["results"]:
+                if hit["path"].startswith("people/"):
+                    detail = re.split(r"\bDemo email:", hit["excerpt"], maxsplit=1)[0].strip().lstrip("# ")
+                    if detail:
+                        family.append(f"{detail} {hit['citation']}")
             menu = next((line for line in prior[0]["content"].splitlines() if line.startswith("Menu idea:")), "")
+            if menu and prior[0].get("citation"):
+                menu += f" {prior[0]['citation']}"
             summary = "I'll leave the invitations for your review. A reminder is set for two minutes from now."
             answer = "\n\n".join(part for part in (*family, menu, summary) if part)
     elif lower.startswith(("remind me", "schedule ")):
