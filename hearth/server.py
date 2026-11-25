@@ -32,16 +32,17 @@ class Application:
         self.restore = None
         self.reload_agent()
 
-    def reload_agent(self):
+    def reload_agent(self, *, reset_brain=True):
         self.agent = Agent(self.storage, self.checkpoints, self.connections.active_config(), self.gateway)
-        self.brain = self.agent.models[0]["provider"] if self.agent.models else None
-        self.connection_state = self.connections.report(self.brain)
+        if reset_brain:
+            self.brain = self.agent.models[0]["provider"] if self.agent.models else None
+        self.connection_state = self.connections.report()
 
     def scan_connections(self):
         if self.connections.scan():
             self.reload_agent()
         else:
-            self.connection_state = self.connections.report(self.brain)
+            self.connection_state = self.connections.report()
 
     def connection_info(self):
         return {**self.connection_state, "model": self.brain}
@@ -206,10 +207,10 @@ class Handler(BaseHTTPRequestHandler):
             self.app.scan_connections()
         elif self.path == "/api/connections/test" and body.keys() == {"provider"}:
             self.app.connections.test(body["provider"])
-            self.app.reload_agent()
+            self.app.reload_agent(reset_brain=body["provider"] == "meta")
         elif self.path == "/api/connections/settings" and body.keys() == {"provider", "value"}:
             self.app.connections.save(body["provider"], body["value"])
-            self.app.reload_agent()
+            self.app.reload_agent(reset_brain=False)
         else:
             raise HearthError("Invalid connection request.")
         self.json(self.app.connection_info())

@@ -26,7 +26,7 @@ const providers = {
   },
   agentmail: {
     name: "AgentMail", role: "Email",
-    setup: "In AgentMail, create or select a sending inbox. Use a key with access to that inbox and permission to send messages.",
+    setup: "In AgentMail, create or select a sending inbox. Use a key with permission to read that inbox and send messages.",
     flyName: "AgentMail", field: "inbox_id", label: "Inbox ID", placeholder: "your-inbox@agentmail.to", maxLength: 254,
   },
 };
@@ -244,7 +244,7 @@ function connectorSetup(info, status) {
   access.append(
     "In Access Configuration, turn off Allow all sprites and set Name Prefix to ",
     node("code", "", "hearth"),
-    ". Check Authorized Sprites and save.",
+    ". Verify that Authorized Sprites shows only Hearth, then save.",
   );
   const link = node("a", "", "Open Fly connectors ↗");
   link.href = flyConnectors;
@@ -388,6 +388,7 @@ async function chat(prompt) {
   const reply = messageBubble("assistant", "Thinking…");
   scrollDown();
   try {
+    await connectionRequest;
     const response = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: prompt }),
     });

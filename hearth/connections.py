@@ -69,11 +69,6 @@ class Connections:
         self.gateway = gateway
         self.storage = storage
         self.checkpoints = checkpoints
-        self.config = deepcopy(defaults)
-        self.results = {}
-        self.testable = set()
-        self.last_scan = None
-        self.scan_error = None
         self.reset()
 
     def reset(self):
@@ -137,7 +132,7 @@ class Connections:
         config["llm"].sort(key=lambda item: item["provider"] == "mock")
         return config
 
-    def report(self, model):
+    def report(self):
         providers = {}
         for provider in DISCOVERY_PROVIDERS:
             config = provider_config(self.config, provider)
@@ -147,7 +142,7 @@ class Connections:
                 "status": status, "detail": detail, "settings": {field: config[field]} if field else {},
                 "can_test": provider in self.testable,
             }
-        return {"providers": providers, "last_scan": self.last_scan, "scan_error": self.scan_error, "model": model}
+        return {"providers": providers, "last_scan": self.last_scan, "scan_error": self.scan_error}
 
     def persist(self, config, comment):
         with self.storage.lock():
@@ -217,10 +212,9 @@ class Connections:
             raise HearthError("Use a Pinecone index name of 1–45 lowercase letters, digits, or hyphens.")
         if provider == "agentmail" and value and (len(value) > 254 or not INBOX.fullmatch(value)):
             raise HearthError("Use the AgentMail inbox address, or leave it blank to disable sending.")
-        # Refuse to overwrite an unreadable override. A re-scan is what updates
-        # the in-memory copy from disk and validates its connection IDs.
-        self.load()
-        config = deepcopy(self.config)
+        config = self.load()
+        if config != self.config:
+            raise HearthError("Saved connection settings changed. Re-scan and try again.")
         entry = provider_config(config, provider)
         field = SETTINGS[provider]
         if entry[field] == value:
