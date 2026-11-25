@@ -36,7 +36,7 @@ class FakeGateway(Gateway):
             payload = {"connections": self.entries, "available": [{"provider": p} for p in self.unset]}
         else:
             if path == f"browserbase/{TEST_PATH}":
-                path = f"browserbase/org-default/{TEST_PATH}"
+                raise ConnectorError("No org-level connection.", 404, missing_connection=True)
             provider, connection_id, endpoint = path.split("/", 2)
             self.probes.append((provider, connection_id, endpoint, body))
             self.methods.append((method or ("GET" if body is None else "POST"), headers))
@@ -287,16 +287,16 @@ class ConnectionsTest(unittest.TestCase):
             self.gateway.add(name, f"conn_{name}")
         self.gateway.missing.add("browserbase")
         self.gateway.offline.add("box")
-        self.app.scan_connections()
 
         def statuses():
             pinecone = self.app.memory_index.pinecone_status(self.app.agent.config)
             return {row["id"]: row["status"] for row in self.app.connections.health(pinecone)["items"]}
 
         with patch("hearth.connections.time.monotonic", return_value=100) as clock:
+            self.app.scan_connections()
             self.assertEqual(statuses(), {"browserbase": "not_connected", "exa": "ok", "box": "error"})
             self.assertCountEqual(self.gateway.probes, [
-                ("browserbase", "org-default", TEST_PATH, None),
+                ("browserbase", "conn_browserbase", TEST_PATH, None),
                 ("exa", "conn_exa", "search", {"query": "example.com", "numResults": 1}),
                 ("box", "conn_box", "2.0/users/me", None),
             ])
@@ -314,6 +314,30 @@ class ConnectionsTest(unittest.TestCase):
             self.app.scan_connections()
             self.assertEqual(statuses()["exa"], "not_connected")
             self.assertEqual(self.gateway.probes[-1][1], "conn_replacement")
+
+    def test_browserbase_rescan_refreshes_both_views_and_the_agent(self):
+        self.gateway.add("browserbase", "conn_browserbase")
+        self.gateway.denied.add("browserbase")
+
+        def statuses():
+            card = self.app.connection_info()["providers"]["browserbase"]
+            home = self.app.home.snapshot()["builtin"]["connections"]["items"]
+            health = next(row for row in home if row["id"] == "browserbase")
+            return card["status"], card["test_status"], health["status"]
+
+        self.app.scan_connections()
+        self.assertEqual(statuses(), ("unauthorized", "denied", "error"))
+        self.gateway.denied.clear()
+        self.app.scan_connections()
+        self.assertEqual(statuses(), ("connected", "passed", "ok"))
+        self.assertEqual(self.app.agent.browser.connection["connection_id"], "conn_browserbase")
+
+        self.gateway.offline.add("browserbase")
+        self.app.connections.test("browserbase")
+        self.app.connection_state = self.app.connections.report()
+        self.assertEqual(statuses(), ("connected", "failed", "error"))
+        self.assertTrue(all(probe == ("browserbase", "conn_browserbase", TEST_PATH, None)
+                            for probe in self.gateway.probes))
 
     def test_llm_selection_uses_discovery_and_preserves_successful_fallback_on_rescan(self):
         for provider in ("ollama", "gemini", "anthropic", "openai", "openrouter", "meta"):

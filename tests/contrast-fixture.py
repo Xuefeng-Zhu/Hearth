@@ -6,8 +6,9 @@ from tempfile import TemporaryDirectory
 
 from hearth import scheduler, timeline
 from hearth.agent import DEMO_FILES
+from hearth.browserbase import TEST_PATH
 from hearth.checkpoints import LocalCheckpoints
-from hearth.connectors import read_config
+from hearth.connectors import ConnectorError, read_config
 from hearth.server import Application, HTTPServer
 from hearth.storage import Storage, iso
 from hearth.threads import MAIN_ORIGIN
@@ -17,6 +18,10 @@ from test_reminder_delivery import MailGateway
 class ContrastGateway(MailGateway):
     def discover(self):
         return {"agentmail": {"fixture-mail"}, "exa": {"fixture-search"}}, {"agentmail", "exa", "box"}
+
+    def request(self, path, body, headers, timeout):
+        assert path == f"browserbase/{TEST_PATH}"
+        raise ConnectorError("No Browserbase connection.", 404, missing_connection=True)
 
 
 def seed(app, gateway):

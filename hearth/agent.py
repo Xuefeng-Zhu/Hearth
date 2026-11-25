@@ -502,7 +502,7 @@ class Agent:
         self.memory = recall.settings(config.get("memory", {}))
         self.search_settings = search.settings(config.get("search", {}))
         self.browsing = browserbase.settings(config.get("browsing", {}))
-        self.browser = browserbase.Browserbase(self.tools.gateway)
+        self.browser = browserbase.Browserbase(self.tools.gateway, config.get("gateway", {}).get(browserbase.PROVIDER))
         self.memory_index = memory_index or recall.Recall(storage, self.tools.gateway)
         # Keep session credentials in the dedicated integrations.
         self.gateway_connections = {name: entry for name, entry in config.get("gateway", {}).items()

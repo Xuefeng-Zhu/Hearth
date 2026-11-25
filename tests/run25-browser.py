@@ -8,8 +8,9 @@ from tempfile import TemporaryDirectory
 
 from playwright.sync_api import expect, sync_playwright
 
+from hearth.browserbase import TEST_PATH
 from hearth.checkpoints import LocalCheckpoints
-from hearth.connectors import read_config
+from hearth.connectors import ConnectorError, read_config
 from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage
 from test_pages import seed_legacy_page
@@ -26,6 +27,10 @@ FILES = {
 class DisconnectedGateway:
     def discover(self):
         return {}, set()
+
+    def request(self, path, body, headers, timeout):
+        assert path == f"browserbase/{TEST_PATH}"
+        raise ConnectorError("No Browserbase connection.", 404, missing_connection=True)
 
 
 Contrast = """() => {

@@ -459,14 +459,14 @@ class Connections:
         return {"items": items, "error": self.scan_error}
 
     def health_probe(self, provider, connection_id, setting):
+        if provider == browserbase.PROVIDER:
+            return self.browserbase_health(self.check_browserbase(connection_id, timeout=HEALTH_TIMEOUT))
         if not connection_id:
             return {"status": "not_connected", "detail": "No authorized connection is visible to Hearth."}
         entry = self.gateway_entry(provider, connection_id)
         path = HEALTH_PATHS.get(provider) or catalog_entry(provider)["test_path"]
         try:
-            if provider == browserbase.PROVIDER:
-                browserbase.Browserbase(self.gateway).running_sessions(timeout=HEALTH_TIMEOUT)
-            elif provider == "exa":
+            if provider == "exa":
                 self.probe_exa(entry, timeout=HEALTH_TIMEOUT)
             else:
                 if provider == "pinecone":
@@ -485,6 +485,31 @@ class Connections:
             detail = f"The connector check returned HTTP {error.status}." if error.status else str(error)
             return {"status": "error", "detail": detail}
         return {"status": "ok", "detail": "The provider answered a read-only request."}
+
+    def check_browserbase(self, connection_id, *, timeout):
+        entry = self.gateway_entry(browserbase.PROVIDER, connection_id) if connection_id else None
+        try:
+            browserbase.Browserbase(self.gateway, entry).running_sessions(timeout=timeout)
+        except ConnectorError as error:
+            status = ("not_connected" if error.missing_connection else
+                      "denied" if error.status in (401, 403) else "failed")
+            return status, browserbase.error_message(error)
+        return "passed", "Browserbase answered the running sessions check."
+
+    @staticmethod
+    def browserbase_health(check):
+        status, detail = check
+        return {"status": {"passed": "ok", "not_connected": "not_connected"}.get(status, "error"), "detail": detail}
+
+    def test_browserbase(self, *, timeout):
+        provider = browserbase.PROVIDER
+        with self.health_lock:
+            connection_id = self.selected.get(provider)
+            check = self.check_browserbase(connection_id, timeout=timeout)
+            self.checks[provider] = check
+            self.check_times[provider] = iso()
+            self.health_checks[provider] = ((connection_id, None, None), time.monotonic() + HEALTH_TTL,
+                                            self.browserbase_health(check))
 
     def probe_exa(self, entry, *, timeout):
         # Exa search uses POST, with no contents requested for the single result.
@@ -544,19 +569,13 @@ class Connections:
         self.found, self.available = found, set(authorized)
         self.last_scan = iso()
         self.scan_error = None
+        if browserbase.PROVIDER in selected:
+            self.test_browserbase(timeout=HEALTH_TIMEOUT)
         return True
 
     def test(self, provider):
         if provider == browserbase.PROVIDER:
-            try:
-                browserbase.Browserbase(self.gateway).test()
-            except HearthError as error:
-                detail = str(error)
-                status = {browserbase.NOT_CONNECTED: "not_connected", browserbase.DENIED: "denied"}.get(detail, "failed")
-            else:
-                status, detail = "passed", "Browserbase answered the running sessions check."
-            self.checks[provider] = status, detail
-            self.check_times[provider] = iso()
+            self.test_browserbase(timeout=8)
             return
         if not isinstance(provider, str) or provider not in self.selected:
             raise HearthError("Authorize this connector in Fly, then re-scan.")

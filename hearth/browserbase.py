@@ -24,7 +24,7 @@ TOOL_NAMES = frozenset({"browse_fetch", "browse_search", "browse_session"})
 STEP_TYPES = ("navigate", "scroll", "wait_for", "click", "fill")
 WRITE_STEPS = {"click", "fill"}
 SCREENSHOT_ID = re.compile(r"[0-9a-f]{32}\.png")
-GATEWAY_HOST = urlsplit(GATEWAY).hostname
+GATEWAY_URL = urlsplit(GATEWAY)
 
 
 def settings(value):
@@ -36,7 +36,7 @@ def settings(value):
 
 
 def error_message(error):
-    if error.status == 404:
+    if error.missing_connection:
         return NOT_CONNECTED
     if error.status in (401, 403):
         return DENIED
@@ -45,7 +45,7 @@ def error_message(error):
     if error.status == 504:
         return "The Browserbase gateway request timed out."
     suffix = f" (HTTP {error.status})" if error.status else ""
-    return f"The Browserbase gateway could not complete this request{suffix}."
+    return f"The Browserbase gateway could not complete this request{suffix}." if suffix else str(error)
 
 
 def text(value, limit):
@@ -119,7 +119,7 @@ def normalize_steps(value):
     return result
 
 
-def service_url(value, scheme, *, cdp=False):
+def service_url(value, scheme, *, cdp=False, connection_id=None):
     try:
         if not isinstance(value, str) or any(char.isspace() for char in value) or "\\" in value:
             return None
@@ -132,7 +132,11 @@ def service_url(value, scheme, *, cdp=False):
             if any(re.sub(r"[^a-z0-9]", "", key.lower()) in {"apikey", "xbbapikey", "key"}
                    for key, _ in parse_qsl(url.query)):
                 return None
-            if host == GATEWAY_HOST and url.path.startswith("/v1/gateway/browserbase/"):
+            # Keep the signature intact and restrict Fly-hosted CDP to the selected connection.
+            prefix = f"{GATEWAY_URL.path}/{PROVIDER}/"
+            if connection_id:
+                prefix += f"{connection_id}/"
+            if host == GATEWAY_URL.hostname and url.path.startswith(prefix):
                 return value
             if host.startswith("connect.") and host.endswith(".browserbase.com"):
                 return value
@@ -184,27 +188,27 @@ class CdpUnavailable(HearthError):
 
 
 class Browserbase:
-    def __init__(self, gateway):
+    def __init__(self, gateway, connection=None):
         self.gateway = gateway
+        self.connection = connection
 
-    def call(self, path, body=None, *, timeout=15, allow_array=False):
-        try:
+    def read_json(self, path, body=None, *, timeout, allow_array=False):
+        if self.connection:
+            response = self.gateway.open(self.connection, path, body, timeout=timeout)
+        else:
             response = self.gateway.request(f"{PROVIDER}/{path}", body, None, timeout)
-            return self.gateway.read_json(response, allow_array=allow_array)
+        return self.gateway.read_json(response, allow_array=allow_array)
+
+    def call(self, path, body=None, *, timeout=15):
+        try:
+            return self.read_json(path, body, timeout=timeout)
         except ConnectorError as error:
             raise HearthError(error_message(error)) from None
 
     def running_sessions(self, *, timeout=8):
-        response = self.gateway.request(f"{PROVIDER}/{TEST_PATH}", None, None, timeout)
-        sessions = self.gateway.read_json(response, allow_array=True)
+        sessions = self.read_json(TEST_PATH, timeout=timeout, allow_array=True)
         if not isinstance(sessions, list):
             raise ConnectorError("Browserbase did not return its running sessions list.")
-
-    def test(self):
-        try:
-            self.running_sessions()
-        except ConnectorError as error:
-            raise HearthError(error_message(error)) from None
 
     def fetch(self, url, *, mock=False):
         url = page_url(url)
@@ -274,7 +278,8 @@ class Browserbase:
                     if not isinstance(session_id, str) or not GATEWAY_SEGMENT.fullmatch(session_id):
                         session_id = None
                         raise HearthError("Browserbase did not return a session ID.")
-                    endpoint = service_url(info.get("connectUrl"), "wss", cdp=True)
+                    connection_id = self.connection["connection_id"] if self.connection else None
+                    endpoint = service_url(info.get("connectUrl"), "wss", cdp=True, connection_id=connection_id)
                     if not endpoint:
                         raise CdpUnavailable()
                     deadline = started + SESSION_SECONDS - 6
@@ -313,6 +318,7 @@ class Browserbase:
         return {**result, "session_id": session_id}, screenshot
 
     async def drive(self, endpoint, url, steps, debug, session_id, deadline, ready, *, approved):
+        allow_writes = approved and any(step["action"] in WRITE_STEPS for step in steps)
         try:
             from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeout, async_playwright
         except ImportError:
@@ -337,14 +343,14 @@ class Browserbase:
                             await route.abort()
                             return
                         if request.method not in ("GET", "HEAD", "OPTIONS") and (
-                            not approved or origin(request.url) != origin(url)
+                            not allow_writes or origin(request.url) != origin(url)
                         ):
                             await route.abort()
                         else:
                             await route.continue_()
 
                     await context.route("**/*", restrict)
-                    if not approved:
+                    if not allow_writes:
                         await context.route_web_socket("**/*", lambda socket: socket.close())
                     page = await context.new_page()
                     if not debug:
@@ -388,7 +394,7 @@ class Browserbase:
                     image = await page.screenshot(type="png", animations="disabled")
                     body = page.locator("body")
                     content = text(await body.inner_text(), TEXT_LIMIT) if await body.count() else ""
-                    return {"url": final_url, "text": content}, image
+                    return {"url": final_url, "title": text(await page.title(), 240), "text": content}, image
         except PlaywrightError:
             raise HearthError("The browser could not finish the page or its requested steps.") from None
         except TimeoutError:

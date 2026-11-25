@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from hearth import pinecone, recall
 from hearth.agent import CHAT_ORIGIN
+from hearth.browserbase import TEST_PATH
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import GATEWAY, Gateway, read_config
 from hearth.server import Application
@@ -64,6 +65,8 @@ class PineconeHTTP:
             return self.response({"connections": [
                 {"provider": name, "gateway_base_url": f"{GATEWAY}/{name}/test-{name}"} for name in providers
             ]})
+        if url.path.removeprefix("/v1/gateway/") + "?" + url.query == f"browserbase/{TEST_PATH}":
+            self.fail(request, 404, "no browserbase connection configured for this organization")
         provider, _, *rest = parts
         path = "/".join(rest)
         self.requests.append((provider, method, path, body, request))

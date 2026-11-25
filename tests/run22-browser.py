@@ -13,6 +13,7 @@ from playwright.sync_api import expect, sync_playwright
 
 from hearth import home, panels, scheduler, timeline
 from hearth.agent import DEMO_FILES
+from hearth.browserbase import TEST_PATH
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import ConnectorError, read_config
 from hearth.server import Application, HTTPServer
@@ -53,6 +54,10 @@ class FixtureGateway:
         if (config["provider"], path) == ("github", "user"):
             return {"login": "hearth-demo"}
         raise ConnectorError("The connector is unavailable.", 503)
+
+    def request(self, path, body, headers, timeout):
+        assert path == f"browserbase/{TEST_PATH}"
+        raise ConnectorError("No Browserbase connection.", 404, missing_connection=True)
 
 
 def seed(app):

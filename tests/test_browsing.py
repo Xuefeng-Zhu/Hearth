@@ -14,6 +14,8 @@ from hearth.storage import HearthError, ROOT, Storage
 PAGE = "https://fly.io/hacksgiving/"
 SESSION = "test-session"
 SIGNED_URL = "wss://connect.browserbase.com/?sessionId=test-session&signature=fixture-only"
+CONNECTION = {"provider": "browserbase", "connection_id": "conn_browserbase"}
+SCOPED_PATH = "browserbase/conn_browserbase"
 
 
 class BrowserGateway(Gateway):
@@ -25,14 +27,15 @@ class BrowserGateway(Gateway):
     def request(self, path, body, headers, timeout, *, method=None):
         self.calls.append((path, body))
         if not self.connected:
-            raise ConnectorError("upstream details", 404)
+            raise ConnectorError("upstream details", 404, missing_connection=True)
         data = {
-            "browserbase/" + browserbase.TEST_PATH: [],
-            "browserbase/v1/fetch": {"statusCode": 200, "content": "# Hacksgiving"},
-            "browserbase/v1/search": {"results": [{"url": PAGE, "title": "Hacksgiving", "excerpts": ["Community event"]}]},
-            "browserbase/v1/sessions": self.session,
-            f"browserbase/v1/sessions/{SESSION}": {"status": "REQUEST_RELEASE"},
-        }[path]
+            browserbase.TEST_PATH: [],
+            "v1/fetch": {"statusCode": 200, "content": "# Hacksgiving"},
+            "v1/search": {"results": [{"url": PAGE, "title": "Hacksgiving", "excerpts": ["Community event"]}]},
+            "v1/sessions": self.session,
+            f"v1/sessions/{SESSION}": {"status": "REQUEST_RELEASE"},
+            f"v1/sessions/{SESSION}/debug": {},
+        }[path.removeprefix(SCOPED_PATH + "/").removeprefix("browserbase/")]
         return io.BytesIO(json.dumps(data).encode())
 
 
@@ -60,28 +63,45 @@ class BrowsingTest(unittest.TestCase):
                     self.assertEqual(router.classify(prompt), "tool")
 
     def test_fetch_search_and_test_use_credential_free_gateway_paths(self):
+        for connection, prefix in ((CONNECTION, SCOPED_PATH), (None, "browserbase")):
+            with self.subTest(prefix=prefix):
+                gateway = BrowserGateway()
+                browser = browserbase.Browserbase(gateway, connection)
+                browser.running_sessions()
+                self.assertEqual(browser.fetch(PAGE)["markdown"], "# Hacksgiving")
+                self.assertEqual(browser.search("Hacksgiving")["results"][0]["snippet"], "Community event")
+                self.assertEqual(gateway.calls, [
+                    (f"{prefix}/{browserbase.TEST_PATH}", None),
+                    (f"{prefix}/v1/fetch", {"url": PAGE, "format": "markdown", "allowRedirects": True}),
+                    (f"{prefix}/v1/search", {"query": "Hacksgiving", "numResults": 5, "excerpts": True}),
+                ])
+
+    def test_scoped_failure_never_retries_the_org_path(self):
         gateway = BrowserGateway()
-        browser = browserbase.Browserbase(gateway)
-        browser.test()
-        self.assertEqual(browser.fetch(PAGE)["markdown"], "# Hacksgiving")
-        self.assertEqual(browser.search("Hacksgiving")["results"][0]["snippet"], "Community event")
-        self.assertEqual(gateway.calls, [
-            ("browserbase/" + browserbase.TEST_PATH, None),
-            ("browserbase/v1/fetch", {"url": PAGE, "format": "markdown", "allowRedirects": True}),
-            ("browserbase/v1/search", {"query": "Hacksgiving", "numResults": 5, "excerpts": True}),
-        ])
+        browser = browserbase.Browserbase(gateway, CONNECTION)
+        with patch.object(gateway, "request", side_effect=ConnectorError("private", 404)) as request:
+            with self.assertRaisesRegex(HearthError, "HTTP 404"):
+                browser.fetch(PAGE)
+            self.assertEqual(request.call_count, 1)
+            self.assertEqual(request.call_args.args[0], f"{SCOPED_PATH}/v1/fetch")
 
     def test_releases_session_on_page_error(self):
         gateway = BrowserGateway()
-        browser = browserbase.Browserbase(gateway)
+        browser = browserbase.Browserbase(gateway, CONNECTION)
         events = []
-        with patch.object(browser, "drive", AsyncMock(side_effect=HearthError("Navigation failed."))):
+        async def drive(endpoint, *args, **kwargs):
+            self.assertEqual(endpoint, SIGNED_URL)
+            browser.call(f"v1/sessions/{SESSION}/debug")
+            raise HearthError("Navigation failed.")
+
+        with patch.object(browser, "drive", side_effect=drive):
             result, image = browser.session(PAGE, [], lambda name, data: events.append((name, data)))
         self.assertEqual(result, {"error": "Navigation failed.", "session_id": SESSION})
         self.assertIsNone(image)
         self.assertEqual(gateway.calls, [
-            ("browserbase/v1/sessions", {"timeout": 90}),
-            (f"browserbase/v1/sessions/{SESSION}", {"status": "REQUEST_RELEASE"}),
+            (f"{SCOPED_PATH}/v1/sessions", {"timeout": 90}),
+            (f"{SCOPED_PATH}/v1/sessions/{SESSION}/debug", None),
+            (f"{SCOPED_PATH}/v1/sessions/{SESSION}", {"status": "REQUEST_RELEASE"}),
         ])
         self.assertEqual([name for name, _ in events], ["browse_active", "browse_finished"])
         self.assertEqual(events[0][1]["id"], events[1][1]["id"])
@@ -100,6 +120,16 @@ class BrowsingTest(unittest.TestCase):
             "browserbase/v1/sessions", f"browserbase/v1/sessions/{SESSION}", "browserbase/v1/fetch",
         ])
         self.assertIsNone(browserbase.service_url("wss://connect.browserbase.com/?apiKey=secret", "wss", cdp=True))
+
+    def test_gateway_cdp_url_matches_selected_connection_without_rewriting_signature(self):
+        connection_id = CONNECTION["connection_id"]
+        base = "wss://api.sprites.dev/v1/gateway/browserbase"
+        signed = f"{base}/{connection_id}/connect?signature=original%2Bvalue"
+        org = f"{base}/connect?signature=original%2Bvalue"
+        self.assertEqual(browserbase.service_url(signed, "wss", cdp=True, connection_id=connection_id), signed)
+        self.assertEqual(browserbase.service_url(org, "wss", cdp=True), org)
+        for url in (org, signed.replace(connection_id, "other"), signed.replace(connection_id, connection_id + "-other")):
+            self.assertIsNone(browserbase.service_url(url, "wss", cdp=True, connection_id=connection_id))
 
     def make_app(self, root, gateway, *, mock=False, allowed=True):
         storage = Storage(root)
