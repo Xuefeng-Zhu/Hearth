@@ -40,8 +40,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .thread-panel-header { display: grid; gap: 11px; padding: 0 2px 12px; }
 .thread-panel-header h2 { color: var(--muted); font-size: 13px; font-weight: 650; margin: 0 3px; }
 .new-thread, .thread-controls button { color: var(--accent); background: var(--paper); border: 1px solid #dfd2de; border-radius: 8px; font-size: 13px; font-weight: 650; padding: 7px 10px; }
-.new-thread { min-height: 37px; text-align: left; }
-.new-thread::before { content: "+"; margin-right: 6px; }
+.new-thread { display: flex; align-items: center; gap: 6px; min-height: 37px; text-align: left; }
 .new-thread:hover, .thread-controls button:hover, .share-message:hover { background: var(--accent-light); }
 .threads { display: grid; align-content: start; gap: 3px; overflow-y: auto; padding: 3px; }
 .thread-select { display: none; }

@@ -35,7 +35,7 @@
             <h2>Threads</h2>
             <label class="visually-hidden" for="thread-select">Chat thread</label>
             <select id="thread-select" class="thread-select"><option value="main">Main</option></select>
-            <button type="button" id="new-thread" class="new-thread">New side chat</button>
+            <button type="button" id="new-thread" class="new-thread"><span aria-hidden="true">+</span> New side chat</button>
           </div>
           <div id="threads" class="threads" aria-label="Thread list"></div>
         </aside>
@@ -49,22 +49,22 @@
             </div>
           </header>
           <div class="chat-scroll" id="chat-scroll">
-          <section class="welcome" id="welcome">
-            <span class="welcome-mark" aria-hidden="true">✦</span>
-            <h2>What’s on your mind?</h2>
-            <p>Make a plan, recall a detail, or set a reminder.</p>
-            <div class="prompts">
-              <button type="button" data-prompt="Plan Thanksgiving dinner"><span aria-hidden="true">✧</span> Plan Thanksgiving dinner</button>
-              <button type="button" data-prompt="Read USER.md"><span aria-hidden="true">▱</span> Read my profile</button>
-              <button type="button" data-prompt="Checkpoint"><span aria-hidden="true">◷</span> Save a checkpoint</button>
-            </div>
-          </section>
-          <section class="welcome side-welcome" id="side-welcome" hidden>
-            <span class="welcome-mark" aria-hidden="true">✧</span>
-            <h2>Start a side chat</h2>
-            <p>Talk through a topic here. Hearth can refer to Main and uses the same memory.</p>
-          </section>
-          <div class="transcript" id="transcript" aria-label="Conversation"></div>
+            <section class="welcome" id="welcome">
+              <span class="welcome-mark" aria-hidden="true">✦</span>
+              <h2>What’s on your mind?</h2>
+              <p>Make a plan, recall a detail, or set a reminder.</p>
+              <div class="prompts">
+                <button type="button" data-prompt="Plan Thanksgiving dinner"><span aria-hidden="true">✧</span> Plan Thanksgiving dinner</button>
+                <button type="button" data-prompt="Read USER.md"><span aria-hidden="true">▱</span> Read my profile</button>
+                <button type="button" data-prompt="Checkpoint"><span aria-hidden="true">◷</span> Save a checkpoint</button>
+              </div>
+            </section>
+            <section class="welcome" id="side-welcome" hidden>
+              <span class="welcome-mark" aria-hidden="true">✧</span>
+              <h2>Start a side chat</h2>
+              <p>Talk through a topic here. Hearth can refer to Main and uses the same memory.</p>
+            </section>
+            <div class="transcript" id="transcript" aria-label="Conversation"></div>
           </div>
           <form class="composer" id="composer">
             <label class="visually-hidden" for="message">Message Hearth</label>
