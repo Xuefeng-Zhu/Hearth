@@ -1760,7 +1760,7 @@ async function approve(action) {
   }
 }
 
-async function undo(action, { confirmed = false } = {}) {
+async function undo(action, { confirmed = false, timelineTitle } = {}) {
   if (busy || (!confirmed && !window.confirm(`Restore checkpoint ${action.checkpoint.id}? This rolls back the workspace, including newer chat, memory, and reminders. Delivered email stays delivered.`))) return;
   setBusy(true);
   showNotice("Restoring checkpoint. Hearth may reconnect…");
@@ -1782,7 +1782,7 @@ async function undo(action, { confirmed = false } = {}) {
         throw new Error("The checkpoint could not be restored.");
       }
       if (!state.actions.some((item) => item.id === action.id && item.checkpoint?.id === action.checkpoint.id)) {
-        timeline.restored(action);
+        timeline.restored(action, timelineTitle);
         await refreshView();
         showNotice(`Restored checkpoint ${action.checkpoint.id}.`);
         return;

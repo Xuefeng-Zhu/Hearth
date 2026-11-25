@@ -270,7 +270,8 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
         setConfirmation(card, row, action);
         button.focus();
       });
-      const restore = control("Restore checkpoint", () => undo(action, { confirmed: true }), "timeline-restore");
+      const restore = control("Restore checkpoint",
+        () => undo(action, { confirmed: true, timelineTitle: row.title }), "timeline-restore");
       restore.dataset.focus = "restore";
       target.append(cancel, restore);
     }
@@ -360,6 +361,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
         setConfirmation(card, row, action);
         if (!confirm.hidden) confirm.querySelector("button").focus();
       }, "timeline-undo");
+      button.prepend(icon("undo"));
       button.dataset.focus = "undo";
       button.setAttribute("aria-controls", confirm.id);
       card.append(details, button, confirm);
@@ -563,11 +565,11 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
     request?.abort();
   }
 
-  function restored(action) {
+  function restored(action, title) {
     const original = entries.find((row) => row.action_id === action.id && row.undoable);
     const row = {
       id: `undo:${action.id}:${action.checkpoint.id}`, kind: "undo",
-      title: original?.title || action.title, at: new Date().toISOString(), undone: true,
+      title: title || original?.title || action.title, at: new Date().toISOString(), undone: true,
       thread_id: original?.thread_id || action.thread_id || "main",
       thread_title: original?.thread_title || action.thread_title || "Main",
       data: { checkpoint: { id: action.checkpoint.id }, original_at: action.updated_at || action.at },

@@ -748,7 +748,8 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 .timeline-undo, .timeline-approve { position: absolute; top: 14px; right: 12px; }
 .timeline-undo, .timeline-confirm .timeline-restore { background: var(--accent); border-color: var(--accent); color: white; }
 .timeline-undo:not(:disabled):hover, .timeline-restore:not(:disabled):hover { background: #572f63; }
-.timeline-undo::before { content: "↶"; margin-right: 4px; }
+.timeline-undo { display: inline-flex; align-items: center; gap: 4px; }
+.timeline-undo svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .timeline-confirm {
   margin: 0 12px 10px;
   padding: 10px 12px;
@@ -809,7 +810,7 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
   .timeline-tag { padding-inline: 4px; }
   .timeline-entry:has(> button) .timeline-card-head { padding-right: 67px; }
   .timeline-undo, .timeline-approve { padding: 6px; right: 7px; }
-  .timeline-undo::before { margin-right: 3px; }
+  .timeline-undo { gap: 3px; }
   .timeline-detail { margin: 0 9px; }
   .timeline-detail-fields > div { grid-template-columns: minmax(0, 79px) minmax(0, 1fr); }
 }
