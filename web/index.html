@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/mobile.css">
   <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/home.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -21,7 +22,8 @@
     <aside class="sidebar">
       <div class="brand"><img class="brand-mark" src="/icons/icon.svg" width="35" height="35" alt=""><span>Hearth</span></div>
       <nav aria-label="Workspace">
-        <button type="button" class="nav-link" data-view="chat" aria-current="page"><span data-icon="message"></span> Chat</button>
+        <button type="button" class="nav-link" data-view="home" aria-current="page"><span data-icon="home"></span> Home</button>
+        <button type="button" class="nav-link" data-view="chat"><span data-icon="message"></span> Chat</button>
         <button type="button" class="nav-link" data-view="timeline"><span data-icon="clock"></span> Timeline</button>
         <button type="button" class="nav-link" data-view="artifacts"><span data-icon="files"></span> Artifacts</button>
         <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>
@@ -36,7 +38,7 @@
     <main>
       <header class="header">
         <button type="button" class="mobile-only menu-toggle" id="open-menu" aria-label="Open menu" aria-haspopup="dialog" aria-controls="workspace-drawer" aria-expanded="false" title="Open menu"><span data-icon="menu" data-icon-size="23"></span></button>
-        <h1 id="view-title">Chat</h1>
+        <h1 id="view-title">Home</h1>
         <div class="header-status">
           <button type="button" class="call-button" id="return-to-call" aria-haspopup="dialog" hidden>Return to call</button>
           <span class="environment" id="model-status">Brain · Checking…</span>
@@ -47,7 +49,26 @@
         </div>
       </header>
       <p class="notice" id="notice" role="status" hidden></p>
-      <section class="view chat-view" id="chat-view" aria-labelledby="view-title">
+      <section class="view home-view" id="home-view" aria-labelledby="view-title">
+        <div class="home-inner">
+          <div class="home-heading">
+            <p class="home-date" id="home-date"></p>
+            <button type="button" class="home-edit" id="home-edit" aria-pressed="false" disabled>
+              <span data-icon="grid" data-icon-size="17"></span><span id="home-edit-label">Edit layout</span>
+            </button>
+          </div>
+          <p class="home-feedback" id="home-feedback" role="status"></p>
+          <p class="home-meta" id="home-loading">Loading panels…</p>
+          <div class="home-grid" id="home-grid"></div>
+          <p class="home-empty home-meta" id="home-empty" hidden>All panels are removed. Edit the layout to restore them.</p>
+          <section class="home-removed" id="home-removed" aria-labelledby="home-removed-title" hidden>
+            <h2 id="home-removed-title">Removed panels</h2>
+            <ul class="home-rows" id="home-removed-items"></ul>
+          </section>
+          <button class="home-link" id="home-demo" type="button" hidden>Try sample panels in Chat</button>
+        </div>
+      </section>
+      <section class="view chat-view" id="chat-view" aria-labelledby="view-title" hidden>
         <aside class="thread-panel" id="thread-panel" aria-label="Chat threads">
           <div class="thread-panel-header">
             <h2>Threads</h2>
@@ -294,8 +315,21 @@
           <button type="button" data-settings="appearance">Appearance</button>
           <button type="button" data-settings="voice">Voice</button>
           <button type="button" data-settings="reminders">Reminders</button>
+          <button type="button" data-settings="home">Home</button>
         </nav>
         <div class="settings-sections" id="settings-sections">
+        <div id="settings-home" hidden>
+          <div class="section-intro"><h2>Home</h2><p>Choose the location shown on your weather panel.</p></div>
+          <form id="weather-settings-form" class="card brain-form">
+            <label for="weather-location">Weather location</label>
+            <input id="weather-location" name="location" type="text" placeholder="Redmond, WA" minlength="2" maxlength="120" required>
+            <p class="meta">Enter a city and region, or a postal code. The clock uses Pacific time.</p>
+            <div class="brain-form-actions">
+              <button type="submit" id="weather-location-save">Save location</button>
+            </div>
+            <p class="meta" id="weather-settings-status" role="status"></p>
+          </form>
+        </div>
         <div id="settings-reminders" hidden>
           <div class="section-intro"><h2>Reminders</h2><p>Choose where reminders arrive and how Hearth handles incoming email.</p></div>
           <div class="settings-layout reminder-settings-layout">
@@ -648,7 +682,8 @@
     </header>
     <div class="workspace-drawer-body">
       <nav aria-label="Workspace">
-        <button type="button" class="nav-link" data-view="chat" aria-current="page"><span data-icon="message"></span> Chat</button>
+        <button type="button" class="nav-link" data-view="home" aria-current="page"><span data-icon="home"></span> Home</button>
+        <button type="button" class="nav-link" data-view="chat"><span data-icon="message"></span> Chat</button>
         <button type="button" class="nav-link" data-view="timeline"><span data-icon="clock"></span> Timeline</button>
         <button type="button" class="nav-link" data-view="artifacts"><span data-icon="files"></span> Artifacts</button>
         <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>

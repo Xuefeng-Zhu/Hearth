@@ -10,6 +10,7 @@ import { setupMobile } from "./mobile.js";
 import { createAttachments } from "./attachments.js";
 import { icon, iconButton, mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
+import { createHome } from "./home.js";
 
 mountIcons();
 
@@ -53,7 +54,7 @@ let chatRows = new Map();
 let threadBusy = false;
 let state;
 let stateTag;
-let view = "chat";
+let view = "home";
 let selectedFile;
 let selectedSource;
 let fileRequest = 0;
@@ -90,6 +91,15 @@ const artifactLibrary = createArtifacts({
   api, showNotice, openThread: openArtifactThread,
   openConnections: () => openView("connections"),
   refreshChat: async () => { if (view === "chat") await refreshView(); },
+});
+const homePage = createHome({
+  api, openView, openWeatherSettings, openPanelChat, openDemo,
+  openFile: (id, trigger) => artifactLibrary.open(id, trigger),
+  onData(data) {
+    setTimeZone(data.timezone);
+    renderBrain(data);
+    byId("environment-label").textContent = data.checkpoints === "sprite" ? "Private Sprite" : "Local workspace";
+  },
 });
 const delivery = createReminders({
   api, openView, openSettings, currentView: () => view, currentSettings: () => settingsSection,
@@ -738,6 +748,12 @@ function actionCard(action) {
       card.append(details);
     }
   }
+  if (action.kind === "panel") {
+    const titles = action.panel_titles || action.panel_definitions?.map((panel) => panel.title) || [];
+    if (titles.length) card.append(node("p", "", titles.join(" · ")));
+    if (action.status === "pending") card.append(button("Approve and create panels", () => approve(action)));
+    else if (action.status === "complete") card.append(button("Open Home", () => openView("home")));
+  }
   if (action.kind === "remember") {
     card.append(node("p", "", action.fact));
     if (action.status === "pending") card.append(button("Approve", () => approve(action)));
@@ -1245,7 +1261,7 @@ function syncConnectionRoute() {
     if (view === "connections") renderConnections();
     else openView("connections", false);
   } else if (view === "connections") {
-    openView(history.state?.hearthView || "chat", false);
+    openView(history.state?.hearthView || "home", false);
   }
 }
 
@@ -1909,6 +1925,7 @@ async function openSettings(section, expand = true) {
   if (section === "brain") return openBrainSettings();
   if (section === "appearance") return;
   if (section === "artifacts") return artifactLibrary.settings();
+  if (section === "home") return homePage.settings();
   if (section === "reminders") return delivery.settings();
   if (section === "voice") {
     syncVoiceSettings();
@@ -1991,6 +2008,7 @@ async function changePreferences(feature, operation) {
 }
 
 async function refreshView() {
+  if (view === "home") return homePage.load();
   if (view === "timeline") return timeline.show();
   if (view === "artifacts") return artifactLibrary.show();
   if (view === "reminders") return delivery.reminders();
@@ -2033,6 +2051,8 @@ async function openView(nextView, updateHistory = true) {
     delivery.poll();
   } else if (view === "settings") {
     await openSettings(settingsSection, false);
+  } else if (view === "home") {
+    await homePage.load();
   } else if (view === "artifacts") {
     await artifactLibrary.show();
   } else if (view === "reminders" || view === "inbox") {
@@ -2074,6 +2094,34 @@ async function selectThread(threadId, focus = false) {
   } catch (error) {
     if (currentThread === threadId) showNotice(error.message);
   }
+}
+
+async function openWeatherSettings() {
+  settingsSection = "home";
+  await openView("settings");
+  expandSetting("home");
+}
+
+async function openPanelChat(id) {
+  const thread = await api("/api/home/chat", { id });
+  rememberThread(thread);
+  activateThread(thread.id);
+  await openView("chat");
+  input.value = "What should I know about this panel?";
+  resizeInput();
+  if (!mobile.isMobile()) input.focus();
+}
+
+async function openDemo(prompt) {
+  activateThread(mainThread.id);
+  await openView("chat");
+  if (input.value || attachmentDraft.hasDraft()) {
+    showNotice("Send or clear your draft to load the Home demo prompt.");
+    return;
+  }
+  input.value = prompt;
+  resizeInput();
+  if (!mobile.isMobile()) input.focus();
 }
 
 async function openArtifactThread(threadId, messageId) {
@@ -2278,7 +2326,8 @@ async function approve(action) {
       sent: "Email sent.", simulated: "Simulated send recorded. Undo is available on the card.",
       unknown: "AgentMail could not confirm delivery. Check your inbox’s sent messages.",
     };
-    if (action.kind === "remember") showNotice("Fact remembered.");
+    if (action.kind === "panel") showNotice("Panels added to Home.");
+    else if (action.kind === "remember") showNotice("Fact remembered.");
     else if (action.kind === "gateway") showNotice(result.status === "complete"
       ? "Connector request completed." : "The gateway could not confirm the request.");
     else showNotice(message[result.status]);
@@ -2614,7 +2663,7 @@ document.addEventListener("visibilitychange", () => {
     if (view === "timeline") timeline.hide();
   }
   if (!document.hidden) delivery.poll();
-  if (!document.hidden && (["timeline", "reminders", "inbox"].includes(view) || (view === "chat" && !busy))) {
+  if (!document.hidden && (["home", "timeline", "reminders", "inbox"].includes(view) || (view === "chat" && !busy))) {
     refreshView().catch((error) => showNotice(error.message));
   }
 });
@@ -2632,7 +2681,7 @@ setInterval(async () => {
 }, 3_000);
 setInterval(() => { if (!document.hidden) delivery.poll(); }, 60_000);
 applyAppearance();
-openView("chat", false);
+openView(requestedThread ? "chat" : "home", false);
 if (!document.hidden) delivery.poll();
 if (isConnectionsRoute()) syncConnectionRoute();
 else updateConnections("rescan");

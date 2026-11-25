@@ -16,7 +16,7 @@ from hearth.storage import ROOT, Storage
 from test_uploads import image_bytes, pdf_bytes
 
 STAMP = "2026-11-25T01:16:00+00:00"
-ORDER = ["Chat", "Timeline", "Artifacts", "Reminders", "Inbox", "Connections", "Memory", "Settings"]
+ORDER = ["Home", "Chat", "Timeline", "Artifacts", "Reminders", "Inbox", "Connections", "Memory", "Settings"]
 BOOK = {"title": "Seattle travel budget", "sheets": [
     {"name": "Budget", "headers": ["TripExpenseCategory", "ProjectedCostInUSD",
                                   "DetailsForTravelPlanning", "ResponsiblePersonForPayment"],
@@ -77,7 +77,7 @@ def test_navigation(page, mobile, output, label):
         sidebar = page.locator(".sidebar")
         assert sidebar.get_by_role("button", name="Settings").bounding_box()["y"] > 780
     assert [text.strip() for text in sidebar.locator("nav button").all_text_contents()] == ORDER
-    assert sidebar.locator('nav button svg[viewBox="0 0 24 24"][aria-hidden="true"][stroke-width="1.75"]').count() == 8
+    assert sidebar.locator('nav button svg[viewBox="0 0 24 24"][aria-hidden="true"][stroke-width="1.75"]').count() == len(ORDER)
     shot(page, output, f"nav-{label}")
     if mobile:
         sidebar.get_by_role("button", name="Close menu").click()
