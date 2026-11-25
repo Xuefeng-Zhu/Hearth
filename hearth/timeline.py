@@ -95,6 +95,7 @@ def chat_entries(threads, thread_list, logged_recall):
 
 
 def entries(storage, threads, can_undo):
+    from .pages import can_undo as can_undo_page
     with storage.lock():
         state = storage.load()
         activity = state.get("activity", [])
@@ -107,7 +108,8 @@ def entries(storage, threads, can_undo):
         titles = {thread["id"]: thread["title"] for thread in thread_list}
         rows = [*activity, *chat_entries(threads, thread_list, recall_messages)]
         jobs = {job["id"]: job for job in state["jobs"]}
-        rows.extend(action_entry(action, can_undo) for action in state["actions"].values())
+        rows.extend(action_entry(action, lambda item: can_undo_page(state, item) if item["kind"] == "page" else can_undo(item))
+                    for action in state["actions"].values())
         scheduled = {row["data"]["job"]["id"]: row for row in rows if row["data"].get("job")}
         for job in jobs.values():
             original = scheduled.get(job["id"])

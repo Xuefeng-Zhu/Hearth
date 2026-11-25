@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import artifacts, box, browserbase, home, inbox, memory_edits, recall, reminders, router, scheduler, search, timeline, uploads, voice, voice_call
+from . import artifacts, box, browserbase, home, inbox, memory_edits, page_policy, pages, recall, reminders, router, scheduler, search, timeline, uploads, voice, voice_call
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -28,6 +28,8 @@ STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/home.js": ("home.js", "text/javascript; charset=utf-8"),
     "/home.css": ("home.css", "text/css; charset=utf-8"),
+    "/pages.js": ("pages.js", "text/javascript; charset=utf-8"),
+    "/pages.css": ("pages.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/mobile.js": ("mobile.js", "text/javascript; charset=utf-8"),
     "/dom.js": ("dom.js", "text/javascript; charset=utf-8"),
@@ -72,6 +74,9 @@ class Application:
         self.operation = threading.RLock()
         self.artifacts = artifacts.Artifacts(storage, self.connections, self.operation)
         self.uploads = uploads.Uploads(self)
+        self.pages = pages.Pages(storage, self.artifacts, self.operation,
+                                 share_config=os.environ.get("HEARTH_SHARE_CONFIG"),
+                                 private_edge=checkpoints.mode == "sprite")
         self.turn_lock = threading.Lock()
         self.turns = {}
         self.turn_activity = {}
@@ -120,7 +125,7 @@ class Application:
 
     def reload_agent(self, *, reset_brain=True):
         self.agent = Agent(self.storage, self.checkpoints, self.connections.active_config(), self.gateway,
-                           self.memory_index, self.artifacts, self.uploads)
+                           self.memory_index, self.artifacts, self.uploads, self.pages)
         if reset_brain:
             self.reset_brain_status()
         self.connection_state = self.connections.report()
@@ -489,6 +494,8 @@ class Application:
     def undo_action(self, action_id):
         with self.storage.lock():
             action = self.storage.load()["actions"].get(action_id)
+        if action and action["kind"] == "page":
+            return self.pages.undo(action_id), 200
         if action and action["kind"] == "reminder":
             return self.reminders.cancel(action["job"]["id"]), 200
         if action and action.get("memory_change"):
@@ -554,7 +561,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def response_headers(self, status, content_type, length=None, *, email_preview=False, etag=None,
-                         disposition=None, inline_pdf=False):
+                         disposition=None, inline_pdf=False, page_csp=None):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         if length is not None:
@@ -567,12 +574,12 @@ class Handler(BaseHTTPRequestHandler):
         if disposition:
             self.send_header("Content-Disposition", disposition)
         self.send_header("Content-Security-Policy",
-                         "default-src 'self'; connect-src 'self' wss://*.livekit.cloud https://*.livekit.cloud; "
+                         page_csp or ("default-src 'self'; connect-src 'self' wss://*.livekit.cloud https://*.livekit.cloud; "
                          "frame-src 'self' https://browserbase.com https://*.browserbase.com "
                          "https://browserbase.live https://*.browserbase.live; "
                          "img-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors "
                          + ("'self'" if inline_pdf else "'none'")
-                         + ("; style-src 'unsafe-inline'; script-src 'none'" if email_preview else ""))
+                         + ("; style-src 'unsafe-inline'; script-src 'none'" if email_preview else "")))
         if content_type == "text/event-stream":
             self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
@@ -655,6 +662,14 @@ class Handler(BaseHTTPRequestHandler):
                         + email["html"] + "</body></html>").encode("utf-8")
                 self.response_headers(200, "text/html; charset=utf-8", len(body), email_preview=True)
                 self.wfile.write(body)
+            elif url.path == "/api/pages":
+                with self.app.storage.lock():
+                    zone = saved(self.app.storage.load())["timezone"]
+                self.json({"pages": self.app.pages.listing(), "timezone": zone})
+            elif url.path == "/api/pages/detail":
+                self.json(self.app.pages.detail(parse_qs(url.query).get("id", [None])[0]))
+            elif url.path.startswith(("/pages/", "/p/")):
+                self.get_page(url)
             elif url.path == "/api/artifacts":
                 self.json(self.artifact_times(self.app.artifacts.list()))
             elif url.path in {"/api/uploads/detail", "/api/uploads/file"}:
@@ -693,7 +708,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.json({"error": "Page not found."}, 404)
         except HearthError as error:
-            self.json({"error": str(error)}, 400)
+            self.json({"error": str(error)}, error.status if isinstance(error, pages.PageError) else 400)
         except OSError:
             self.json({"error": "Hearth could not read workspace data."}, 500)
 
@@ -746,6 +761,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path.startswith(("/api/reminders/", "/api/inbox/")):
             self.post_reminders()
+            return
+        if self.path.startswith("/api/pages/"):
+            self.post_pages()
             return
         if self.path.startswith("/api/artifacts/"):
             self.post_artifact()
@@ -821,13 +839,16 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     action_id = require_text(body.get("id"), 40)
                     if self.path == "/api/approve":
-                        result = self.app.agent.approve(action_id)
+                        with self.app.storage.lock():
+                            action = self.app.storage.load()["actions"].get(action_id, {})
+                        result = (self.app.pages.approve_share(action_id) if action.get("kind") == "page_share"
+                                  else self.app.agent.approve(action_id))
                     elif self.path == "/api/redo":
                         result = self.app.replay_memory(action_id, redo=True)
                     else:
                         result, status = self.app.undo_action(action_id)
         except HearthError as error:
-            result, status = {"error": str(error)}, 400
+            result, status = {"error": str(error)}, error.status if isinstance(error, pages.PageError) else 400
         except OSError:
             result, status = {"error": "Hearth could not update workspace data."}, 500
         finally:
@@ -836,6 +857,47 @@ class Handler(BaseHTTPRequestHandler):
             self.stream_chat(stream)
         else:
             self.json(result, status)
+
+    def get_page(self, url):
+        disposition = None
+        csp = page_policy.CSP
+        if url.path.startswith("/p/"):
+            raw = self.app.pages.shared(url.path.removeprefix("/p/"))
+            csp = page_policy.PUBLIC_CSP
+        else:
+            match = re.fullmatch(r"/pages/([a-f0-9]{32})(?:/v/([1-9][0-9]{0,8}))?", url.path)
+            if not match:
+                raise pages.PageError("Page not found.", 404)
+            row, raw = self.app.pages.document(match[1], int(match[2]) if match[2] else None)
+            if parse_qs(url.query).get("download") == ["1"]:
+                name = quote(artifacts.filename(row["title"], "html"), safe="")
+                disposition = f"attachment; filename*=UTF-8''{name}"
+        self.response_headers(200, "text/html; charset=utf-8", len(raw), disposition=disposition,
+                              page_csp=csp)
+        self.wfile.write(raw)
+
+    def post_pages(self):
+        try:
+            body = self.body()
+            identity = require_text(body.get("id"), 32)
+            with self.app.operation:
+                if self.app.restoring():
+                    raise pages.PageError("A checkpoint is being restored.", 409)
+                if self.path == "/api/pages/revert":
+                    result = self.app.pages.revert(identity, body.get("version"), body.get("current"))
+                elif self.path == "/api/pages/share":
+                    result = self.app.pages.request_share(identity, body.get("version"))
+                elif self.path == "/api/pages/revoke":
+                    result = self.app.pages.revoke(identity)
+                elif self.path == "/api/pages/box":
+                    result = self.app.pages.save_box(identity, body.get("version"))
+                else:
+                    raise pages.PageError("Page not found.", 404)
+            self.json(result)
+        except HearthError as error:
+            self.json({"error": str(error)}, error.status if isinstance(error, pages.PageError) else 400)
+        except OSError:
+            self.json({"error": "Hearth could not update the page."}, 500)
 
     def post_home(self):
         actions = {

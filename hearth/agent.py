@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 from urllib.parse import urlsplit
 
-from . import box, browserbase, file_intent, memory_edits, office, panels, recall, router, search, timeline, uploads
+from . import box, browserbase, file_intent, memory_edits, office, page_agent, panels, recall, router, search, timeline, uploads
 from .connections import catalog_entry, with_model
 from .connectors import ConnectorError, Integrations, model_error
 from .gateway_tools import METHODS, gateway_read, gateway_result, redact_text, validate_request
@@ -443,11 +443,12 @@ def file_confirmation(files):
 
 
 class Agent:
-    def __init__(self, storage, checkpoints, config, gateway=None, memory_index=None, artifacts=None, upload_service=None):
+    def __init__(self, storage, checkpoints, config, gateway=None, memory_index=None, artifacts=None, upload_service=None, page_service=None):
         self.storage = storage
         self.threads = Threads(storage)
         self.checkpoints = checkpoints
         self.artifacts = artifacts
+        self.pages = page_service
         self.uploads = upload_service
         self.tools = Integrations(config, gateway)
         self.config = config
@@ -524,6 +525,10 @@ class Agent:
                 "event": event, "demo": demo, "artifacts": {},
                 "panel_context": panel_context, "panel_request": router.panel_request(prompt),
                 "browse_results": {}, "browse_images": []}
+        page_intent = None
+        recent_page = self.pages.recent(thread_id) if self.pages else None
+        if self.pages and prompt:
+            page_intent = page_agent.intent(prompt, recent_page, history[-2] if len(history) > 1 else None)
         turn["browse_intent"] = None if turn["panel_request"] else router.browse_intent(prompt)
         turn["file_intent"] = (file_intent.intent(prompt, has_recent_file, has_attachments=bool(attachments))
                                if self.artifacts and not turn["panel_request"] else None)
@@ -571,7 +576,16 @@ class Agent:
             if not prompt:
                 prompt = "Tell me briefly what is in the attached files."
                 history[-1] = {**history[-1], "content": prompt}
-            self.reply(prompt, event, history, json.dumps(reference, ensure_ascii=False))
+            context = json.dumps(reference, ensure_ascii=False)
+            if page_intent:
+                origin_fields = {key: CHAT_ORIGIN.get()[key] for key in ("thread_id", "thread_title")}
+                answer, extra, model = page_agent.generate(self, page_intent, history, context, recent_page,
+                                                           turn.get("attachment_sources", []), origin_fields, event)
+                routing = {**self.model_description(model), "class": "tool", "label": "Pages", "reason": "Page request"}
+                self.finish_reply(model, {"content": answer}, [], [], event, prompt, routing, extra=extra,
+                                  summarize=False)
+            else:
+                self.reply(prompt, event, history, context)
         finally:
             TURN_MEMORY.reset(token)
             CHAT_ORIGIN.reset(origin)
@@ -698,7 +712,7 @@ class Agent:
         reply = mock_text("The reply was interrupted. Check the results below before retrying.", emit)
         self.finish_reply(model, reply, action_ids, notices, event, messages[-1]["content"], routing)
 
-    def finish_reply(self, model, reply, action_ids, notices, event, prompt, routing):
+    def finish_reply(self, model, reply, action_ids, notices, event, prompt, routing, *, extra=None, summarize=True):
         thread_id = CHAT_ORIGIN.get()["thread_id"]
         content = clean_reply(reply["content"])
         turn = TURN_MEMORY.get()
@@ -727,7 +741,7 @@ class Agent:
         content = uploads.CITATION.sub(cite_attachment, content).strip()
         browse_results = list(turn.get("browse_results", {}).values()) if turn else []
         browse_notices = [value[key] for value in browse_results for key in ("fallback", "warning") if value.get(key)]
-        fields = {"action_ids": action_ids, "notices": list(dict.fromkeys([*notices, *browse_notices])), "routing": routing}
+        fields = {"action_ids": action_ids, "notices": list(dict.fromkeys([*notices, *browse_notices])), "routing": routing, **(extra or {})}
         if turn and turn.get("browse_images"):
             fields["browse_images"] = turn["browse_images"]
         if source := CHAT_ORIGIN.get().get("source"):
@@ -739,7 +753,7 @@ class Agent:
         if thread_id != MAIN:
             files = [item["filename"] for item in turn["artifacts"].values()] if turn else []
             summary = "Files saved: " + ", ".join(files) if files else content
-            fields["summary"] = self.side_summary(model, redact_text(prompt), summary)
+            fields["summary"] = self.side_summary(model, redact_text(prompt), summary) if summarize else summary
         with self.storage.lock():
             message = self.threads.append(thread_id, "assistant", content, **fields)
         if turn and turn["artifacts"]:
