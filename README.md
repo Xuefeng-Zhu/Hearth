@@ -4,11 +4,11 @@ Hearth is a private personal assistant that lives on a Fly.io Sprite. It keeps i
 
 ## Run locally
 
-Use Python 3.10 or later on Linux or macOS. The server uses the standard library, and the browser app serves its SDK locally. Use Node.js 22 or later for the avatar tests.
+Use Python 3.10 or later on Linux or macOS. The server uses the standard library, and the browser app serves its SDK locally. Use Node.js 22 or later for the browser module tests.
 
 ```sh
 python3 -m unittest discover -s tests -v
-node --test tests/avatar-state.test.mjs
+node --test tests/*.test.mjs
 python3 -m hearth.server
 ```
 
@@ -49,6 +49,18 @@ Each query from the voice agent runs in the chat where the call started, with He
 3. Refresh **Connections** and check **Settings → Voice**. The Vocal Bridge card’s **Test** confirms this Sprite’s gateway access. Starting a call checks the deployed agent by minting its short-lived room credential.
 
 Hearth mints room credentials through the Fly gateway. The browser uses them for LiveKit WebRTC, and Hearth serves the pinned SDK locally from `web/vendor/vocalbridge.mjs`. The bundle contains `@vocalbridgeai/sdk@0.1.1` and `livekit-client@2.25.0`, bundled for browser ESM with esbuild 0.28.1. It loads on demand and requires no app build step or CDN. [Vocal Bridge developer docs](https://vocalbridgeai.com/docs/overview), [SDK integration guide](https://github.com/vocalbridgeai/sdk/blob/main/INTEGRATION.md)
+
+## Artifacts
+
+Ask Hearth to “save this as a doc,” “make me a shopping list file,” or “export my memory.” You can also choose **Save as artifact** under a reply or call transcript. Each saved file has a chat chip and a card in **Artifacts**. Markdown is the default. Hearth also supports plain text, CSV, and JSON.
+
+Switch between grid and list, filter by kind, or sort by name or most recent update. Open any card to see which chat it came from, view the preview, edit, copy, or download the text, and open the original file in Box. Saving an edit to a synced file creates a new Box version. Timeline offers item-level **Undo** for creation, edits, and deletion. Undoing a synced edit saves the previous content as a new version. When Box retains a deleted file in Trash, Undo restores it from there. [Box version history](https://developer.box.com/reference/get-files-id-versions), [Box deletion policy](https://developer.box.com/reference/delete-files-id), [Box Trash restore](https://developer.box.com/reference/post-files-id)
+
+Add or refresh Box in **Connections**. **Settings → Artifacts** controls auto-save, the default file format, and the folder name. The first upload finds or creates **Hearth** in your Box root, along with **Plans**, **Lists**, **Notes**, **Transcripts**, and **Exports**. Hearth saves the folder IDs in `connectors.local.json` and lists files you add anywhere under the selected folder. Text previews and saves are limited to 128 KiB. Hearth redacts recognized credentials before saving and uses the Sprites gateway for Box access. [Box folder items API](https://developer.box.com/reference/get-folders-id-items), [Fly Sprites connectors](https://docs.fly.io/sprites/concepts/connectors)
+
+If the gateway rejects uploads as unsupported, Hearth shows **Saved locally — Box upload unavailable**. You can open, edit, download, or retry the local copy. The Box upload API uses multipart requests on `upload.box.com/api/2.0`. The deployed Sprites connector rejected both upload paths during live verification. [Box upload API](https://developer.box.com/reference/post-files-content), [Box version upload API](https://developer.box.com/reference/post-files-id-content), [Live verification](STATUS.md)
+
+For the demo, open the seeded **Thanksgiving artifacts** side chat on the Sprite. With Mock selected, “Make Thanksgiving demo artifacts” creates a Thanksgiving plan, a shopping list CSV, and a seating chart in the current chat.
 
 ## Timeline
 
