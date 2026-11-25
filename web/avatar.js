@@ -111,13 +111,19 @@ export function setLook(element, preset, color) {
     element.replaceChildren(template.content.cloneNode(true));
     element.dataset.look = preset;
   }
-  element.style.setProperty("--mascot-color", color || looks[preset].color);
+  const shade = color || looks[preset].color;
+  const rgb = [1, 3, 5].map((i) => parseInt(shade.slice(i, i + 2), 16));
+  const brightness = rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
+  element.style.setProperty("--mascot-color", shade);
+  element.style.setProperty("--ink", brightness < 90 ? "#fff5e3" : "#452b40");
 }
 
 export function setPose(element, { pose, mouth = 0, gaze = 0 }) {
   if (element.dataset.pose !== pose) element.dataset.pose = pose;
-  element.style.setProperty("--mouth", mouth.toFixed(2));
-  element.style.setProperty("--gaze", `${(gaze * 6).toFixed(1)}px`);
+  const opening = mouth.toFixed(2);
+  const direction = `${(gaze * 6).toFixed(1)}px`;
+  if (element.style.getPropertyValue("--mouth") !== opening) element.style.setProperty("--mouth", opening);
+  if (element.style.getPropertyValue("--gaze") !== direction) element.style.setProperty("--gaze", direction);
 }
 
 export function poseLabel({ pose, detail }) {

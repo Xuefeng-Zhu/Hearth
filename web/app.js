@@ -142,6 +142,15 @@ function renderFace(local, messages, actions) {
   if (details.hidden) details.open = false;
   details.querySelector(".cards").replaceChildren(...items.map((action) => actionCard(actions.get(action.id) || action)));
 }
+  text = text.replace(/[ \t]*\[\[memory:[^\]\n]*\]\]/g, "");
+  const tail = text.lastIndexOf("[[");
+  if (tail >= 0) {
+    const marker = text.slice(tail);
+    if ("[[memory:".startsWith(marker) || (marker.startsWith("[[memory:") && !marker.includes("]]"))) {
+      text = text.slice(0, tail);
+    }
+  }
+  text = text.trim();
 
 function applyAppearance() {
   const hidden = avatarMode === "off";
@@ -407,7 +416,7 @@ function renderChat(force = false) {
       });
     }
     if (saved.has(turn.reply?.id) || (!turn.user && !turn.error)) continue;
-    const content = turn.reply?.content || turn.text || turn.error || "Thinking…";
+    const content = turn.reply?.content || turn.text || turn.error || turnProgress(turn);
     turn.bubble = messageBubble("assistant", content, { message: turn.reply });
     for (const warning of turn.warnings) turn.bubble.notices.append(node("p", "model-warning", warning));
     for (const action of turn.actions.values()) turn.bubble.cards.append(actionCard(actions.get(action.id) || action));
@@ -1509,7 +1518,7 @@ function readChatEvent(turn, name, payload) {
     const follow = turn.threadId === currentThread && nearBottom();
     turn.text = name === "reset" ? "" : turn.text + payload.text;
     avatarSignal(turn.threadId, { type: name, text: payload.text });
-    if (turn.bubble) turn.bubble.text.textContent = turn.text || payload.message || "Thinking…";
+    if (turn.bubble) turn.bubble.text.textContent = turn.text || turnProgress(turn);
     if (avatarMode === "face" && turn.threadId === currentThread) updateFaceCaption(turn.text);
     if (follow) scrollDown();
     return;
@@ -1532,7 +1541,7 @@ function readChatEvent(turn, name, payload) {
     avatarSignal(turn.threadId, { type: name, title: payload.title });
     return;
   } else if (name === "tool_warning" || name === "demo_warning") {
-    avatarSignal(turn.threadId, { type: "warning" });
+    avatarSignal(turn.threadId, { type: "warning", detail: name === "demo_warning" ? "Mock demo" : "" });
     return;
   }
   if (turn.threadId === currentThread) renderChat(true);
@@ -1594,6 +1603,10 @@ async function chat(prompt) {
     else renderThreads();
     await refreshView().catch(() => {});
   }
+function turnProgress(turn) {
+  return turn.activity ? `${turn.activity}…` : "Thinking…";
+}
+
 }
 
 async function approve(action) {
@@ -1632,6 +1645,8 @@ async function undo(action) {
       await api("/api/undo", { id: action.id }, AbortSignal.timeout(6000));
     } catch (error) {
       if (error.name === "Error") throw error;
+    turn.activity = payload.title;
+    if (turn.bubble && !turn.text) updateText(turn.bubble.text, turnProgress(turn));
     }
     const deadline = Date.now() + 115_000;
     while (Date.now() < deadline) {
@@ -1665,7 +1680,7 @@ function resizeInput() {
 
 function followComposer() {
   const caret = input.selectionStart;
-  const start = input.value.lastIndexOf("\n", caret - 1) + 1;
+  const start = input.value.slice(0, caret).lastIndexOf("\n") + 1;
   const breakAt = input.value.indexOf("\n", caret);
   const end = breakAt < 0 ? input.value.length : breakAt;
   const gaze = 2 * (caret - start) / Math.max(1, end - start) - 1;

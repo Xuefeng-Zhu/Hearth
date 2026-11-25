@@ -80,7 +80,6 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .message .queued-label { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
 .share-message { margin-top: 6px; color: var(--accent); font-size: 12px; background: transparent; border: 0; border-radius: 5px; padding: 3px 5px; }
 .card .thread-source { color: var(--accent); font-size: 12px; }
-.avatar { height: 28px; width: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--accent); background: var(--accent-light); }
 .cards { display: grid; gap: 9px; margin-top: 10px; }
 .cards:empty { display: none; }
 .card { background: var(--paper); border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; min-width: 0; }
@@ -379,6 +378,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 @media (prefers-reduced-motion: reduce) {
   .mascot, .mascot * { animation: none !important; transition: none !important; }
   .mascot[data-pose="speaking"] .mascot-talk { transform: scaleY(.45); }
+  .mascot[data-pose="listening"] .mascot-eyes { transform: translateY(4px); }
 }
 
 .thread-heading { min-width: 0; }
@@ -389,7 +389,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
   border: 1px solid #dfd2de; border-radius: 8px; padding: 5px 24px 5px 9px;
   background: var(--paper); font-size: 12px;
 }
-.thread-controls:not([hidden]) + label + .avatar-view { margin-left: 0; }
+.chat-view:not(.face-view) .thread-controls:not([hidden]) + label + .avatar-view { margin-left: 0; }
 .thread-link .mascot { width: 27px; margin: -7px -3px -5px auto; }
 .message.assistant > .mascot { width: 43px; margin: -7px -7px 0; }
 .avatar-off .message.assistant { grid-template-columns: minmax(0, 1fr); }
@@ -399,6 +399,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
   background: #fcf8f3;
 }
 .face-view .thread-header { background: #fffaf5; }
+.face-view .avatar-view { margin-left: auto; }
 .face-view :is(.thread-panel, .chat-scroll, .avatar-header, .thread-controls, #avatar-caption, .thread-activity) { display: none; }
 .face-stage {
   position: relative; min-height: 0; flex: 1; display: flex; flex-direction: column; align-items: center;

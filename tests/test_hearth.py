@@ -42,6 +42,11 @@ class HearthTest(unittest.TestCase):
 
     def test_thanksgiving_loop_streams_and_stages_an_email(self):
         events = self.chat("Plan Thanksgiving dinner")
+        names = [name for name, _ in events]
+        self.assertEqual(names[:2], ["demo_listening", "started"])
+        self.assertIn("demo_warning", names)
+        self.assertEqual(names.count("tool_started"), names.count("tool_finished"))
+        self.assertLess(names.index("tool_started"), names.index("token"))
         self.assertEqual((events[-1][0], events[-1][1]["provider"]), ("done", "mock"))
         self.assertGreater(sum(name == "token" for name, _ in events), 5)
         remembered = events[-1][1]["message"]["remembered"]

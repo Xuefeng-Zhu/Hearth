@@ -58,10 +58,10 @@ export function avatarEvent(state, event, now) {
       return event.success ? { ...next, approval: "", happy: now + HAPPY_MS }
         : { ...next, approval: "", concerned: now + CONCERN_MS };
     case "warning":
-      return { ...next, concerned: now + CONCERN_MS };
+      return { ...next, concerned: now + CONCERN_MS, concernDetail: event.detail };
     case "error":
       return { ...next, phase: "idle", title: "", mouth: 0, concerned: now + CONCERN_MS,
-        demoListening: false, scheduled: 0 };
+        concernDetail: "", demoListening: false, scheduled: 0 };
     default:
       return state;
   }
@@ -70,8 +70,9 @@ export function avatarEvent(state, event, now) {
 export function avatarPose(state, now, busy = false) {
   if (state.recording) return { pose: "listening", detail: "Microphone on", gaze: 0 };
   if (state.voiceProcessing) return { pose: "working", detail: "Transcribing audio" };
-  if (now < state.concerned) return { pose: "concerned" };
-  if (state.demoListening || now < state.typing) return { pose: "listening", gaze: state.gaze };
+  if (now < state.concerned) return { pose: "concerned", detail: state.concernDetail };
+  if (state.demoListening) return { pose: "listening", detail: "Mock demo" };
+  if (now < state.typing) return { pose: "listening", gaze: state.gaze };
   if (state.approval) return { pose: "working", detail: state.approval };
   if (state.phase === "working") return { pose: "working", detail: state.title };
   if (state.phase === "speaking") {
