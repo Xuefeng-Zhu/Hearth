@@ -13,6 +13,7 @@ import { setTimeZone, timeFormatter } from "./time.js";
 import { createHome } from "./home.js";
 import { createAutomation } from "./automation.js";
 import { createSkills, skillChip } from "./skills.js";
+import { createWorkersCard } from "./workers.js";
 
 mountIcons();
 
@@ -53,6 +54,7 @@ let stateRequest = 0;
 let threadSignature;
 let chatSignature;
 let chatRows = new Map();
+const workerCards = new Map();
 let threadBusy = false;
 let state;
 let stateTag;
@@ -114,12 +116,25 @@ const automation = createAutomation({
   },
 });
 const skills = createSkills({ api, openChat: openSkillChat });
+const faceWorkers = createWorkersCard({ stop: stopWorkers });
+const homeWorkers = createWorkersCard({
+  heading: "Running now", stop: stopWorkers,
+  openThread: async (thread) => {
+    activateThread(thread);
+    await openView("chat");
+  },
+});
 const homePage = createHome({
   api, openView, openWeatherSettings, openPanelChat, openDemo,
   openFile: (file, trigger) => artifactLibrary.open(file.id, trigger, file),
   onData(data) {
     setTimeZone(data.timezone);
     automation.home(data.approvals || []);
+    const workers = data.workers || [];
+    const target = byId("home-workers");
+    homeWorkers.update(workers);
+    if (!homeWorkers.card.isConnected) target.append(homeWorkers.card);
+    target.hidden = !workers.length;
     const connections = data.builtin.connections;
     homeConnectorError = !!connections.error || connections.items.some((entry) => entry.status === "error");
     renderBrain(data);
@@ -262,18 +277,31 @@ function replyArtifacts(message) {
   return [...linked, ...legacyPages];
 }
 
-function renderFace(local, messages, actions, remoteBrowse, remoteSkill) {
+function updateFaceWorkers(workers = []) {
+  const target = byId("face-workers");
+  faceWorkers.update(workers);
+  if (!faceWorkers.card.isConnected) target.append(faceWorkers.card);
+  target.hidden = !workers.length;
+}
+
+function renderFace(local, messages, actions, remoteBrowse, remoteSkill, workers) {
   if (avatarMode !== "face") return;
   const active = local.find((turn) => (turn.user || turn.approval) && !turn.reply && !turn.finished);
   const latest = [...local].reverse().find((turn) => turn.reply || turn.error);
   const saved = messages.findLast((message) => message.role === "assistant");
   const reply = latest?.reply || saved;
+  const pendingPrompt = messages.findLast((message) => message.role === "user");
+  const pendingWorkers = !messages.some((message) => message.worker_turn_id === pendingPrompt?.id) &&
+    workers.get(pendingPrompt?.id);
+  updateFaceWorkers(active ? [...(active.workers?.values() || [])] :
+    pendingWorkers || workers.get(reply?.worker_turn_id) || [...(latest?.workers?.values() || [])]);
   const skill = active ? active.skill : remoteSkill || reply?.skill;
   byId("face-skill").hidden = !skill;
   byId("face-skill").replaceChildren(...(skill ? [skillChip(skill)] : []));
   updateFaceCaption(active ? active.text : latest?.error || reply?.content || "");
-  const items = active ? [...active.actions.values()]
-    : (reply?.action_ids || []).map((id) => actions.get(id) || latest?.actions.get(id)).filter(Boolean);
+  const items = active ? [...active.actions.values()] : pendingWorkers ?
+    [...actions.values()].filter((action) => action.worker_turn_id === pendingPrompt.id) :
+    (reply?.action_ids || []).map((id) => actions.get(id) || latest?.actions.get(id)).filter(Boolean);
   const details = byId("face-actions");
   const linked = active ? [] : replyArtifacts(reply);
   const screenshots = !active && (reply?.browse_images || []);
@@ -755,12 +783,13 @@ function actionCard(action) {
   const card = node("article", "card");
   const header = node("div", "card-header");
   const statuses = {
-    pending: "Awaiting approval", changing: "Interrupted", partial: "Partially applied",
+    pending: "Awaiting approval", changing: "Interrupted", partial: "Partially applied", cancelled: "Stopped",
     simulated: "Simulated send", unknown: "Delivery unknown", sending: "Delivery unknown",
     sent: "Sent", complete: action.kind === "gateway" ? "Completed" : "", request_unknown: "Request unconfirmed",
   };
   header.append(node("h4", "", action.title), node("span", "meta", statuses[action.status] || ""));
   card.append(header, node("p", "thread-source", `From ${timelineSource(action)}`));
+  if (action.worker_title) card.append(node("p", "thread-source", `Worker · ${action.worker_title}`));
   if (action.kind === "email") {
     card.append(node("p", "", `To: ${action.email.to.join(", ")}`));
     card.append(node("p", "", `Subject: ${action.email.subject}`), node("pre", "", action.email.text));
@@ -917,17 +946,37 @@ function callCard(message) {
   return card;
 }
 
+async function stopWorkers(turnId, id) {
+  await api("/api/workers/stop", { turn_id: turnId, ...(id ? { id } : {}) });
+  await refreshView();
+}
+
+function workersCard(workers) {
+  const turnId = workers[0].turn_id;
+  if (!workerCards.has(turnId)) workerCards.set(turnId, createWorkersCard({ stop: stopWorkers }));
+  const widget = workerCards.get(turnId);
+  widget.update(workers);
+  return widget.card;
+}
+
 function renderChat(force = false) {
   renderThreads();
   const actions = new Map((state?.actions || []).map((action) => [action.id, action]));
   const messages = state?.thread_id === currentThread ? state.messages : [];
   const local = [...turns].filter((turn) => turn.threadId === currentThread);
+  const workers = new Map();
+  for (const worker of state?.thread_id === currentThread ? state.workers || [] : []) {
+    if (!workers.has(worker.turn_id)) workers.set(worker.turn_id, []);
+    workers.get(worker.turn_id).push(worker);
+  }
+  const localPrompts = new Set(local.map((turn) => turn.user?.id));
+  const savedBatches = new Set(messages.map((message) => message.worker_turn_id).filter(Boolean));
   const thread = threadList.find((item) => item.id === currentThread);
   const remoteBrowse = thread?.activity?.browse;
   const remoteSkill = thread?.activity?.skill;
   const signature = JSON.stringify([currentThread, messages, threadList.map((thread) => thread.title),
     avatarLook, avatarColor, busy,
-    state?.message_artifacts, state?.message_uploads, state?.timezone, remoteBrowse, remoteSkill, thread?.skill,
+    state?.message_artifacts, state?.message_uploads, state?.timezone, state?.workers, remoteBrowse, remoteSkill, thread?.skill,
     local.map(({ approval, finished }) => [approval?.id, finished]),
     messages.flatMap((message) => (message.action_ids || []).map((id) => actions.get(id)))]);
   if (!force && signature === chatSignature) return;
@@ -950,19 +999,31 @@ function renderChat(force = false) {
       state?.message_artifacts?.[message.id], attachments, state?.timezone, avatarLook, avatarColor]);
     let row = chatRows.get(message.id);
     if (row?.signature !== rowSignature) {
-      let item;
+      let item, bubble;
       if (message.role === "call") {
         item = callCard(message);
       } else {
-        const bubble = messageBubble(message.role, message.content, { message, prompt: previousPrompt, attachments });
+        bubble = messageBubble(message.role, message.content, { message, prompt: previousPrompt, attachments });
         for (const notice of message.notices || []) bubble.notices.append(node("p", "model-warning", notice));
         for (const action of cards) bubble.cards.append(actionCard(action));
         item = bubble.item;
       }
-      row = { item, signature: rowSignature };
+      row = { item, bubble, signature: rowSignature };
+    }
+    if (row.bubble && workers.has(message.worker_turn_id)) {
+      const card = workersCard(workers.get(message.worker_turn_id));
+      if (row.bubble.cards.firstElementChild !== card) row.bubble.cards.prepend(card);
     }
     nextRows.set(message.id, row);
     rows.push(row.item);
+    if (workers.has(message.id) && !localPrompts.has(message.id) && !savedBatches.has(message.id)) {
+      const activity = messageBubble("assistant", "");
+      activity.cards.append(workersCard(workers.get(message.id)));
+      for (const action of actions.values()) {
+        if (action.worker_turn_id === message.id) activity.cards.append(actionCard(action));
+      }
+      rows.push(activity.item);
+    }
     if (message.role === "user") previousPrompt = { text: message.content, attachments };
   }
   for (const turn of local) {
@@ -980,8 +1041,14 @@ function renderChat(force = false) {
     });
     turn.bubble.text.hidden = !content && !!turn.browse;
     rows.push(turn.bubble.item);
+    const workerRows = turn.workers?.size ? [...turn.workers.values()] : workers.get(turn.user?.id);
+    if (workerRows?.length) turn.bubble.cards.append(workersCard(workerRows));
     for (const warning of turn.warnings) turn.bubble.notices.append(node("p", "model-warning", warning));
-    for (const action of turn.actions.values()) turn.bubble.cards.append(actionCard(actions.get(action.id) || action));
+    for (const action of turn.actions.values()) {
+      const saved = actions.get(action.id);
+      const current = action.worker_id && (action.status !== "pending" || saved?.status === "pending") ? action : saved;
+      turn.bubble.cards.append(actionCard(current || action));
+    }
     if (turn.browse) turn.bubble.cards.append(browseCard(turn.browse));
     if (turn.error) {
       if (turn.text) turn.bubble.notices.append(node("p", "model-warning", turn.error));
@@ -999,7 +1066,10 @@ function renderChat(force = false) {
   reconcileChildren(transcript, rows);
   checkCollapsedReplies();
   chatRows = nextRows;
-  renderFace(local, messages, actions, remoteBrowse, remoteSkill);
+  for (const id of workerCards.keys()) {
+    if (!workers.has(id) && !localPrompts.has(id)) workerCards.delete(id);
+  }
+  renderFace(local, messages, actions, remoteBrowse, remoteSkill, workers);
   paintAvatars();
   if (follow) scrollDown();
 }
@@ -1516,6 +1586,7 @@ function setBrainControls() {
   const custom = !!choice && !brainModel.value;
   const needsModel = !!choice && !brainDraft().model;
   brainProvider.disabled = locked;
+  byId("brain-workers").disabled = locked;
   brainModel.disabled = locked || !usable || !!modelRequest;
   customModel.disabled = brainModel.disabled;
   byId("brain-custom-field").hidden = !custom;
@@ -1747,6 +1818,7 @@ async function openBrainSettings() {
     await updateConnections("rescan");
     if (view !== "settings") return;
     brainSettings = await api("/api/brain");
+    byId("brain-workers").value = brainSettings.parallel_workers;
     const providers = brainSettings.providers.map((entry) => {
       const suffix = !entry.available ? " (disconnected)" : !entry.supported ? " (chat unavailable)" : "";
       const option = new Option(entry.name + suffix, entry.provider);
@@ -1778,6 +1850,7 @@ function clearBrainTest() {
 async function updateBrain(operation) {
   if (brainBusy || busy || modelRequest) return;
   const draft = brainDraft();
+  if (operation === "settings") draft.parallel_workers = Number(byId("brain-workers").value);
   routingRequest?.abort();
   routingRequest = undefined;
   byId("routing-preview-status").textContent = "";
@@ -2326,6 +2399,17 @@ function readChatEvent(turn, name, payload) {
     avatarSignal(turn.threadId, { type: "done", remembered: !!turn.reply.remembered?.length });
   } else if (name === "skill_loaded") {
     turn.skill = payload;
+  } else if (name === "worker") {
+    turn.workers ??= new Map();
+    turn.workers.set(payload.id, payload);
+    if (turn.bubble && turn.threadId === currentThread) {
+      const follow = nearBottom();
+      const card = workersCard([...turn.workers.values()]);
+      if (card.parentElement !== turn.bubble.cards) turn.bubble.cards.prepend(card);
+      if (avatarMode === "face") updateFaceWorkers([...turn.workers.values()]);
+      if (follow) scrollDown();
+      return;
+    }
   } else if (name === "error") {
     throw new Error(payload.message);
   } else if (name === "browse_active") {

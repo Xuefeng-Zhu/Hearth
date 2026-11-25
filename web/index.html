@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/pages.css">
   <link rel="stylesheet" href="/automation.css">
   <link rel="stylesheet" href="/skills.css">
+  <link rel="stylesheet" href="/workers.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -63,6 +64,7 @@
           <p class="home-feedback" id="home-feedback" role="status"></p>
           <p class="home-meta" id="home-loading">Loading panels…</p>
           <section id="home-approvals" class="automation-section" aria-label="Pending approvals" hidden></section>
+          <div id="home-workers" hidden></div>
           <div class="home-grid" id="home-grid"></div>
           <p class="home-empty home-meta" id="home-empty" hidden>All panels are removed. Edit the layout to restore them.</p>
           <section class="home-removed" id="home-removed" aria-labelledby="home-removed-title" hidden>
@@ -108,6 +110,7 @@
             <p class="face-status" id="face-status" aria-hidden="true"></p>
             <div id="face-skill" hidden></div>
             <div class="face-caption" id="face-captions" role="region" aria-label="Reply captions" tabindex="0" hidden></div>
+            <div id="face-workers" hidden></div>
             <div id="face-browse" class="cards"></div>
             <details id="face-actions" hidden>
               <summary>Turn actions</summary>
@@ -457,6 +460,16 @@
               </div>
               <p class="meta" id="brain-model-detail" role="status"></p>
             </div>
+            <label for="brain-workers">Parallel workers</label>
+            <select id="brain-workers" aria-describedby="brain-workers-detail" disabled>
+              <option value="1">1 worker</option>
+              <option value="2">2 workers</option>
+              <option value="3">3 workers</option>
+              <option value="4" selected>4 workers</option>
+              <option value="5">5 workers</option>
+              <option value="6">6 workers</option>
+            </select>
+            <p class="meta" id="brain-workers-detail">Maximum running at once across chats and recurring tasks.</p>
             <fieldset id="brain-pool" hidden>
               <legend>Routing pool</legend>
               <div id="brain-pool-rows"></div>

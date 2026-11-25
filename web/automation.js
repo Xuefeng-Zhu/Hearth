@@ -6,7 +6,7 @@ const policyOptions = [["ask", "Always ask"], ["allow", "Allow without asking"]]
 const labels = { send: "Send messages", spend: "Spend money", public: "Publish publicly", destructive: "Delete items", skills: "Skills" };
 const marks = { send: "mail", spend: "clock", public: "share", destructive: "trash", skills: "skill" };
 const statuses = {
-  pending: "Needs approval", expired: "Expired", declined: "Declined", changing: "Execution unconfirmed",
+  pending: "Needs approval", expired: "Expired", declined: "Declined", cancelled: "Stopped", changing: "Execution unconfirmed",
   complete: "Completed", sent: "Sent", simulated: "Simulated", failed: "Failed", request_unknown: "Outcome unconfirmed",
   partial: "Partially applied", running: "Running", retrying: "Retry scheduled", approval_needed: "Needs approval",
 };
@@ -195,6 +195,7 @@ export function createAutomation({ api, refresh, openThread, undo }) {
     const category = row.categories[0];
     article.append(summary(row.title, confirmation ? "clock" : marks[category] || "shield",
       pill(status, status === "pending" && confirmation ? "Confirm schedule" : undefined)));
+    if (row.worker_title) article.append(el("p", "thread-source", `Worker · ${row.worker_title}`));
     const fields = el("dl", "automation-fields");
     if (row.email) {
       dataField(fields, "To", row.email.to.join(", "));

@@ -2,6 +2,7 @@ import { icon } from "./icons.js";
 import { localDay, previousDay, setTimeZone, timeFormatter } from "./time.js";
 import { mascot, setPose } from "./avatar.js";
 import { reconcileChildren } from "./dom.js";
+import { workerDuration, workerStatuses } from "./workers.js";
 
 const get = (id) => document.getElementById(id);
 const categories = {
@@ -14,6 +15,7 @@ const kinds = {
   voice: ["Voice", "mic"], artifact: ["Artifact", "file-text"], upload: ["Attachment", "paperclip"],
   page: ["Page", "page"], page_share: ["Page sharing", "share"],
   skill: ["Skill", "skill"],
+  worker: ["Worker", "workers"],
   undo: ["Undo", "retry"], inbox: ["Inbox", "inbox"], email: ["Email", "mail"],
   approval: ["Approval", "shield"], task: ["Recurring task", "clock"],
   panel: ["Home panel", "home"], checkpoint: ["Checkpoint", "history"], thread: ["Side chat", "message"], tool: ["Tool", "wrench"],
@@ -81,7 +83,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["approval", "task", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill"]
+    action: ["approval", "task", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill", "worker"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -129,6 +131,8 @@ function detailFields(row, gatewayResponse) {
       `${channel === "app" ? "In app" : "Email"} · ${delivery.status}${delivery.reason ? ` · ${delivery.reason}` : ""}`))],
     ["Late", data.late_minutes ? `Late by ${data.late_minutes}m` : ""],
     ["Summary", data.summary],
+    ["Worker time", row.kind === "worker" && workerDuration(data.elapsed_ms)],
+    ["Worker steps", row.kind === "worker" && join(data.steps.map((step) => step.label))],
     ["Proposed action", data.proposal],
     ["Event time", formatted(data.event_at)],
     ["Schedule", data.job?.cron && `${data.job.cron} UTC`],
@@ -310,7 +314,8 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
     for (const [value, type] of [
       [row.thread_title, "thread"], [row.model?.split("/").at(-1), "model"], [row.connector, "connector"],
       [row.source === "voice-call" && row.kind !== "voice" && "Voice call", "source"],
-      [row.undone ? "Undone" : statusNames[row.data?.status] || (row.error && "Error"), "status"],
+      [row.undone ? "Undone" : (row.kind === "worker" && workerStatuses[row.data?.status]) ||
+        statusNames[row.data?.status] || (row.error && "Error"), "status"],
     ]) {
       if (!value) continue;
       const chip = element("span", `timeline-tag timeline-tag-${type}`, value);
