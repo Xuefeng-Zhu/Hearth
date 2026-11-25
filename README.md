@@ -19,6 +19,7 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 - **Chat with Ember.** Stream replies in Main or in separate side chats. Attach images, audio, PDFs, spreadsheets, and other supported files. Use a connected model, Smart routing across a model pool, or the local Mock brain.
 - **Stay on top of work.** Home shows reminders, Inbox, recent files, memory, activity, connector health, and Open-Meteo weather. Add panels from chat and rearrange them on Home.
 - **Make files and pages.** Create and edit DOCX, PDF, XLSX, and PPTX from chat. Preview and download artifacts, keep versions locally, and sync to Box. Build single-file HTML pages with phone and desktop previews, version history, and optional approved snapshot sharing.
+- **Reuse skills in chat.** Start with four built-in Markdown playbooks or write your own. Use **Try it** to preload a skill in a side chat, see which skill Hearth loaded, and undo edits from Timeline. [Skills guide](docs/skills.md)
 - **Review actions.** Approve, edit supported fields, or decline proposed actions, including email. Timeline records tool activity and approvals. Supported changes offer item-level Undo or filesystem checkpoint restore.
 - **Remember and run on a schedule.** Browse and search Markdown memory, optionally use Pinecone for semantic recall, and set reminders or recurring prompts with their own run history. AgentMail can import forwarded mail as proposals and deliver configured reminder or task email.
 - **Talk to Hearth.** Dictate with browser speech recognition or Hugging Face Whisper. Vocal Bridge adds live calls routed to the originating chat, with a scripted call demo available locally.
@@ -30,7 +31,7 @@ flowchart LR
     UI["Browser UI"] <-->|"HTTP + streamed events"| App
     subgraph Sprite["Fly.io Sprite"]
         App["Python server and agent"]
-        Disk["Workspace disk · Markdown, chats, jobs, files"]
+        Disk["Workspace disk · Markdown, skills, chats, jobs, files"]
         Checkpoints["Sprite filesystem checkpoints"]
         App <--> Disk
         App -->|Create or restore| Checkpoints
@@ -119,7 +120,7 @@ The [QA report](QA-REPORT.md) includes a 90-second demo.
 
 ## Security and privacy
 
-Keep the workspace URL behind Sprite authentication. Provider API keys stay with Fly and are injected by the connector gateway. The repository ships blank connection settings and ignores runtime settings and data. Hearth persists chat, memory, files, approvals, and schedules on disk. Enabled providers can receive prompts, excerpts, files, or audio required for the feature. Vocal Bridge sends the browser a short-lived room credential, and an approved public Page link grants anyone holding it access to that snapshot. A filesystem restore rolls back disk state. Delivered mail and other provider-side effects can persist after an Undo.
+Keep the workspace URL behind Sprite authentication. Provider API keys stay with Fly and are injected by the connector gateway. The repository ships blank connection settings and ignores runtime settings and data. Hearth persists chat, memory, skills, files, approvals, and schedules on disk. Enabled providers can receive prompts, loaded playbooks, excerpts, files, or audio required for the feature. Vocal Bridge sends the browser a short-lived room credential, and an approved public Page link grants anyone holding it access to that snapshot. A filesystem restore rolls back disk state. Delivered mail and other provider-side effects can persist after an Undo.
 
 ## Documentation
 
@@ -128,6 +129,7 @@ Keep the workspace URL behind Sprite authentication. Provider API keys stay with
 - [Deploy](docs/deploy.md)
 - [Approvals and tasks](docs/approvals-and-tasks.md)
 - [Memory](docs/memory.md)
+- [Skills](docs/skills.md)
 - [Voice](docs/voice.md)
 - [Development](docs/development.md)
 - [Project status](STATUS.md) and [QA report](QA-REPORT.md)
