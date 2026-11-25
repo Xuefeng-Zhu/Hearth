@@ -4,3 +4,7 @@ __pycache__/
 .env*
 config/connectors.local.json
 .venv/
+
+# local Codex build prompts
+codex-prompt-*.md
+run-codex*.sh
