@@ -3,8 +3,8 @@ import { DEFAULT_TIME_ZONE, timeFormatter } from "./time.js";
 
 const get = (id) => document.getElementById(id);
 const policyOptions = [["ask", "Always ask"], ["allow", "Allow without asking"]];
-const labels = { send: "Send messages", spend: "Spend money", public: "Publish publicly", destructive: "Delete items" };
-const marks = { send: "mail", spend: "clock", public: "share", destructive: "trash" };
+const labels = { send: "Send messages", spend: "Spend money", public: "Publish publicly", destructive: "Delete items", skills: "Skills" };
+const marks = { send: "mail", spend: "clock", public: "share", destructive: "trash", skills: "skill" };
 const statuses = {
   pending: "Needs approval", expired: "Expired", declined: "Declined", changing: "Execution unconfirmed",
   complete: "Completed", sent: "Sent", simulated: "Simulated", failed: "Failed", request_unknown: "Outcome unconfirmed",
@@ -208,6 +208,11 @@ export function createAutomation({ api, refresh, openThread, undo }) {
       if (row.request?.body != null) dataField(fields, "Request", JSON.stringify(row.request.body, null, 2));
     }
     if (fields.childElementCount) article.append(fields);
+    if (category === "skills" && row.args?.markdown) {
+      const details = el("details", "automation-result-details");
+      details.append(el("summary", "", "Review proposed Markdown"), el("pre", "", row.args.markdown));
+      article.append(details);
+    }
     if (confirmation) {
       article.append(el("p", "automation-instruction", row.args.instruction),
         el("p", "automation-label", "Upcoming runs"), times(row.upcoming, row.args.timezone));

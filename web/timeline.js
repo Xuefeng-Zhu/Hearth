@@ -13,6 +13,7 @@ const kinds = {
   browse: ["Web browsing", "monitor"], routing: ["Model routing", "route"], brain: ["Model fallback", "route"],
   voice: ["Voice", "mic"], artifact: ["Artifact", "file-text"], upload: ["Attachment", "paperclip"],
   page: ["Page", "page"], page_share: ["Page sharing", "share"],
+  skill: ["Skill", "skill"],
   undo: ["Undo", "retry"], inbox: ["Inbox", "inbox"], email: ["Email", "mail"],
   approval: ["Approval", "shield"], task: ["Recurring task", "clock"],
   panel: ["Home panel", "home"], checkpoint: ["Checkpoint", "history"], thread: ["Side chat", "message"], tool: ["Tool", "wrench"],
@@ -80,7 +81,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["approval", "task", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share"]
+    action: ["approval", "task", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -249,9 +250,10 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
     const button = card.querySelector(".timeline-undo");
     button.setAttribute("aria-expanded", String(!target.hidden));
     if (!target.hidden && !target.firstElementChild) {
-      const itemChange = ["artifact", "inbox", "reminder", "page"].includes(row.kind) || action.memory_change || action.undo_task;
+      const itemChange = ["artifact", "inbox", "reminder", "page", "skill"].includes(row.kind) || action.memory_change || action.undo_task;
       const message = row.redoable ? "Apply this memory change again?"
         : row.kind === "page" ? "Undo this page change?"
+        : row.kind === "skill" ? "Undo this skill change?"
         : row.kind === "artifact" ? "Undo this artifact change?"
           : row.kind === "inbox" ? "Undo the changes from this email?"
           : row.kind === "reminder" ? "Cancel this reminder?"

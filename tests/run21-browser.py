@@ -16,7 +16,7 @@ from hearth.storage import ROOT, Storage
 from test_uploads import image_bytes, pdf_bytes
 
 STAMP = "2026-11-25T01:16:00+00:00"
-ORDER = ["Home", "Chat", "Timeline", "Artifacts", "Reminders", "Inbox", "Connections", "Memory", "Settings"]
+ORDER = ["Home", "Chat", "Timeline", "Artifacts", "Reminders", "Inbox", "Connections", "Memory", "Skills", "Settings"]
 BOOK = {"title": "Seattle travel budget", "sheets": [
     {"name": "Budget", "headers": ["TripExpenseCategory", "ProjectedCostInUSD",
                                   "DetailsForTravelPlanning", "ResponsiblePersonForPayment"],

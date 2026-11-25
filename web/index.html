@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/home.css">
   <link rel="stylesheet" href="/pages.css">
   <link rel="stylesheet" href="/automation.css">
+  <link rel="stylesheet" href="/skills.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -32,6 +33,7 @@
         <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
         <button type="button" class="nav-link" data-view="connections"><span data-icon="plug"></span> Connections</button>
         <button type="button" class="nav-link" data-view="memory"><span data-icon="book"></span> Memory</button>
+        <button type="button" class="nav-link" data-view="skills"><span data-icon="skill"></span> Skills</button>
       </nav>
       <nav class="workspace-settings" aria-label="Preferences">
         <p class="workspace-status" role="status" hidden><span class="dot" aria-hidden="true"></span><span data-workspace-status></span></p>
@@ -104,6 +106,7 @@
             <div class="face-portrait" id="avatar-portrait"></div>
             <h3 id="avatar-name">Ember</h3>
             <p class="face-status" id="face-status" aria-hidden="true"></p>
+            <div id="face-skill" hidden></div>
             <div class="face-caption" id="face-captions" role="region" aria-label="Reply captions" tabindex="0" hidden></div>
             <div id="face-browse" class="cards"></div>
             <details id="face-actions" hidden>
@@ -126,6 +129,7 @@
               <img class="welcome-mark" src="/icons/icon.svg" width="60" height="60" alt="">
               <h2>Start a side chat</h2>
               <p>Talk through a topic here. Hearth can refer to Main and uses the same memory.</p>
+              <div id="side-skill" hidden></div>
             </section>
             <div class="transcript" id="transcript" aria-label="Conversation"></div>
           </div>
@@ -172,6 +176,14 @@
             <pre id="file-content"></pre>
           </article>
         </div>
+      </section>
+      <section class="view panel" id="skills-view" aria-labelledby="view-title" hidden>
+        <div class="section-intro skills-intro">
+          <div><h2>Playbook library</h2><p>Save repeatable workflows for Hearth to use in chat.</p></div>
+          <button type="button" class="skill-button skill-primary" id="skill-new"><span data-icon="plus" data-icon-size="17"></span> New skill</button>
+        </div>
+        <p class="meta" id="skills-status" role="status"></p>
+        <div id="skill-list" class="skill-list" aria-label="Playbooks"></div>
       </section>
       <section class="view panel" id="artifacts-view" aria-labelledby="view-title" hidden>
         <div class="artifact-library">
@@ -725,6 +737,7 @@
         <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
         <button type="button" class="nav-link" data-view="connections"><span data-icon="plug"></span> Connections</button>
         <button type="button" class="nav-link" data-view="memory"><span data-icon="book"></span> Memory</button>
+        <button type="button" class="nav-link" data-view="skills"><span data-icon="skill"></span> Skills</button>
       </nav>
       <p class="notice" id="drawer-notice" role="status" hidden></p>
       <div id="mobile-thread-panel"></div>
@@ -820,6 +833,46 @@
       </header>
       <div class="artifact-drawer-body" id="artifact-detail-body"></div>
     </div>
+  </dialog>
+  <dialog id="skill-editor" class="skill-editor" aria-labelledby="skill-title">
+    <form id="skill-form">
+      <header class="skill-editor-header">
+        <div>
+          <h2 id="skill-title">Skill</h2>
+          <p class="meta" id="skill-description"></p>
+        </div>
+        <button type="button" class="skill-button" id="skill-close" aria-label="Close skill editor" autofocus><span data-icon="x" data-icon-size="20"></span></button>
+      </header>
+      <div class="skill-editor-body">
+        <div class="skill-editor-toolbar">
+          <div class="skill-mode" role="group" aria-label="Editor mode">
+            <button type="button" class="skill-button" id="skill-source-mode" aria-pressed="true">Markdown</button>
+            <button type="button" class="skill-button" id="skill-preview-mode" aria-pressed="false">Preview</button>
+          </div>
+          <label id="skill-history" hidden>Version history <select id="skill-versions"></select></label>
+        </div>
+        <div id="skill-source">
+          <label class="visually-hidden" for="skill-markdown">Skill Markdown</label>
+          <textarea id="skill-markdown" spellcheck="false" maxlength="12000" rows="12" aria-describedby="skill-markdown-help"></textarea>
+          <p id="skill-markdown-help" class="meta">Include name, description, when_to_use, and tools in the YAML front matter.</p>
+        </div>
+        <div id="skill-preview" class="skill-preview" role="region" aria-label="Markdown preview" tabindex="0" hidden></div>
+      </div>
+      <footer class="skill-editor-footer">
+        <p class="meta" id="skill-feedback" role="status"></p>
+        <div class="skill-delete-confirm" id="skill-delete-confirm" hidden>
+          <p>Delete this skill? You can restore it from Timeline.</p>
+          <button type="button" class="skill-button" id="skill-delete-cancel">Cancel</button>
+          <button type="button" class="skill-button skill-danger" id="skill-delete-confirm-button">Delete skill</button>
+        </div>
+        <div class="skill-editor-actions">
+          <button type="button" class="skill-button skill-danger" id="skill-delete"><span data-icon="trash" data-icon-size="17"></span> Delete</button>
+          <button type="button" class="skill-button" id="skill-duplicate"><span data-icon="copy" data-icon-size="17"></span> Duplicate to edit</button>
+          <button type="button" class="skill-button" id="skill-try"><span data-icon="message" data-icon-size="17"></span> Try it</button>
+          <button type="submit" class="skill-button skill-primary" id="skill-save">Save skill</button>
+        </div>
+      </footer>
+    </form>
   </dialog>
   <dialog id="automation-dialog" class="card automation-dialog" aria-labelledby="automation-dialog-title"></dialog>
 </body>

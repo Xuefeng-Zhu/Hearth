@@ -12,6 +12,7 @@ import { icon, iconButton, mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
 import { createHome } from "./home.js";
 import { createAutomation } from "./automation.js";
+import { createSkills, skillChip } from "./skills.js";
 
 mountIcons();
 
@@ -112,6 +113,7 @@ const automation = createAutomation({
     await openView("chat");
   },
 });
+const skills = createSkills({ api, openChat: openSkillChat });
 const homePage = createHome({
   api, openView, openWeatherSettings, openPanelChat, openDemo,
   openFile: (file, trigger) => artifactLibrary.open(file.id, trigger, file),
@@ -260,12 +262,15 @@ function replyArtifacts(message) {
   return [...linked, ...legacyPages];
 }
 
-function renderFace(local, messages, actions, remoteBrowse) {
+function renderFace(local, messages, actions, remoteBrowse, remoteSkill) {
   if (avatarMode !== "face") return;
   const active = local.find((turn) => (turn.user || turn.approval) && !turn.reply && !turn.finished);
   const latest = [...local].reverse().find((turn) => turn.reply || turn.error);
   const saved = messages.findLast((message) => message.role === "assistant");
   const reply = latest?.reply || saved;
+  const skill = active ? active.skill : remoteSkill || reply?.skill;
+  byId("face-skill").hidden = !skill;
+  byId("face-skill").replaceChildren(...(skill ? [skillChip(skill)] : []));
   updateFaceCaption(active ? active.text : latest?.error || reply?.content || "");
   const items = active ? [...active.actions.values()]
     : (reply?.action_ids || []).map((id) => actions.get(id) || latest?.actions.get(id)).filter(Boolean);
@@ -618,7 +623,7 @@ function checkCollapsedReplies() {
 }
 window.addEventListener("resize", checkCollapsedReplies);
 
-function messageBubble(role, content, { message, status, prompt, working, attachments = [] } = {}) {
+function messageBubble(role, content, { message, status, prompt, working, attachments = [], skill = message?.skill } = {}) {
   const item = node("article", `message ${role}`);
   let avatar;
   if (role === "assistant") {
@@ -627,6 +632,7 @@ function messageBubble(role, content, { message, status, prompt, working, attach
     item.append(avatar);
   }
   const body = node("div", "message-body");
+  if (skill) body.append(skillChip(skill));
   const text = role === "assistant" && message?.id ? markdown(content, "chat-markdown") : node("p", "", content);
   const cards = node("div", "cards");
   const notices = node("div");
@@ -823,6 +829,7 @@ function actionCard(action) {
     if (action.undone) card.append(node("p", "meta", "Canceled"));
   }
   if (action.detail) card.append(node("p", "", action.detail));
+  if (action.kind === "skill" && (action.undoable ?? !action.undone)) card.append(button("Undo", () => undo(action)));
   if (action.checkpoint) {
     card.append(node("p", "meta", `Checkpoint ${action.checkpoint.id}`));
     if (action.kind !== "gateway" && (action.kind !== "email" || action.mocked)) card.append(button("Undo", () => undo(action)));
@@ -915,10 +922,13 @@ function renderChat(force = false) {
   const actions = new Map((state?.actions || []).map((action) => [action.id, action]));
   const messages = state?.thread_id === currentThread ? state.messages : [];
   const local = [...turns].filter((turn) => turn.threadId === currentThread);
-  const remoteBrowse = threadList.find((thread) => thread.id === currentThread)?.activity?.browse;
+  const thread = threadList.find((item) => item.id === currentThread);
+  const remoteBrowse = thread?.activity?.browse;
+  const remoteSkill = thread?.activity?.skill;
   const signature = JSON.stringify([currentThread, messages, threadList.map((thread) => thread.title),
     avatarLook, avatarColor, busy,
-    state?.message_artifacts, state?.message_uploads, state?.timezone, remoteBrowse, local.map(({ approval, finished }) => [approval?.id, finished]),
+    state?.message_artifacts, state?.message_uploads, state?.timezone, remoteBrowse, remoteSkill, thread?.skill,
+    local.map(({ approval, finished }) => [approval?.id, finished]),
     messages.flatMap((message) => (message.action_ids || []).map((id) => actions.get(id)))]);
   if (!force && signature === chatSignature) return;
   chatSignature = signature;
@@ -928,6 +938,8 @@ function renderChat(force = false) {
   const nextRows = new Map();
   byId("welcome").hidden = currentThread !== mainThread.id || !!(messages.length || local.length);
   byId("side-welcome").hidden = currentThread === mainThread.id || !!(messages.length || local.length);
+  byId("side-skill").hidden = !thread?.skill;
+  byId("side-skill").replaceChildren(...(thread?.skill ? [skillChip(thread.skill, "Skill ready")] : []));
   let previousPrompt;
   for (const [index, stored] of messages.entries()) {
     const message = stored.id ? stored : { ...stored, id: `${currentThread}:${index + 1}` };
@@ -963,7 +975,8 @@ function renderChat(force = false) {
     if (saved.has(turn.reply?.id) || (!turn.user && !turn.approval && !turn.error)) continue;
     const content = turn.reply ? turn.reply.content : turn.text || turn.error || (turn.browse ? "" : turnProgress(turn));
     turn.bubble = messageBubble("assistant", content, {
-      message: turn.reply, prompt: { text: turn.prompt, attachments: turn.attachments }, working: !turn.reply && !turn.error && !turn.text && !turn.browse,
+      message: turn.reply, skill: turn.skill, prompt: { text: turn.prompt, attachments: turn.attachments },
+      working: !turn.reply && !turn.error && !turn.text && !turn.browse,
     });
     turn.bubble.text.hidden = !content && !!turn.browse;
     rows.push(turn.bubble.item);
@@ -977,16 +990,16 @@ function renderChat(force = false) {
       turn.bubble.cards.append(retry);
     }
   }
-  if (remoteBrowse && !local.length) {
-    const activity = messageBubble("assistant", "");
+  if ((remoteBrowse || remoteSkill) && !local.length) {
+    const activity = messageBubble("assistant", "", { skill: remoteSkill });
     activity.text.hidden = true;
-    activity.cards.append(browseCard(remoteBrowse));
+    if (remoteBrowse) activity.cards.append(browseCard(remoteBrowse));
     rows.push(activity.item);
   }
   reconcileChildren(transcript, rows);
   checkCollapsedReplies();
   chatRows = nextRows;
-  renderFace(local, messages, actions, remoteBrowse);
+  renderFace(local, messages, actions, remoteBrowse, remoteSkill);
   paintAvatars();
   if (follow) scrollDown();
 }
@@ -2086,6 +2099,7 @@ async function changePreferences(feature, operation) {
 }
 
 async function refreshView() {
+  if (view === "skills") return skills.load();
   if (view === "home") return homePage.load();
   if (view === "timeline") return timeline.show();
   if (view === "artifacts") return artifactLibrary.show();
@@ -2142,6 +2156,8 @@ async function openView(nextView, updateHistory = true) {
   } else if (view === "artifacts") {
     artifactLibrary.selectFormat(artifactFilterFromHash(location.hash) || "all");
     await artifactLibrary.show();
+  } else if (view === "skills") {
+    await skills.load();
   } else if (view === "reminders" || view === "inbox") {
     await refreshView();
     if (view === "inbox") delivery.poll();
@@ -2196,6 +2212,13 @@ async function openPanelChat(id) {
   await openView("chat");
   input.value = "What should I know about this panel?";
   resizeInput();
+  if (!mobile.isMobile()) input.focus();
+}
+
+async function openSkillChat(thread) {
+  rememberThread(thread);
+  activateThread(thread.id);
+  await openView("chat");
   if (!mobile.isMobile()) input.focus();
 }
 
@@ -2301,6 +2324,8 @@ function readChatEvent(turn, name, payload) {
   } else if (name === "done") {
     turn.reply = payload.message;
     avatarSignal(turn.threadId, { type: "done", remembered: !!turn.reply.remembered?.length });
+  } else if (name === "skill_loaded") {
+    turn.skill = payload;
   } else if (name === "error") {
     throw new Error(payload.message);
   } else if (name === "browse_active") {
@@ -2455,13 +2480,13 @@ async function undo(action, { confirmed = false, timelineTitle, redo = false } =
     }
     return;
   }
-  if (action.kind === "page") {
-    if (busy) return;
+  if (action.kind === "page" || action.kind === "skill") {
+    if (busy || (action.kind === "skill" && !confirmed && !window.confirm("Undo this skill change?"))) return;
     setBusy(true);
     try {
       await api("/api/undo", { id: action.id });
       await refreshView();
-      showNotice("Page change undone.");
+      showNotice(action.kind === "skill" ? "Skill change undone." : "Page change undone.");
     } catch (error) {
       showNotice(error.message);
     } finally {
