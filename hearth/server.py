@@ -6,6 +6,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from queue import Empty, SimpleQueue
@@ -507,11 +508,13 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-    def response_headers(self, status, content_type, length=None, *, email_preview=False):
+    def response_headers(self, status, content_type, length=None, *, email_preview=False, etag=None):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         if length is not None:
             self.send_header("Content-Length", str(length))
+        if etag is not None:
+            self.send_header("ETag", etag)
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -523,9 +526,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
-    def json(self, data, status=200):
+    def json(self, data, status=200, *, conditional=False):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.response_headers(status, "application/json; charset=utf-8", len(body))
+        etag = f'"{sha256(body).hexdigest()}"' if conditional else None
+        content_type = "application/json; charset=utf-8"
+        if etag is not None and self.headers.get("If-None-Match") == etag:
+            self.response_headers(304, content_type, etag=etag)
+            return
+        self.response_headers(status, content_type, len(body), etag=etag)
         self.wfile.write(body)
 
     def do_GET(self):
@@ -540,7 +548,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"ok": True, "checkpoints": self.app.checkpoints.mode})
             elif url.path == "/api/state":
                 thread_id = parse_qs(url.query).get("thread", [MAIN])[0]
-                self.json(self.app.info(thread_id))
+                self.json(self.app.info(thread_id), conditional=True)
             elif url.path == "/api/connections":
                 self.json(self.app.connection_info())
             elif url.path == "/api/voice/call/status":

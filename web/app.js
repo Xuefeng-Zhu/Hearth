@@ -42,6 +42,7 @@ let chatSignature;
 let chatRows = new Map();
 let threadBusy = false;
 let state;
+let stateTag;
 let view = "chat";
 let selectedFile;
 let selectedSource;
@@ -350,7 +351,10 @@ async function api(path, data, signal) {
   const options = data === undefined ? { signal } : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), signal,
   };
-  const response = await fetch(path, options);
+  return readResponse(await fetch(path, options));
+}
+
+async function readResponse(response) {
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error || "Hearth is temporarily unavailable.");
@@ -654,9 +658,15 @@ function renderChat(force = false) {
 async function refreshState() {
   const request = ++stateRequest;
   const thread = currentThread;
-  const next = await api(`/api/state?thread=${encodeURIComponent(thread)}`, undefined, AbortSignal.timeout(6000));
+  const headers = stateTag && state?.thread_id === thread ? { "If-None-Match": stateTag } : {};
+  const response = await fetch(`/api/state?thread=${encodeURIComponent(thread)}`, {
+    headers, signal: AbortSignal.timeout(6000),
+  });
+  if (response.status === 304) return request === stateRequest && thread === currentThread;
+  const next = await readResponse(response);
   if (request !== stateRequest || thread !== currentThread) return false;
   state = next;
+  stateTag = response.headers.get("ETag");
   byId("start-call").disabled = typeof state.voice_call_available !== "boolean";
   threadList = state.threads;
   if (state.thread_id !== currentThread) {

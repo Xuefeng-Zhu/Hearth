@@ -181,6 +181,16 @@ class HearthTest(unittest.TestCase):
         stream.finish()
         self.assertEqual(emitted, ["Hello ", "[redacted] "])
 
+    def test_reply_stream_redacts_an_incomplete_private_key_block(self):
+        from hearth.reply_text import ReplyStream
+
+        emitted = []
+        stream = ReplyStream(emitted.append)
+        for chunk in ["Before the key.\n", "-----BE", "GIN TEST PRIVATE KEY-----\n", "private material\n"]:
+            stream.write(chunk)
+        stream.finish()
+        self.assertEqual("".join(emitted), "Before the key.\n[redacted]\n\n")
+
     def test_self_closing_and_stray_tool_tags_preserve_following_text(self):
         from hearth.reply_text import ReplyStream, clean_reply
 
@@ -292,6 +302,13 @@ class HearthTest(unittest.TestCase):
                 opener.open(Request(base + "/api/chat", data=raw, headers={"Content-Type": "application/json"}))
             self.assertEqual(error.exception.code, 400)
         self.assertFalse(get("/api/state")["messages"])
+        with opener.open(base + "/api/state", timeout=5) as response:
+            original_tag = response.headers["ETag"]
+        self.assertTrue(original_tag)
+        with self.assertRaises(HTTPError) as cached:
+            request("/api/state", headers={"If-None-Match": original_tag})
+        self.assertEqual(cached.exception.code, 304)
+        self.assertEqual(cached.exception.read(), b"")
         for route, payload in (("/api/connections/rescan", {}), ("/api/memory/search", {"query": "vegetarian"})):
             ready = threading.Event()
             release = threading.Event()
@@ -314,6 +331,7 @@ class HearthTest(unittest.TestCase):
                 worker.join()
         body, _ = request("/api/chat", {"message": "Wipe topics/thanksgiving.md"})
         self.assertIn("event: token", body)
+        self.assertEqual(request("/api/state", headers={"If-None-Match": original_tag})[1], 200)
         action = get("/api/state")["actions"][-1]
         timeline = get("/api/timeline")["entries"]
         card, = [row for row in timeline if row.get("action_id") == action["id"]]

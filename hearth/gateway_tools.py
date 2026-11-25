@@ -21,7 +21,9 @@ CREDENTIAL_TEXT = re.compile(
     r"|https?://[A-Za-z0-9.-]+\.sprites\.app\b[^\s\"<>]*"
     r"|postgres(?:ql)?://[^\s\"<>]+"
 )
-PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S)
+PRIVATE_KEY = re.compile(
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S,
+)
 CREDENTIAL_ASSIGNMENT = re.compile(
     r"""(?ix) ( ["']? \b (?: api[\s_-]?key | access[\s_-]?token | refresh[\s_-]?token |
     sprites?[\s_-]?token | authorization | password | client[\s_-]?secret | private[\s_-]?key )
