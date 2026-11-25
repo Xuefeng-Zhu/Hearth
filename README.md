@@ -32,6 +32,14 @@ In Hearth, click **Re-scan**. Discovery also runs at server startup and when you
 
 **Test** appears where Hearth has a read-only GET path. It makes one request after the provider is connected and reports the outcome separately from discovery. Save the **Index name** for Pinecone or **Inbox ID** for AgentMail on the same page. See [STATUS.md](STATUS.md) for settings for the four pinned connectors.
 
+### Choose the brain
+
+Open **Settings → Brain**. **Auto** is the default and tries Muse Spark first, followed by other connected chat providers and then Mock. Pick a provider to give it priority, or choose **Mock** to run the offline demo. The menu marks connected integrations that lack a chat adapter.
+
+Choose a model from the live list, or select **Enter a model ID…** to enter a provider-specific ID. Hugging Face lists text chat models and defaults to `Qwen/Qwen3-Coder-Next:fastest`. **Test** sends a short prompt and shows the reply and elapsed time. **Save** takes a checkpoint, writes the selection to `~/hearth/config/connectors.local.json` on the Sprite, and applies it immediately. [Hugging Face model discovery](https://huggingface.co/docs/inference-providers/en/hub-api#list-openai-compatible-models)
+
+When a brain fails, chat names the provider and the next attempt, and Timeline records the fallback. After a workspace action has started, the next brain continues with a text-only reply and the existing action cards. Hugging Face uses native streaming tool calls and can switch to JSON instructions when the model rejects the tool request.
+
 ### Use a connected provider in chat
 
 Ask Hearth to use a connected provider. On the Mock brain, use `Gateway github GET /user`. To supply JSON, use `Gateway github POST /repos/OWNER/REPO/issues | {"title":"Example"}` with a repository where you intend to open an issue.
@@ -42,7 +50,7 @@ The generic gateway tool sends a provider-relative request through Sprites. GET 
 
 - `hearth.server` serves the browser app and JSON API. Chat uses server-sent events for reply text and action cards. The agent uses tools for memory, search, email proposals, reminders, and checkpoints. Any provider authorized by discovery is available to the generic gateway tool.
 - Memory lives in `USER.md`, `people/*.md`, `topics/*.md`, and `daily/YYYY-MM-DD.md`. Chat, actions, and reminders share a lock-protected JSON state file. The web and scheduler run as separate Sprite services.
-- The offline mock uses the same tool interface as the model adapters. Hearth tries Meta Muse Spark first, followed by connected providers in this order: OpenRouter, OpenAI, Anthropic, Gemini, and Ollama Cloud. Mock is the final fallback. The header shows the active brain. An interrupted model turn stops after any executed tool to avoid replaying actions.
+- The offline mock uses the same tool interface as the model adapters. The header shows the active brain while Settings shows the saved preference.
 - Provider calls go through the Sprites gateway without an Authorization header. Hearth stores connector IDs and supported settings. Fly holds the credentials. Tavily supplies web search. Pinecone embeds and indexes note excerpts using a namespace tied to the current memory revision. Local keyword recall works offline and when Pinecone is unavailable. AgentMail sends only after approval. Without AgentMail, approval records a simulated send locally. [Provider setup details](STATUS.md)
 - Undo restores the entire Sprite filesystem, including later chat, memory, reminders, and deployed files. The local backend restores the application data directory. Delivered email and remote Pinecone data stay with their providers.
 

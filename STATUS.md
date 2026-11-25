@@ -2,18 +2,20 @@
 
 ## Verified
 
+- Settings offers Auto, connected AI providers, and Mock. The private Sprite is saved on **Hugging Face · Qwen3-Coder-Next:fastest**. The live model menu listed 101 chat models, and the final Test returned “Hearth is ready.” in 965 ms. The saved choice survived redeployment.
+- The Thanksgiving shortcut ran from inside the Sprite on Hugging Face. The final check streamed 116 text events, staged a pending invitation to the two sample addresses, and scheduled an in-app reminder. The invitation remains awaiting approval.
+- Chromium verified the provider and model controls, Test, Save, the live header, and the approval card, including a 390px mobile layout check. The Settings capture is at `/workspace/tmp/hearth-qa/hearth-settings.png`.
 - Deployed to the private `hearth` Sprite in `xuefeng-zhu`. Inside the Sprite, `localhost:8080/health` returned `{"ok": true, "checkpoints": "sprite"}`. A repeat deploy reused the same release. The service manager showed `web` and `scheduler` running. URL authentication is `sprite`.
 - The native `sprite-env checkpoints` commands created and listed a checkpoint, then restored a test file to its original contents. The app independently verified its own Undo flow: the cleared Thanksgiving note appeared blank, its checkpoint appeared in Timeline, and the original Markdown returned after the Sprite restarted.
 - The Sprite streamed the Thanksgiving turn, staged an invitation for approval, recorded a simulated send after approval, and delivered an in-app reminder. The verification restored the pre-demo state afterward. The sample notes are ready for the next run.
-- The catalog matches all 61 entries on Fly’s ecosystem page. Discovery includes providers encountered at runtime, and the four Hearth essentials appear first. Thirty-two entries have a read-only Test path. [Fly ecosystem catalog](https://fly.io/sprites/ecosystem/), [Fly connector reference](https://docs.fly.io/sprites/concepts/connectors)
-- The private Sprite returned `{"ok": true, "checkpoints": "sprite"}` from `/health`. `/api/connections` reported all 61 providers as **Not set up** with **Mock** as the active brain.
-- Twenty-five offline tests passed. Coverage includes the catalog, unknown and revoked providers, gateway headers and paths, read-only tests, fallback order, Anthropic and Gemini tool turns, and checkpoint-first approvals with replay protection.
+- The catalog contains 61 entries. Discovery includes providers encountered at runtime, and the four Hearth essentials appear first. Thirty-three entries have a read-only Test path, including Hugging Face at `v1/models`. [Fly ecosystem catalog](https://fly.io/sprites/ecosystem/), [Fly connector reference](https://docs.fly.io/sprites/concepts/connectors)
+- Twenty-eight offline tests passed. Coverage includes checkpointed brain selection, live-list filtering, streamed Hugging Face tool calls and JSON fallback, Timeline notices, and approval replay protection.
 - Chromium verified the pinned cards, search, category filter, empty results, and re-scan at desktop and mobile widths using the deployed Connections API and the deployed asset versions. The desktop capture is at `/workspace/tmp/hearth-qa/hearth-catalog.png`.
 
 ## Mocked and pending
 
-- The gateway discovery response contained zero authorized connections. The deployed model is the deterministic mock, memory recall uses local keyword search, Tavily is disabled, and approved email goes to a local simulated outbox. The Hacksgiving connector requirement is pending until an authorized connector is configured and exercised. A dashboard connector that has never authorized this Sprite may remain invisible to discovery until you grant access. [Sprites gateway discovery](https://docs.fly.io/sprites/concepts/connectors#using-connectors-with-a-coding-agent)
-- Live model completions, connector tests, and approved upstream requests require an authorized connection for verification. The mock uses sample recipients under `example.invalid`. Use an address you control when verifying live mail.
+- Hugging Face is authorized and exercised live. Memory recall uses local keyword search, Tavily is disabled, and approved email goes to a local simulated outbox. The sample recipients use `example.invalid`. Live mail verification needs an AgentMail connection and an address you control. [Sprites gateway discovery](https://docs.fly.io/sprites/concepts/connectors#using-connectors-with-a-coding-agent)
+- Other chat providers and failover during a live provider outage are pending live verification. Offline tests exercise fallback and the Hugging Face JSON tool mode.
 - Reminders are delivered in Hearth's Timeline when the scheduler can run. An authenticated external timer is needed to wake a hibernating Sprite with the browser closed. See the wake command in [README.md](README.md).
 
 ## Add the four Fly connectors
