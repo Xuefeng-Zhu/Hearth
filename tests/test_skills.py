@@ -154,6 +154,16 @@ class SkillsTest(unittest.TestCase):
         self.assertEqual(done["artifacts"][0]["format"], "xlsx")
         self.assertEqual(self.library.detail(chip["id"])["use_count"], 1)
 
+    def test_scheduling_the_family_brief_does_not_run_it(self):
+        events = []
+        self.agent.chat("Every Sunday at 8am give me a weekly family brief.", lambda *event: events.append(event))
+        self.assertNotIn("skill_loaded", [name for name, _ in events])
+        proposal, = approvals.records(self.storage, pending=True)
+        self.assertEqual(proposal["tool"], "create_recurring_task")
+        self.assertEqual(self.library.detail("weekly-family-brief")["use_count"], 0)
+        self.agent.chat("Show my weekly family brief with recurring tasks.", lambda *event: events.append(event))
+        self.assertIn("skill_loaded", [name for name, _ in events])
+
     def test_draft_only_hides_send_and_followup_forces_approval(self):
         self.agent.models = [{"provider": "test-brain", "model": "test"}]
         approvals.settings(self.storage, {"send": "allow"})

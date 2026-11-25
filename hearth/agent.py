@@ -243,6 +243,10 @@ DEMO_SHOPPING = {
 EXPLICIT_EMAIL_SEND = re.compile(
     r"^\s*(?:please\s+)?send\b|\b(?:and|then) send (?:it|the email|the draft)\s*[.!]?\s*$", re.I,
 )
+SCHEDULE_SETUP = re.compile(
+    r"^\s*(?:please\s+)?every\s|\b(?:schedule|automate|set up)\b[^\n.!?]{0,30}\b(?:weekly|daily|recurring)\b"
+    r"|\b(?:add|create)\s+(?:a\s+)?recurring task\b", re.I,
+)
 DEMO_ARTIFACTS = (("create_pdf", DEMO_PLAN), ("create_spreadsheet", DEMO_SHOPPING))
 DEMO_FILES = {
     "pdf": ("create_pdf", DEMO_PLAN),
@@ -590,6 +594,7 @@ class Agent:
                 "event": event, "demo": demo, "artifacts": {},
                 "panel_context": panel_context, "panel_request": router.panel_request(prompt),
                 "browse_results": {}, "browse_images": [], "approvals": {}}
+        turn["schedule_setup"] = not task_run and bool(SCHEDULE_SETUP.search(prompt))
         page_intent = None
         pinned = thread_settings.get("skill")
         recent_page = self.pages.recent(thread_id) if self.pages else None
@@ -605,7 +610,7 @@ class Agent:
                 time.sleep(0.75)
             event("started", {"message": message, "thread": thread,
                               **({"attachments": attachments} if attachments else {})})
-            if pinned or (not demo and not page_intent and not turn["panel_request"]):
+            if pinned or (not demo and not page_intent and not turn["panel_request"] and not turn["schedule_setup"]):
                 identity = pinned["id"] if pinned else self.match_builtin_skill(prompt)
                 previous = history[-2] if len(history) > 1 else {}
                 if not identity and previous.get("skill", {}).get("id") == "draft-email" and EXPLICIT_EMAIL_SEND.search(prompt):
@@ -713,7 +718,7 @@ class Agent:
                 f"Sample addresses: {addresses}"
             )
         definitions = TOOL_DEFINITIONS.copy()
-        if turn["demo"]:
+        if demo_addresses is not None or turn["schedule_setup"]:
             del definitions["skill_load"]
         if not self.artifacts:
             for name in FILE_TOOL_MODES:
@@ -794,6 +799,7 @@ class Agent:
 
     @staticmethod
     def match_builtin_skill(prompt):
+        prompt = re.sub(r"^\s*(?:please\s+|(?:can|could|would) you\s+)+", "", prompt, flags=re.I)
         if "|" in prompt or re.match(r"^\s*(?:remember|save|edit|update|delete|what is)\b", prompt, re.I):
             return None
         for identity, pattern in skills.BUILTIN_MATCHES.items():
