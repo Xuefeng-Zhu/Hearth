@@ -87,17 +87,17 @@ class Gateway:
         except (HTTPException, URLError, OSError):
             raise ConnectorError("The gateway is unavailable.") from None
 
-    def json(self, config, path, body=None, headers=None, *, timeout=25):
-        return self.read_json(self.open(config, path, body, headers, timeout=timeout))
+    def json(self, config, path, body=None, headers=None, *, timeout=25, allow_array=False):
+        return self.read_json(self.open(config, path, body, headers, timeout=timeout), allow_array=allow_array)
 
     @staticmethod
-    def read_json(response):
+    def read_json(response, *, allow_array=False):
         try:
             with response:
                 data = json.loads(response.read(8 * 1024 * 1024))
         except (HTTPException, OSError, ValueError):
             raise ConnectorError("The connector returned an unreadable response.") from None
-        if not isinstance(data, dict):
+        if not isinstance(data, (dict, list) if allow_array else dict):
             raise ConnectorError("The connector returned an unexpected response.")
         return data
 
