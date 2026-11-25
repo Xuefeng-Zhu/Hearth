@@ -1410,7 +1410,7 @@ function updatePreferenceControls(feature) {
       huggingface: "Rank local excerpts with Hugging Face embeddings.",
       pinecone: "Search the Pinecone index with Local fallback.",
     }[backend];
-    byId("memory-model").disabled = backend !== "huggingface";
+    byId("memory-model-field").hidden = backend !== "huggingface";
     byId("memory-similarity").disabled = backend === "local";
     byId("memory-sync").disabled = !!pending || !!preferences.memory.syncing || !info.available.pinecone;
     byId("memory-reindex").disabled = !!pending || !!indexing || !!preferences.memory.syncing;

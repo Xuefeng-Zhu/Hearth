@@ -296,7 +296,15 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .search-connections button { margin: 0; padding: 3px 7px; font-size: 12px; }
 .remembered { margin: 8px 0 3px; }
 .remembered summary { display: list-item; cursor: pointer; border-radius: 999px; padding: 4px 10px; color: var(--accent); background: #f4eef4; font-size: 12px; font-weight: 650; }
-.remembered button { padding: 2px 5px; margin: 4px 6px 0 0; font-size: 12px; }
+.remembered button {
+  padding: 4px 8px;
+  margin: 5px 6px 0 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+}
 @media (max-width: 900px) { .settings-layout { grid-template-columns: minmax(0, 1fr); } }
 
 /* The same SVG rig draws the chat avatar, portraits, and appearance previews. */
@@ -979,6 +987,6 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 
 .memory-index-details dt { color: var(--muted); }
 .memory-index-details dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
-.memory-index-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
-.memory-test-filters { width: 100%; }
+.memory-index-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .4rem; }
+.memory-test-filters { width: 100%; margin-top: .55rem; }
 .memory-test-filters select { width: 100%; }
