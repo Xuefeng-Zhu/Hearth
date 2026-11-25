@@ -26,6 +26,7 @@ from .threads import MAIN, Threads, compact
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/mobile.js": ("mobile.js", "text/javascript; charset=utf-8"),
     "/dom.js": ("dom.js", "text/javascript; charset=utf-8"),
     "/reminders.js": ("reminders.js", "text/javascript; charset=utf-8"),
     "/reminder-action": ("reminder-action.html", "text/html; charset=utf-8"),
@@ -36,6 +37,8 @@ STATIC = {
     "/voice-call.js": ("voice-call.js", "text/javascript; charset=utf-8"),
     "/vendor/vocalbridge.mjs": ("vendor/vocalbridge.mjs", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
+    "/mobile.css": ("mobile.css", "text/css; charset=utf-8"),
+    "/theme.css": ("theme.css", "text/css; charset=utf-8"),
     "/timeline.js": ("timeline.js", "text/javascript; charset=utf-8"),
     "/artifacts.js": ("artifacts.js", "text/javascript; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),

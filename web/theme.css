@@ -1,0 +1,119 @@
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    color: #eee7ee;
+    background: #211b24;
+    --muted: #c0b2c2;
+    --accent: #e0b7ec;
+    --accent-light: #402c49;
+    --accent-fill: #70477e;
+    --border: #493b4e;
+    --paper: #2c2431;
+    --panel-muted: #342a39;
+    --blue: #bbdbf7;
+    --blue-paper: #273748;
+    --green: #a5debd;
+    --green-paper: #283c33;
+    --gold: #f0ccab;
+    --gold-paper: #433226;
+    --rose: #f4b7c4;
+    --rose-paper: #4b2b38;
+  }
+
+  :is(button, textarea, input, select, a, summary):focus-visible { outline-color: var(--accent); }
+  .sidebar, .thread-panel { background: var(--panel-muted); }
+  .workspace-sheet .thread-panel { background: transparent; }
+  .nav-link:hover, .nav-link[aria-current], .thread-link:hover, .thread-link[aria-current],
+  .notice, .connection-promotion, .connection-tabs, .artifact-layout-toggle,
+  .prompts button:hover, .new-thread:hover, .thread-controls button:hover,
+  .files button:hover, .files button[aria-pressed="true"], .call-quiet:hover,
+  .call-quiet[aria-pressed="true"], .artifact-card-title:hover {
+    background: var(--accent-light);
+    color: var(--accent);
+  }
+
+  :is(.call-button, .call-button:hover, .composer #send, .rescan, .rescan:hover,
+    .primary, .primary:hover, .primary-setting, .primary-setting:hover, .brain-form button.primary,
+    .timeline-undo, .timeline-confirm .timeline-restore) {
+    color: white;
+    background: var(--accent-fill);
+    border-color: var(--accent-fill);
+  }
+  :is(.composer #mic, .composer #mic:hover, .composer #start-call, #call-thinking, .card button,
+    .thread-controls button, .new-thread, .call-quiet, .avatar-view, .timeline-filters button[aria-pressed="true"],
+    .artifact-control, .timeline-approve, .share-message) {
+    color: var(--accent);
+    border-color: var(--border);
+  }
+  :is(.composer #mic, .composer #mic:hover, .composer #start-call, .card button, .timeline-filters button[aria-pressed="true"]) {
+    background: var(--accent-light);
+  }
+  .composer #mic[aria-pressed="true"], .artifact-danger:hover, .artifact-delete {
+    background: var(--rose-paper);
+    border-color: var(--border);
+    color: var(--rose);
+  }
+  .artifact-danger, .thread-controls button:hover:last-child { color: var(--rose); }
+
+  :is(.composer, .prompts button, .artifact-card, .artifact-paper, .artifact-versions,
+    .artifact-control, .artifact-control:hover, .artifact-layout-toggle button[aria-pressed="true"],
+    .artifact-edit textarea, .connection-tabs button[aria-selected="true"], .timeline-confirm,
+    .face-view .thread-header, .face-caption) {
+    background: var(--paper);
+    border-color: var(--border);
+  }
+  :is(.thread-select, .connection-filters input, .connection-filters select, .connector-controls input,
+    .brain-form input, .brain-form select, .preference-fields textarea, .delivery-form :is(input, select, textarea),
+    .timeline-fields :is(input, select), .query-form input, .artifact-toolbar :is(input, select)) {
+    color: inherit;
+    background: var(--paper);
+    border-color: var(--border);
+  }
+  :is(.composer, .artifact-card, .artifact-drawer-header, .artifact-card-foot, .artifact-versions li,
+    .voice-bar, .brain-form fieldset, .call-captions li, .delivery-details > div, .inbox-facts > div) {
+    border-color: var(--border);
+  }
+  :is(.call-sheet, .artifact-drawer, .face-view, .face-stage) { background: #211b24; }
+  :is(.call-stage, .call-setup, .artifact-empty, .avatar-choices button,
+    .timeline-detail, .timeline-raw pre, .chat-markdown :is(code, pre), .inbox-source pre,
+    .artifact-markdown code, .artifact-table th, .artifact-table tr:nth-child(even)) {
+    background: var(--panel-muted);
+    border-color: var(--border);
+  }
+  :is(.avatar-choices button[aria-pressed="true"], .timeline-tag, .timeline-filters button span,
+    .connection-status, .connection-badge, .artifact-badge, .artifact-kind-icon,
+    .delivery-count, .delivery-chip, .inbox-proposal, .timeline-card-head:is(:hover, :focus-visible)) {
+    background: var(--accent-light);
+    color: var(--accent);
+  }
+
+  :is(.prompts button, .avatar-view, .files button, .card pre, .file-preview pre, .artifact-card-title,
+    .call-captions, #call-phase, .face-stage h3, .face-caption, .artifact-table th, .call-setup p,
+    .timeline-confirm p, .brain-form .brain-feedback) { color: inherit; }
+  :is(#avatar-caption, .face-status, .voice-bar, #voice-interim, .call-feedback, #call-demo-label,
+    .artifact-sync, .artifact-card-foot, .artifact-detail-status, .connection-card .connection-uses,
+    .artifact-layout-toggle button, .timeline-detail-fields dd, .artifact-search > span:first-child,
+    .brain-form label) { color: var(--muted); }
+  :is(.artifact-badge.is-box, .artifact-badge.is-transcript, [data-kind="transcript"] .artifact-kind-icon,
+    .artifact-chat-chip, .artifact-box-link, .artifact-box-status[data-connected="true"]) {
+    color: var(--blue);
+    background: var(--blue-paper);
+    border-color: var(--border);
+  }
+  :is(.artifact-badge.is-list, [data-kind="list"] .artifact-kind-icon, .delivery-chip.delivery-sent) {
+    color: var(--green);
+    background: var(--green-paper);
+  }
+  :is(.artifact-badge.is-note, [data-kind="note"] .artifact-kind-icon, .artifact-connection, .delivery-chip.delivery-queued) {
+    color: var(--gold);
+    background: var(--gold-paper);
+    border-color: var(--border);
+  }
+  :is(.artifact-badge.is-export, [data-kind="export"] .artifact-kind-icon, .delivery-chip.delivery-failed) {
+    color: var(--rose);
+    background: var(--rose-paper);
+  }
+  :is(.artifact-sync.is-synced, .connection-card .connection-test) { color: var(--green); }
+  .artifact-sync.is-error { color: var(--rose); }
+  :is(.connection-card .connection-test.failed, .connection-card .connection-test.denied) { color: var(--gold); }
+}

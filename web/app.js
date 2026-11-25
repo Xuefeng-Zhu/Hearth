@@ -6,6 +6,7 @@ import { createTimeline } from "./timeline.js";
 import { createArtifacts, markdown } from "./artifacts.js";
 import { channelChip, createReminders } from "./reminders.js";
 import { reconcileChildren } from "./dom.js";
+import { setupMobile } from "./mobile.js";
 
 const byId = (id) => document.getElementById(id);
 const nav = [...document.querySelectorAll("[data-view]")];
@@ -14,6 +15,9 @@ const input = byId("message");
 const send = byId("send");
 const notice = byId("notice");
 const chatScroll = byId("chat-scroll");
+const mobile = setupMobile({ nearBottom, scrollDown });
+const settingsTabs = [...document.querySelectorAll("[data-settings]")];
+const settingsDisclosures = new Map();
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 const modelNames = {
   mock: "Mock", meta: "Muse Spark", openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Claude",
@@ -62,6 +66,7 @@ let poolModels = {};
 let poolDraft = [];
 let poolDirty = false;
 let settingsSection = "brain";
+let expandedSetting;
 let reindexPoll;
 const preferences = { memory: {}, search: {} };
 const timeline = createTimeline({ api, approve, undo, gatewayResults, isBusy: () => busy });
@@ -228,6 +233,7 @@ function applyAppearance() {
   byId("face-stage").hidden = !full;
   byId("chat-view").classList.toggle("avatar-off", hidden);
   byId("chat-view").classList.toggle("face-view", full);
+  mobile.placeAvatarControl();
   if (hidden) {
     byId("avatar-caption").hidden = true;
     updateText(byId("avatar-status"), "");
@@ -246,9 +252,12 @@ function applyAppearance() {
 }
 
 function chooseAvatarMode(mode) {
+  const leavingFace = avatarMode === "face" && mode !== "face";
+  if (mode === "face") mobile.closeThreads();
   avatarMode = mode;
   localStorage.setItem("hearth-avatar-view", mode);
   applyAppearance();
+  if (leavingFace && mobile.isMobile() && view === "chat") byId("open-threads").focus();
 }
 
 function whisperConnected() {
@@ -343,8 +352,9 @@ function button(label, action) {
 }
 
 function showNotice(message = "") {
-  notice.hidden = !message;
-  notice.textContent = message;
+  const target = byId("thread-sheet").open ? byId("thread-sheet-notice") : notice;
+  target.hidden = !message;
+  target.textContent = message;
 }
 
 async function api(path, data, signal) {
@@ -520,7 +530,10 @@ function renderThreads() {
   const focused = list.contains(document.activeElement) && document.activeElement.dataset.thread;
   avatarThreads.clear();
   list.replaceChildren(...entries.map((thread) => {
-    const item = button("", () => selectThread(thread.id));
+    const item = button("", () => {
+      mobile.closeThreads();
+      selectThread(thread.id);
+    });
     item.className = "thread-link";
     item.dataset.thread = thread.id;
     item.title = thread.title;
@@ -1560,10 +1573,19 @@ function readPreferences(feature) {
     include: scope("include"), exclude: scope("exclude") };
 }
 
-async function openSettings(section) {
+function expandSetting(section) {
+  expandedSetting = section;
+  for (const [key, disclosure] of settingsDisclosures) {
+    disclosure.setAttribute("aria-expanded", String(key === section));
+  }
+  if (mobile.isMobile()) settingsDisclosures.get(section)?.scrollIntoView({ block: "nearest" });
+}
+
+async function openSettings(section, expand = true) {
   settingsSection = section;
+  if (expand) expandSetting(section);
   clearTimeout(reindexPoll);
-  for (const item of document.querySelectorAll("[data-settings]")) {
+  for (const item of settingsTabs) {
     const active = item.dataset.settings === section;
     if (active) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
@@ -1664,6 +1686,7 @@ async function refreshView() {
 }
 
 async function openView(nextView, updateHistory = true) {
+  mobile.closeSheets();
   if (nextView !== "chat") voice.cancel();
   if (updateHistory && nextView === "connections" && !isConnectionsRoute()) {
     history.replaceState({ ...history.state, hearthView: view }, "");
@@ -1673,17 +1696,21 @@ async function openView(nextView, updateHistory = true) {
   }
   if (view === "timeline" && nextView !== view) timeline.hide();
   view = nextView;
+  byId("view-title").textContent = view[0].toUpperCase() + view.slice(1);
   clearTimeout(reindexPoll);
   for (const item of nav) {
     const active = item.dataset.view === view;
     if (active) {
       item.setAttribute("aria-current", "page");
-      byId("view-title").textContent = item.textContent.trim().split(/\s+/).at(-1);
     } else {
       item.removeAttribute("aria-current");
     }
     byId(`${item.dataset.view}-view`).hidden = !active;
   }
+  const more = byId("open-more");
+  const inTabBar = nav.some((item) => item.dataset.view === view && item.parentElement === more.parentElement);
+  if (inTabBar) more.removeAttribute("aria-current");
+  else more.setAttribute("aria-current", "page");
   paintAvatars();
   if (view === "connections") {
     renderConnections();
@@ -1692,7 +1719,7 @@ async function openView(nextView, updateHistory = true) {
     await mailCard;
     delivery.poll();
   } else if (view === "settings") {
-    await openSettings(settingsSection);
+    await openSettings(settingsSection, false);
   } else if (view === "artifacts") {
     await artifactLibrary.show();
   } else if (view === "reminders" || view === "inbox") {
@@ -1724,7 +1751,10 @@ function activateThread(threadId) {
 async function selectThread(threadId, focus = false) {
   activateThread(threadId);
   showNotice();
-  if (focus && view === "chat") input.focus();
+  if (focus && view === "chat") {
+    if (mobile.isMobile()) mobile.closeThreads();
+    else input.focus();
+  }
   try {
     await refreshView();
   } catch (error) {
@@ -2060,7 +2090,7 @@ document.addEventListener("keydown", (event) => {
     voice.cancel();
   } else if (event.key === "Escape" && view === "chat" && avatarMode === "face") {
     chooseAvatarMode("beside");
-    byId("avatar-view").focus();
+    if (!mobile.isMobile()) byId("avatar-view").focus();
   } else if (event.code === "Space" && !event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey) {
     if (spaceHeld) {
       event.preventDefault();
@@ -2085,6 +2115,10 @@ setInterval(() => {
 byId("composer").addEventListener("submit", (event) => {
   event.preventDefault();
   chat(input.value);
+});
+byId("voice-cancel").addEventListener("click", () => {
+  voice.cancel();
+  byId("mic").focus({ preventScroll: true });
 });
 byId("thread-select").addEventListener("change", (event) => selectThread(event.target.value));
 byId("new-thread").addEventListener("click", () => changeThread("create"));
@@ -2183,8 +2217,21 @@ byId("memory-query").addEventListener("input", (event) => {
 byId("forget-file").addEventListener("click", () => {
   if (selectedFile) forgetMemory(selectedSource || { path: selectedFile });
 });
-for (const tab of document.querySelectorAll("[data-settings]")) {
-  tab.addEventListener("click", () => openSettings(tab.dataset.settings));
+for (const tab of settingsTabs) {
+  const section = tab.dataset.settings;
+  const panel = byId(`settings-${section}`);
+  tab.addEventListener("click", () => openSettings(section));
+  const disclosure = button(tab.textContent, () => {
+    if (expandedSetting === section) expandSetting();
+    else openSettings(section);
+  });
+  disclosure.className = "settings-disclosure";
+  disclosure.setAttribute("aria-controls", panel.id);
+  disclosure.setAttribute("aria-expanded", "false");
+  settingsDisclosures.set(section, disclosure);
+  const heading = node("h2", "mobile-only settings-heading");
+  heading.append(disclosure);
+  byId("settings-sections").append(heading, panel);
 }
 for (const feature of ["memory", "search"]) {
   byId(`${feature}-settings-form`).addEventListener("submit", (event) => {
@@ -2221,7 +2268,14 @@ for (const prompt of document.querySelectorAll("[data-prompt]")) {
   prompt.addEventListener("click", () => chat(prompt.dataset.prompt));
 }
 for (const item of nav) {
-  item.addEventListener("click", () => openView(item.dataset.view));
+  item.addEventListener("click", () => {
+    if (item.closest(".mobile-tabs") && item.dataset.view === "chat" && view === "chat"
+        && !byId("chat-view").classList.contains("face-view")) {
+      mobile.showThreads();
+    } else {
+      openView(item.dataset.view);
+    }
+  });
 }
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
