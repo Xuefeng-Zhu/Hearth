@@ -296,8 +296,8 @@ async function screens(scheme, width, height) {
   await check("Artifacts empty");
   await page.locator("#artifact-search").fill("");
   await go(page, "memory");
-  await page.locator("#files button").first().waitFor();
-  await page.locator("#files button").first().click();
+  await page.getByRole("tab", { name: /People/ }).click();
+  await page.locator(".memory-note-body").waitFor();
   await check("Memory");
   await shot("memory");
   await go(page, "reminders");

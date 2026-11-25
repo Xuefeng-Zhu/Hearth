@@ -1,0 +1,69 @@
+.memory-intro { margin: 0 0 17px; }
+.memory-intro h2 { margin: 0 0 6px; color: var(--text); font-size: clamp(21px, 3vw, 29px); line-height: 1.2; }
+.memory-intro p, .memory-card p { margin: 0 0 12px; }
+.memory-intro p { color: var(--secondary-text); }
+#memory-find { max-width: none; }
+#memory-find input, .memory-field :is(input, textarea) { border-color: var(--muted); }
+#memory-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+#memory-view .memory-tab, #memory-view .memory-list-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 8px;
+  margin: 0;
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--paper);
+  color: var(--text);
+  text-align: left;
+  padding: 11px;
+  font-weight: 650;
+}
+.memory-tab small, .memory-list-item small { grid-column: 2; color: var(--secondary-text); font-weight: 400; }
+#memory-view .memory-tab[aria-selected="true"], #memory-view .memory-list-item[aria-pressed="true"] {
+  background: var(--nav-active); border-color: var(--focus); color: var(--selection-text);
+}
+#memory-status:not(:empty) { margin-top: 12px; color: var(--text); }
+#memory-area { margin-top: 14px; min-width: 0; }
+.memory-layout { display: grid; gap: 12px; }
+.memory-layout.has-list { grid-template-columns: minmax(158px, .65fr) minmax(0, 2fr); align-items: start; }
+.memory-card { min-width: 0; padding: clamp(14px, 2vw, 23px); background: var(--paper); border: 1px solid var(--border); border-radius: 12px; }
+.memory-card h3 { font-size: 19px; margin: 0 0 5px; overflow-wrap: anywhere; }
+.memory-card .memory-note-meta { margin: 0 0 16px; overflow-wrap: anywhere; }
+.memory-card button:not(.memory-primary) { display: inline-flex; align-items: center; gap: 6px; margin: 0; min-height: 36px; }
+.memory-card .memory-note-body { overflow-wrap: anywhere; color: var(--text); }
+.memory-note-body .markdown > :first-child { margin-top: 0; }
+.memory-note-source { white-space: pre-wrap; margin: 0; overflow-wrap: anywhere; padding: 8px; }
+.memory-list { display: grid; gap: 6px; padding: 7px; }
+#memory-view .memory-list-item { width: 100%; overflow-wrap: anywhere; }
+.memory-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+.memory-profile-form, .memory-note-editor { display: grid; gap: 14px; }
+.memory-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.memory-fieldset { min-width: 0; padding: 10px; margin: 0; border: 1px solid var(--border); border-radius: 8px; }
+.memory-fieldset legend { padding: 0 5px; font-weight: 650; }
+.memory-field { min-width: 0; display: grid; align-content: start; gap: 4px; font-size: 13px; color: var(--text); }
+.memory-field :is(input, textarea) {
+  width: 100%; min-height: 39px; padding: 8px; color: var(--text); background: var(--field-surface);
+  font: inherit; font-size: 16px; border: 1px solid var(--muted); border-radius: 6px;
+}
+.memory-field textarea { resize: vertical; }
+.memory-address { margin: 0 0 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.memory-address > button { justify-self: start; }
+#memory-view .memory-primary {
+  justify-self: start; margin: 0; min-height: 38px; border-color: var(--accent-fill);
+  background: var(--accent-fill); color: var(--on-solid); padding-inline: 14px;
+}
+.memory-related, .memory-policy { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 13px; }
+.memory-related h4 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 15px; }
+.memory-related p { margin: 0; }
+.memory-links { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 7px; }
+.memory-policy { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.memory-policy p { margin: 0; }
+@media (max-width: 600px) {
+  #memory-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  #memory-view .memory-tab { gap: 1px 5px; padding: 8px; }
+  .memory-layout.has-list { grid-template-columns: minmax(0, 1fr); }
+  .memory-layout .memory-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .memory-fields { gap: 9px; }
+  .memory-card button { min-height: 44px; }
+}

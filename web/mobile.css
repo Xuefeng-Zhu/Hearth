@@ -225,7 +225,6 @@
   }
   .delivery-form { grid-template-columns: minmax(0, 1fr); }
   .delivery-actions, .inbox-facts, .delivery-details { overflow-wrap: anywhere; }
-  .memory-browser { grid-template-columns: minmax(0, 1fr); }
 
   .connection-tabs {
     display: flex;

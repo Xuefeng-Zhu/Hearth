@@ -14,6 +14,7 @@ import { createHome } from "./home.js";
 import { createAutomation } from "./automation.js";
 import { createSkills, skillChip } from "./skills.js";
 import { createWorkersCard } from "./workers.js";
+import { createMemory } from "./memory.js";
 
 mountIcons();
 
@@ -59,9 +60,6 @@ let threadBusy = false;
 let state;
 let stateTag;
 let view = "home";
-let selectedFile;
-let selectedSource;
-let fileRequest = 0;
 let memoryFindRequest = 0;
 let busy = false;
 let connectionState;
@@ -146,7 +144,8 @@ const delivery = createReminders({
   stopSending: () => avatarSignal(currentThread, { type: "tool_finished" }),
 });
 const memoryNames = { auto: "Auto", pinecone: "Pinecone", local: "Local", keyword: "Local", huggingface: "Local · Hugging Face embeddings" };
-const folderNames = { root: "Root · USER.md", people: "people/", topics: "topics/", daily: "daily/" };
+const folderNames = { root: "Profile and approvals", people: "people/", locations: "locations/",
+  topics: "Topic notes", projects: "projects/", daily: "daily/" };
 const brainProvider = byId("brain-provider");
 const brainModel = byId("brain-model");
 const customModel = byId("brain-custom");
@@ -1158,53 +1157,17 @@ function memoryLabel(hit) {
   return `${hit.message_id ? hit.heading : hit.path} · line ${hit.line}`;
 }
 
-async function selectFile(path, hit) {
-  selectedFile = path;
-  selectedSource = hit;
-  const request = ++fileRequest;
-  for (const item of byId("files").children) {
-    item.setAttribute("aria-pressed", String(item.textContent === path));
-  }
-  const forget = byId("forget-file");
-  forget.hidden = true;
-  try {
-    const file = hit?.message_id
-      ? await api(`/api/memory/chat?thread=${encodeURIComponent(hit.thread_id)}&message=${encodeURIComponent(hit.message_id)}`)
-      : await api(`/api/memory?path=${encodeURIComponent(path)}`);
-    if (request !== fileRequest) return;
-    byId("file-name").textContent = hit?.message_id ? memoryLabel(file) : file.path;
-    const preview = byId("file-content");
-    if (hit?.message_id || !hit || !file.content) {
-      preview.textContent = file.excerpt || file.content || "This note is empty.";
-    } else {
-      preview.replaceChildren(...file.content.split(/\r?\n/).map((line, index) => {
-        const active = index + 1 >= hit.line && index + 1 <= hit.end_line;
-        return node("span", `file-line${active ? " is-highlighted" : ""}`, line || " ");
-      }));
-      preview.querySelector(".is-highlighted")?.scrollIntoView({ block: "nearest" });
-    }
-    forget.textContent = hit?.message_id ? "Forget message" : "Forget note";
-    forget.hidden = false;
-  } catch (error) {
-    if (request !== fileRequest) return;
-    byId("file-name").textContent = "Memory unavailable";
-    byId("file-content").textContent = error.message;
-  }
-}
+const memoryPage = createMemory({
+  api,
+  forget: (hit) => forgetMemory(hit),
+  approvals: async () => {
+    await openView("settings");
+    await openSettings("approvals");
+  },
+});
 
 async function renderMemory() {
-  const { files } = await api("/api/memory");
-  const list = byId("files");
-  list.replaceChildren(...files.map((path) => button(path, () => selectFile(path))));
-  const path = files.includes(selectedFile) || selectedSource?.message_id ? selectedFile
-    : files.includes("USER.md") ? "USER.md" : files[0];
-  if (path) {
-    await selectFile(path, selectedSource?.path === path ? selectedSource : undefined);
-  } else {
-    byId("forget-file").hidden = true;
-    byId("file-name").textContent = "No memory files";
-    byId("file-content").textContent = "";
-  }
+  await memoryPage.load();
 }
 
 async function openMemorySource(hit) {
@@ -1213,8 +1176,7 @@ async function openMemorySource(hit) {
     await openView("artifacts");
     return artifactLibrary.open(hit.artifact_id);
   }
-  selectedFile = hit.path;
-  selectedSource = hit;
+  memoryPage.selectSource(hit);
   await openView("memory");
 }
 
@@ -1227,8 +1189,9 @@ async function forgetMemory(hit, excerpt = false) {
     const body = { path: hit.path };
     if (hit.message_id) body.message_id = hit.message_id;
     else if (excerpt) body.item_id = hit.id;
+    else if (hit.revision) body.revision = hit.revision;
     await api("/api/memory/forget", body);
-    selectedSource = undefined;
+    memoryPage.clearSource();
     await renderMemory();
     if (byId("memory-query").value.trim()) await findMemory();
     showNotice("Memory forgotten. Undo is available in Timeline.");
@@ -1254,7 +1217,7 @@ function renderRecall(container, result, allowForget = false) {
       : hit.similarity === null ? `Keyword ${hit.keyword.toFixed(3)}`
         : `Score ${hit.score.toFixed(3)} · Similarity ${hit.similarity.toFixed(3)} · Keyword ${hit.keyword.toFixed(3)}`;
     article.append(open, node("p", "meta", score), node("p", "", hit.excerpt));
-    if (allowForget && !hit.artifact_id) {
+    if (allowForget && !hit.artifact_id && !hit.profile_fields && hit.path !== "APPROVAL_PREFERENCES.md") {
       const remove = button("Forget", () => forgetMemory(hit, true));
       remove.className = "forget-excerpt";
       remove.setAttribute("aria-label", `Forget ${memoryLabel(hit)}`);
@@ -2809,9 +2772,6 @@ byId("memory-find").addEventListener("submit", (event) => {
 });
 byId("memory-query").addEventListener("input", (event) => {
   if (!event.target.value) findMemory();
-});
-byId("forget-file").addEventListener("click", () => {
-  if (selectedFile) forgetMemory(selectedSource || { path: selectedFile });
 });
 for (const tab of settingsTabs) {
   const section = tab.dataset.settings;

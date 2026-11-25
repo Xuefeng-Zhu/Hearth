@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="/automation.css">
   <link rel="stylesheet" href="/skills.css">
   <link rel="stylesheet" href="/workers.css">
+  <link rel="stylesheet" href="/memory.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -162,23 +163,19 @@
         </div>
       </section>
       <section class="view panel" id="memory-view" aria-labelledby="view-title" hidden>
-        <div class="section-intro"><h2>Memory files</h2><p>Personal notes stored as Markdown in your workspace.</p></div>
+        <div class="memory-intro">
+          <h2>What Hearth knows about you</h2>
+          <p>Review the details Hearth can use in conversation and follow links between notes.</p>
+        </div>
         <form id="memory-find" class="query-form" role="search">
           <label class="visually-hidden" for="memory-query">Search memory</label>
           <input id="memory-query" type="search" maxlength="1000" placeholder="Search memory…" required>
           <button type="submit">Search</button>
         </form>
         <div id="memory-find-results" class="query-results" aria-live="polite" hidden></div>
-        <div class="memory-browser">
-          <div id="files" class="files" aria-label="Memory files"></div>
-          <article class="file-preview">
-            <div class="file-header">
-              <h3 id="file-name">Select a note</h3>
-              <button type="button" id="forget-file" hidden>Forget note</button>
-            </div>
-            <pre id="file-content"></pre>
-          </article>
-        </div>
+        <div id="memory-tabs" role="tablist" aria-label="Memory areas"></div>
+        <div id="memory-status" role="status" class="meta"></div>
+        <div id="memory-area" role="tabpanel" tabindex="0"></div>
       </section>
       <section class="view panel" id="skills-view" aria-labelledby="view-title" hidden>
         <div class="section-intro skills-intro">
