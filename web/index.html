@@ -139,12 +139,13 @@
         <div id="settings-brain">
           <div class="section-intro">
             <h2>Brain</h2>
-            <p>Choose which connected model Hearth uses for chat.</p>
+            <p>Choose how Hearth selects a model for each turn.</p>
           </div>
+          <div class="settings-layout">
           <form class="card brain-form" id="brain-form">
-            <label for="brain-provider">Provider</label>
+            <label for="brain-provider">Routing mode</label>
             <select id="brain-provider" aria-describedby="brain-provider-detail" disabled>
-              <option value="auto">Auto</option>
+              <option value="priority">Auto (priority)</option>
             </select>
             <p class="meta" id="brain-provider-detail">Checking connections…</p>
             <div id="brain-model-fields" hidden>
@@ -156,8 +157,24 @@
               </div>
               <p class="meta" id="brain-model-detail" role="status"></p>
             </div>
+            <fieldset id="brain-pool" hidden>
+              <legend>Routing pool</legend>
+              <div id="brain-pool-rows"></div>
+              <div class="field-pair pool-add">
+                <div>
+                  <label for="pool-provider">Provider</label>
+                  <select id="pool-provider"></select>
+                </div>
+                <div>
+                  <label for="pool-model">Model to add</label>
+                  <select id="pool-model"></select>
+                </div>
+              </div>
+              <p class="meta" id="pool-status" role="status"></p>
+              <button type="button" id="pool-add">Add model</button>
+            </fieldset>
             <div class="brain-controls">
-              <button type="button" id="brain-test" disabled>Test</button>
+              <button type="button" id="brain-test" disabled>Test model</button>
               <button type="submit" id="brain-save" disabled>Save</button>
             </div>
             <p class="brain-feedback" id="brain-feedback" role="status" hidden></p>
@@ -166,6 +183,25 @@
               <pre id="brain-test-reply"></pre>
             </div>
           </form>
+          <div class="settings-stack">
+            <section class="card brain-form utility-card" aria-labelledby="routing-preview-title">
+              <h3 id="routing-preview-title">Routing preview</h3>
+              <table class="routing-preview">
+                <thead><tr><th scope="col">Turn type</th><th scope="col">First model</th></tr></thead>
+                <tbody id="routing-preview"></tbody>
+              </table>
+              <p class="meta" id="routing-preview-status" role="status"></p>
+            </section>
+            <form class="card brain-form utility-card" id="routing-test-form">
+              <h3>Test routing</h3>
+              <label for="routing-prompt">Prompt</label>
+              <input id="routing-prompt" maxlength="4000" required placeholder="e.g. Remind me to check the oven">
+              <p class="meta">Preview the order without calling a model.</p>
+              <button type="submit" id="routing-test" disabled>Test routing</button>
+              <div id="routing-result" class="brain-test-result" role="status" hidden></div>
+            </form>
+          </div>
+          </div>
         </div>
         <div id="settings-memory" hidden>
           <div class="section-intro">

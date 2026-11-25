@@ -186,6 +186,19 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .brain-test-result { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: #f4eef4; }
 .brain-test-result .meta { margin-top: 0; }
 .message .model-warning { color: #694518; background: #f6ede2; border-radius: 8px; padding: 7px 10px; margin-bottom: 8px; font-size: 13px; }
+.message .routing-chip { display: inline-block; max-width: 100%; margin: 8px 0 3px; padding: 4px 10px; border-radius: 12px; background: #f4eef4; color: var(--accent); font-size: 12px; overflow-wrap: anywhere; }
+#brain-pool { min-width: 0; margin: 20px 0 0; padding: 0; border: 0; }
+#brain-pool legend { padding: 0; font-weight: 650; }
+.pool-entry { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.pool-entry summary { cursor: pointer; font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
+.pool-entry .meta { margin: 6px 0 0; }
+.pool-tags { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.pool-tags .check-label { display: flex; align-items: center; gap: 8px; margin: 0; }
+.pool-add { margin-top: 14px; }
+.routing-preview { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.routing-preview th, .routing-preview td { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+.routing-preview tbody th { font-weight: 600; width: 40%; }
+#routing-result ol { margin: 8px 0 0; padding-left: 22px; font-size: 13px; overflow-wrap: anywhere; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 
 @media (min-width: 1050px) {

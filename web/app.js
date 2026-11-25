@@ -45,6 +45,11 @@ let newlyConfigured = new Set();
 let brainSettings;
 let brainBusy = false;
 let modelRequest;
+let routingRequest;
+let poolRequest;
+let poolModels = {};
+let poolDraft = [];
+let poolDirty = false;
 let settingsSection = "brain";
 let reindexPoll;
 const preferences = { memory: {}, search: {} };
@@ -53,6 +58,8 @@ const folderNames = { root: "Root · USER.md", people: "people/", topics: "topic
 const brainProvider = byId("brain-provider");
 const brainModel = byId("brain-model");
 const customModel = byId("brain-custom");
+const poolProvider = byId("pool-provider");
+const poolModel = byId("pool-model");
 
 function node(tag, className, text) {
   const item = document.createElement(tag);
@@ -121,6 +128,12 @@ function messageBubble(role, content, { message, status } = {}) {
   notices.setAttribute("role", "status");
   if (status) notices.append(node("p", "queued-label", status));
   body.append(notices, text, cards);
+  if (message?.routing) {
+    const route = message.routing;
+    const chip = node("p", "routing-chip", `Routed to ${routedModel(route)} — ${route.reason}`);
+    chip.title = route.label;
+    body.append(chip);
+  }
   if (message?.remembered?.length) {
     const sources = node("details", "remembered");
     sources.append(node("summary", "", `Remembered · ${message.remembered.length}`));
@@ -457,6 +470,9 @@ async function renderTimeline() {
       item.comment || "Sprite checkpoint", [item.id, date(item.created_at)].filter(Boolean).join(" · "),
       threadSource(item, "Workspace"))), checkpointStatus),
     timelineSection("Actions", state.actions.slice().reverse().map(actionCard), "No actions yet."),
+    timelineSection("Routing", (state.routing || []).slice().reverse().map((route) => timelineItem(
+      route.label, `${route.order.map(routedModel).join(" → ")} — ${route.reason} · ${date(route.at)}`,
+      threadSource(route))), "No turns routed yet."),
   );
   if (scheduled.length && !document.hidden) {
     const untilDue = new Date(scheduled[0].next_at).getTime() - Date.now();
@@ -730,6 +746,7 @@ function brainDraft() {
   return {
     provider: brainProvider.value,
     model: brainChoice() ? brainModel.value || customModel.value.trim() : "",
+    ...(poolDirty ? { pool: poolDraft } : {}),
   };
 }
 
@@ -744,6 +761,155 @@ function setBrainControls() {
   customModel.disabled = brainModel.disabled;
   byId("brain-custom-field").hidden = !custom;
   byId("brain-test").disabled = byId("brain-save").disabled = locked || !usable || !!modelRequest || needsModel;
+  byId("routing-test").disabled = byId("brain-save").disabled;
+  byId("brain-pool").disabled = locked;
+  poolModel.disabled = !!poolRequest || !poolProvider.value;
+  byId("pool-add").disabled = poolModel.disabled || !poolModel.value || poolDraft.length >= 32;
+}
+
+function routedModel(model) {
+  if (!model) return "—";
+  return `${model.name} · ${model.model || "Automatic model"}`;
+}
+
+function renderRoutingPreview(plans) {
+  byId("routing-preview").replaceChildren(...plans.map((plan) => {
+    const row = node("tr");
+    const type = node("th", "", plan.label);
+    type.scope = "row";
+    const model = node("td", "", routedModel(plan.order[0]));
+    model.title = plan.reason;
+    row.append(type, model);
+    return row;
+  }));
+}
+
+async function previewRouting(prompt) {
+  routingRequest?.abort();
+  const result = byId("routing-result");
+  result.hidden = true;
+  if (byId("brain-save").disabled) return;
+  const status = byId("routing-preview-status");
+  const controller = routingRequest = new AbortController();
+  status.textContent = "Updating routing preview…";
+  try {
+    const { preview, test } = await api("/api/brain/route", {
+      ...brainDraft(), ...(prompt === undefined ? {} : { prompt }),
+    }, controller.signal);
+    if (routingRequest !== controller) return;
+    renderRoutingPreview(preview);
+    status.textContent = "";
+    if (test) {
+      const order = node("ol");
+      order.append(...test.order.map((model) => node("li", "", routedModel(model))));
+      result.replaceChildren(node("strong", "", test.label), node("p", "meta", test.reason), order);
+      result.hidden = false;
+    }
+  } catch (error) {
+    if (routingRequest === controller) status.textContent = error.message;
+  } finally {
+    if (routingRequest === controller) routingRequest = undefined;
+  }
+}
+
+function updatePoolOptions() {
+  const available = Object.keys(poolModels).filter((model) =>
+    !poolDraft.some((entry) => entry.provider === poolProvider.value && entry.model === model));
+  poolModel.replaceChildren(new Option(available.length ? "Choose a model…" : "No models to add", ""),
+    ...available.map((model) => new Option(model, model)));
+  setBrainControls();
+}
+
+async function loadPoolModels() {
+  poolRequest?.abort();
+  poolModels = {};
+  const status = byId("pool-status");
+  const provider = poolProvider.value;
+  const controller = poolRequest = new AbortController();
+  updatePoolOptions();
+  status.textContent = provider ? "Loading live chat models…" : "Connect a chat provider to add models.";
+  try {
+    if (provider) {
+      const { tags, detail } = await api(`/api/brain/models?provider=${encodeURIComponent(provider)}`,
+        undefined, controller.signal);
+      if (poolRequest !== controller) return;
+      poolModels = tags || {};
+      status.textContent = tags && Object.keys(tags).length ? "" : detail;
+    }
+  } catch (error) {
+    if (poolRequest === controller) status.textContent = error.message;
+  } finally {
+    if (poolRequest === controller) {
+      poolRequest = undefined;
+      updatePoolOptions();
+    }
+  }
+}
+
+function poolChanged() {
+  poolDirty = true;
+  clearBrainTest();
+  previewRouting();
+}
+
+function renderPool() {
+  const rows = byId("brain-pool-rows");
+  rows.replaceChildren(...poolDraft.map((entry, index) => {
+    const item = node("details", "pool-entry");
+    item.dataset.model = `${entry.provider}:${entry.model}`;
+    const provider = brainSettings.providers.find((row) => row.provider === entry.provider);
+    const name = provider?.name || modelNames[entry.provider] || entry.provider;
+    const status = provider?.available ? "" : " (disconnected)";
+    item.append(node("summary", "", routedModel({ ...entry, name }) + status));
+    const stats = brainSettings.stats[item.dataset.model];
+    if (stats) {
+      const latency = stats.p50_ms === null ? "" : `${stats.p50_ms.toLocaleString()} ms median · `;
+      const failure = stats.last_failure === null ? "" : ` · Last failure ${date(stats.last_failure * 1000)}`;
+      item.append(node("p", "meta", `${latency}${Math.round(stats.error_rate * 100)}% errors${failure}`));
+    }
+    const tags = node("div", "pool-tags");
+    for (const [key, label, values] of [
+      ["speed", "Speed", ["slow", "balanced", "fast"]],
+      ["cost", "Cost tier", ["low", "medium", "high"]],
+      ["tools", "Tool reliability", ["low", "medium", "high"]],
+      ["context", "Context (tokens)"],
+      ["multilingual", "Multilingual"],
+    ]) {
+      const field = node("label", key === "multilingual" ? "check-label" : "", label);
+      const control = node(values ? "select" : "input");
+      if (values) {
+        settingOptions(control, values.map((value) => [value, value]), entry.tags[key]);
+      } else if (key === "multilingual") {
+        control.type = "checkbox";
+        control.checked = entry.tags[key];
+      } else {
+        control.type = "number";
+        control.min = 1;
+        control.max = 10_000_000;
+        control.required = true;
+        control.value = entry.tags[key];
+      }
+      control.addEventListener("change", () => {
+        if (!control.reportValidity()) return;
+        entry.tags[key] = values ? control.value : key === "context" ? control.valueAsNumber : control.checked;
+        poolChanged();
+      });
+      if (key === "multilingual") field.prepend(control);
+      else field.append(control);
+      tags.append(field);
+    }
+    const remove = button("Remove model", () => {
+      poolDraft.splice(index, 1);
+      renderPool();
+      updatePoolOptions();
+      poolProvider.focus();
+      poolChanged();
+    });
+    remove.setAttribute("aria-label", `Remove ${entry.model}`);
+    item.append(tags, remove);
+    return item;
+  }));
+  if (!poolDraft.length) rows.append(node("p", "meta", "An empty pool uses connected provider defaults."));
 }
 
 function brainFeedback(message = "") {
@@ -758,10 +924,18 @@ async function loadBrainModels() {
   const detail = byId("brain-provider-detail");
   const modelDetail = byId("brain-model-detail");
   byId("brain-model-fields").hidden = !choice;
+  byId("brain-pool").hidden = brainProvider.value !== "smart";
+  if (!byId("brain-pool").hidden && !poolRequest && !poolProvider.options.length) {
+    const providers = brainSettings.providers.filter((entry) => entry.available && entry.supported);
+    poolProvider.replaceChildren(...providers.map((entry) => new Option(entry.name, entry.provider)));
+    loadPoolModels();
+  }
   if (!choice) {
-    detail.textContent = brainProvider.value === "auto"
-      ? "Hearth tries Muse Spark first, then other connected chat providers, then Mock."
-      : "Use Hearth’s offline demo model.";
+    detail.textContent = {
+      priority: "Try connected providers in a fixed order, beginning with Muse Spark when available.",
+      smart: "Rank the pool for each turn using model tags and recent performance.",
+      mock: "Use Hearth’s offline demo model.",
+    }[brainProvider.value];
     setBrainControls();
     return;
   }
@@ -796,6 +970,14 @@ async function loadBrainModels() {
 
 async function openBrainSettings() {
   if (brainBusy) return;
+  routingRequest?.abort();
+  routingRequest = undefined;
+  poolRequest?.abort();
+  poolRequest = undefined;
+  poolProvider.replaceChildren();
+  byId("routing-result").hidden = true;
+  byId("routing-preview").replaceChildren();
+  byId("routing-preview-status").textContent = "Loading routing preview…";
   brainSettings = undefined;
   setBrainControls();
   brainFeedback();
@@ -804,19 +986,25 @@ async function openBrainSettings() {
     await updateConnections("rescan");
     if (view !== "settings") return;
     brainSettings = await api("/api/brain");
-    const saved = brainSettings.selection.provider;
     const providers = brainSettings.providers.map((entry) => {
       const suffix = !entry.available ? " (disconnected)" : !entry.supported ? " (chat unavailable)" : "";
       const option = new Option(entry.name + suffix, entry.provider);
       option.disabled = !entry.supported;
       return option;
     });
-    brainProvider.replaceChildren(new Option("Auto", "auto"), ...providers, new Option("Mock", "mock"));
-    brainProvider.value = saved;
+    brainProvider.replaceChildren(new Option("Auto (priority)", "priority"), new Option("Smart routing", "smart"),
+      ...providers, new Option("Mock", "mock"));
+    brainProvider.value = brainSettings.mode;
+    poolDraft = structuredClone(brainSettings.pool.length ? brainSettings.pool : brainSettings.default_pool);
+    poolDirty = false;
+    renderPool();
+    renderRoutingPreview(brainSettings.preview);
+    byId("routing-preview-status").textContent = "";
     renderBrain(brainSettings);
     brainFeedback(brainSettings.scan_error || "");
     await loadBrainModels();
   } catch (error) {
+    byId("routing-preview-status").textContent = "";
     brainFeedback(error.message);
   }
 }
@@ -829,6 +1017,9 @@ function clearBrainTest() {
 async function updateBrain(operation) {
   if (brainBusy || busy || modelRequest) return;
   const draft = brainDraft();
+  routingRequest?.abort();
+  routingRequest = undefined;
+  byId("routing-preview-status").textContent = "";
   brainBusy = true;
   setBrainControls();
   if (operation === "test") byId("brain-test-result").hidden = true;
@@ -842,6 +1033,11 @@ async function updateBrain(operation) {
       brainFeedback();
     } else {
       brainSettings = result;
+      poolDraft = structuredClone(result.pool.length ? result.pool : result.default_pool);
+      poolDirty = false;
+      renderPool();
+      updatePoolOptions();
+      renderRoutingPreview(result.preview);
       renderBrain(result);
       brainFeedback("Brain settings saved.");
     }
@@ -1366,18 +1562,38 @@ for (const tab of configTabs) {
 }
 window.addEventListener("hashchange", syncConnectionRoute);
 byId("rescan-connections").addEventListener("click", () => updateConnections("rescan"));
-brainProvider.addEventListener("change", () => {
+brainProvider.addEventListener("change", async () => {
   clearBrainTest();
-  loadBrainModels();
+  await loadBrainModels();
+  previewRouting();
 });
 brainModel.addEventListener("change", () => {
   clearBrainTest();
   setBrainControls();
   if (!brainModel.value) customModel.focus();
+  previewRouting();
 });
 customModel.addEventListener("input", () => {
   clearBrainTest();
   setBrainControls();
+});
+customModel.addEventListener("change", () => previewRouting());
+poolProvider.addEventListener("change", loadPoolModels);
+poolModel.addEventListener("change", setBrainControls);
+byId("pool-add").addEventListener("click", () => {
+  const model = poolModel.value;
+  const key = `${poolProvider.value}:${model}`;
+  poolDraft.push({ provider: poolProvider.value, model, tags: { ...poolModels[model] } });
+  renderPool();
+  updatePoolOptions();
+  const summary = [...byId("brain-pool-rows").children].find((item) => item.dataset.model === key);
+  summary?.querySelector("summary")?.focus();
+  poolChanged();
+});
+byId("routing-test-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const prompt = byId("routing-prompt").value.trim();
+  if (prompt) previewRouting(prompt);
 });
 byId("brain-test").addEventListener("click", () => updateBrain("test"));
 byId("brain-form").addEventListener("submit", (event) => {
