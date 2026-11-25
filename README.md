@@ -44,11 +44,13 @@ Each configured card shows the access rule, the Hearth features that can use the
 
 ### Choose the brain
 
-Open **Settings → Brain**. **Auto** is the default and tries Muse Spark first, followed by other connected chat providers and then Mock. Pick a provider to give it priority, or choose **Mock** to run the offline demo. The menu marks connected integrations that lack a chat adapter.
+Open **Settings → Brain**. Hearth defaults to **Smart routing** when two or more connected models are in the pool. With fewer models it defaults to **Auto (priority)**, which tries Muse Spark first, followed by other connected chat providers and then Mock. You can select either mode explicitly, give a specific provider and model priority, or choose **Mock** for the offline demo. The menu marks connected integrations that lack a chat adapter.
 
-Choose a model from the live list, or select **Enter a model ID…** to enter a provider-specific ID. Hugging Face lists text chat models and defaults to `Qwen/Qwen3-Coder-Next:fastest`. **Test** sends a short prompt and shows the reply and elapsed time. **Save** takes a checkpoint, writes the selection to `~/hearth/config/connectors.local.json` on the Sprite, and applies it immediately. [Hugging Face model discovery](https://huggingface.co/docs/inference-providers/en/hub-api#list-openai-compatible-models)
+Smart routing starts with the connected provider defaults. Use **Add model** to choose from a provider's live chat list and add several models from the same provider. Expand a pool row to edit its speed, cost tier, tool reliability, context size, and multilingual tags. Defaults for known model IDs are in `config/connectors.json`. For a specific provider, choose from its live list or enter a model ID. **Test model** sends a short prompt and shows its reply and latency. **Save** checkpoints and applies the settings in `~/hearth/config/connectors.local.json` on the Sprite. [Hugging Face model discovery](https://huggingface.co/docs/inference-providers/en/hub-api#list-openai-compatible-models)
 
-When a brain fails, chat names the provider and the next attempt, and Timeline records the fallback. After a workspace action has started, the next brain continues with a text-only reply and the existing action cards. Hugging Face uses native streaming tool calls and can switch to JSON instructions when the model rejects the tool request.
+The router uses prompt text and thread type to recognize quick chat, tools or actions, long reasoning or planning, code, multilingual prompts, and side chat. **Routing preview** shows the first pick for each type. **Test routing** shows the class and full order for your prompt and current draft settings without contacting a model. The router uses up to 24 attempts per model from the past seven days, including median successful latency, error rate, and the time of the last failure. A failure in the last five minutes moves that model behind eligible models without recent failures. The Sprite saves these stats to `~/hearth/data/brain_stats.json`.
+
+New replies show the model that answered and the routing reason. Timeline shows the planned order and records any fallback. After a workspace action has started, the next model continues with a text-only reply and the existing action cards. Hugging Face uses native streaming tool calls and can switch to JSON instructions when the model rejects the tool request.
 
 ### Configure memory recall
 
@@ -78,7 +80,7 @@ The generic gateway tool sends a provider-relative request through Sprites. GET 
 - Memory lives in `USER.md`, `people/*.md`, `topics/*.md`, and `daily/YYYY-MM-DD.md`. Each transcript is a JSONL file under `live/threads/` in the data directory. The thread index sits beside them. The first write to Main migrates any existing chat history from `live/state.json`. Actions and reminders share the lock-protected state file. The web and scheduler run as separate Sprite services.
 - The offline mock uses the same tool interface as the model adapters. The header shows the active brain while Settings shows the saved preference.
 - Provider calls go through the Sprites gateway without an Authorization header. Hearth stores connector IDs and supported settings. Fly holds the credentials. The chosen search and recall providers run through that gateway. Pinecone stores vectors in a workspace-specific namespace. AgentMail sends only after approval. Without AgentMail, approval records a simulated send locally. [Provider setup details](STATUS.md)
-- Undo restores the entire Sprite filesystem, including later chat, memory, reminders, and deployed files. The local backend restores the application data directory. Delivered email and remote Pinecone data stay with their providers.
+- Undo restores the entire Sprite filesystem, including later chat, memory, reminders, and deployed files. The local backend restores the `live/` workspace directory. Delivered email and remote Pinecone data stay with their providers.
 
 ## Deploy privately
 

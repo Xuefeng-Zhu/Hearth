@@ -2,6 +2,10 @@
 
 ## Verified
 
+- Smart routing is deployed on the private Sprite. Its saved pool contains two models from the live Hugging Face list. In an isolated workspace running the deployed release, a greeting routed to `meta-llama/Llama-3.1-8B-Instruct:fastest`. A reminder request routed to `Qwen/Qwen3-Coder-Next:fastest` and created the in-app reminder. Both model attempts persisted separate latency and error stats. Timeline recorded both decisions.
+- Chromium verified the reply chips, Timeline, priority and smart modes, model additions and removals, saved tag edits, and routing previews for Chinese and reminder prompts. The Brain panel fit at 390px. The deployed **Settings → Brain** capture is at `/workspace/tmp/hearth-qa/hearth-routing.png`.
+- All 46 Python tests and `node --check web/app.js` pass. Tests cover all six turn types, same-provider ordering and fallback, latency and failure demotion, stats persistence, and the routing preview without a model call.
+
 - Connections tabs are deployed on the private Sprite. The gateway authorized Pinecone, Hugging Face, Box, and Exa. The Hugging Face read-only provider check and the Exa gateway authorization check both passed inside the Sprite. The Hugging Face card lists Brain, Memory, and Tools. The Sprite URL uses `sprite` authentication.
 - Chromium checked both tabs at widths from 320px to 1440px, including arrow keys, category filtering, cross-tab search, browser history, and saved selection. A simulated discovery response moved Hugging Face to **Configured** with a highlight. A simulated failed check left it in **Configured** with an **Error** badge. The live desktop capture is at `/workspace/tmp/hearth-qa/hearth-connections-tabs.png`. All 42 Python tests and `node --check web/app.js` pass.
 - Semantic recall and selectable web search are deployed on the private Sprite. An isolated workspace running the deployed release created a native checkpoint and reindexed seven excerpts with Hugging Face BGE Small. For “who can't eat nuts,” Keyword missed the synthetic allergy note. Hugging Face returned it at line 3 with cosine similarity 0.684 and keyword overlap 0. A live Hugging Face chat turn cited that line, and Chromium opened it from the **Remembered** chip.
@@ -22,6 +26,7 @@
 
 ## Mocked and pending
 
+- The Llama model included a stray `</function>` marker in one of two live greeting replies.
 - Pinecone is authorized and its index list is empty. Pinecone indexing and query were covered with mocks. Tavily, Linkup, Kagi, Keenable, and Firecrawl were also covered with mocked HTTP while disconnected. AgentMail remains simulated until connected, and the sample recipients use `example.invalid`. [Sprites gateway discovery](https://docs.fly.io/sprites/concepts/connectors#using-connectors-with-a-coding-agent)
 - Other chat providers and failover during a live provider outage are pending live verification. Offline tests exercise fallback and the Hugging Face JSON tool mode.
 - Reminders are delivered in Hearth's Timeline when the scheduler can run. An authenticated external timer is needed to wake a hibernating Sprite with the browser closed. See the wake command in [README.md](README.md).
