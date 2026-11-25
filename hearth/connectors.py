@@ -8,14 +8,26 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from .model_protocols import protocol, sse_packets
 from .storage import HearthError, ROOT
 
 GATEWAY = "https://api.sprites.dev/v1/gateway"
 GATEWAY_SEGMENT = re.compile(r"[a-zA-Z0-9_-]+")
-DISCOVERY_PROVIDERS = ("meta", "pinecone", "tavily", "agentmail")
-MODEL_PATHS = {"meta": "v1/chat/completions", "ollama": "v1/chat/completions",
-               "openrouter": "api/v1/chat/completions"}
+CORE_PROVIDERS = ("meta", "pinecone", "tavily", "agentmail")
+MODEL_PATHS = {
+    "meta": "v1/chat/completions", "openrouter": "api/v1/chat/completions",
+    "openai": "v1/chat/completions", "anthropic": "v1/messages",
+    "gemini": "v1beta/models/{model}:streamGenerateContent?alt=sse",
+    "ollama": "v1/chat/completions",
+}
 PINECONE_HEADERS = {"X-Pinecone-Api-Version": "2025-10"}
+PROVIDER_HEADERS = {
+    "pinecone": PINECONE_HEADERS,
+    "anthropic": {"Anthropic-Version": "2023-06-01"},
+    "notion": {"Notion-Version": "2026-03-11"},
+}
+MACHINES_PROVIDER = "fly_machines"
+CUSTOM_PROVIDER = "custom_api"
 
 
 class ConnectorError(HearthError):
@@ -33,19 +45,22 @@ class Gateway:
     def __init__(self):
         self.opener = build_opener(NoRedirect())
 
-    def open(self, config, path, body=None, headers=None, *, timeout=25):
-        provider = config["provider"]
+    def open(self, config, path, body=None, headers=None, *, timeout=25, method=None):
+        provider = config.get("gateway_provider", config["provider"])
         connection_id = config["connection_id"]
         if not all(GATEWAY_SEGMENT.fullmatch(part) for part in (provider, connection_id)):
             raise ConnectorError("Invalid connector configuration.")
-        return self.request(f"{provider}/{connection_id}/{path}", body, headers, timeout)
+        headers = {**PROVIDER_HEADERS.get(provider, {}), **(headers or {})}
+        return self.request(f"{provider}/{connection_id}/{path}", body, headers, timeout, method=method)
 
-    def request(self, path, body, headers, timeout):
+    def request(self, path, body, headers, timeout, *, method=None):
         request = Request(
             f"{GATEWAY}/{path}",
             data=json.dumps(body).encode("utf-8") if body is not None else None,
+            method=method,
             headers={key: value for key, value in (headers or {}).items()
-                     if key.lower() in {"accept", "idempotency-key", "x-pinecone-api-version"}},
+                     if key.lower() in {"accept", "idempotency-key", "x-pinecone-api-version",
+                                        "anthropic-version", "notion-version"}},
         )
         if body is not None:
             request.add_header("Content-Type", "application/json")
@@ -76,15 +91,20 @@ class Gateway:
         entries = data.get("connections")
         if not isinstance(entries, list):
             raise ConnectorError("The gateway returned an unreadable connection list.")
-        authorized = {provider: [] for provider in DISCOVERY_PROVIDERS}
+        authorized = {}
         found = set()
+        if isinstance(data.get("available"), list):
+            for entry in data["available"]:
+                if isinstance(entry, dict) and valid_provider(entry.get("provider")):
+                    authorized.setdefault(entry["provider"], [])
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
             provider = entry.get("provider")
-            if provider not in DISCOVERY_PROVIDERS:
+            if not valid_provider(provider):
                 continue
-            found.add(provider)
+            slug = MACHINES_PROVIDER if provider == CUSTOM_PROVIDER and machines_preset(entry) else provider
+            found.add(slug)
             if entry.get("authorized") is False:
                 continue
             base = entry.get("gateway_base_url")
@@ -102,54 +122,48 @@ class Gateway:
             else:
                 continue
             if isinstance(connection_id, str) and GATEWAY_SEGMENT.fullmatch(connection_id):
-                authorized[provider].append(connection_id)
+                authorized.setdefault(slug, []).append(connection_id)
         # The available array is a provider catalog, not a list of organization connections.
         return authorized, found
 
     def completion(self, config, messages, tools, emit):
-        text = []
-        calls = {}
-        finished = False
+        provider, model = config["provider"], config["model"]
+        build_payload, parse_stream = protocol(provider)
+        path = MODEL_PATHS[provider].format(model=quote(model.removeprefix("models/"), safe=""))
         try:
-            with self.open(config, MODEL_PATHS[config["provider"]],
-                           {"model": config["model"], "messages": messages, "tools": tools, "stream": True},
-                           {"Accept": "text/event-stream"}) as response:
-                for line in response:
-                    line = line.strip()
-                    if line == b"data: [DONE]":
-                        finished = True
-                        break
-                    if not line.startswith(b"data:"):
-                        continue
-                    packet = json.loads(line[5:])
-                    if packet.get("error"):
-                        raise ConnectorError("The model connector returned an error.")
-                    for choice in (packet.get("choices") or [])[:1]:
-                        finished |= choice.get("finish_reason") is not None
-                        delta = choice.get("delta") or {}
-                        if delta.get("content"):
-                            text.append(delta["content"])
-                            emit(delta["content"])
-                        for part in delta.get("tool_calls") or ():
-                            call = calls.setdefault(part["index"], {
-                                "id": "", "type": "function", "function": {"name": "", "arguments": ""}
-                            })
-                            call["id"] += part.get("id") or ""
-                            fragment = part.get("function") or {}
-                            for key in ("name", "arguments"):
-                                call["function"][key] += fragment.get(key) or ""
-        except (HTTPException, OSError, ValueError, TypeError, KeyError):
+            body = build_payload(model, messages, tools)
+            with self.open(config, path, body, {"Accept": "text/event-stream"}) as response:
+                text, calls, native = parse_stream(sse_packets(response), emit)
+        except (HTTPException, OSError, ValueError, TypeError, KeyError, AttributeError):
             raise ConnectorError("The model stream was interrupted.") from None
-        if not finished or not (text or calls):
+        if not (text or calls):
             raise ConnectorError("The model connector returned an incomplete reply.")
-        return {"role": "assistant", "content": "".join(text) or None,
-                **({"tool_calls": [calls[index] for index in sorted(calls)]} if calls else {})}
+        return {"role": "assistant", "content": "".join(text) or None, **native,
+                **({"tool_calls": calls} if calls else {})}
 
 
 def read_config(path=None):
     local = Path(os.environ.get("HEARTH_CONNECTOR_CONFIG", ROOT / "config/connectors.local.json"))
     file = Path(path) if path else local if local.is_file() else ROOT / "config/connectors.json"
     return json.loads(file.read_text(encoding="utf-8"))
+
+
+def valid_provider(value):
+    return isinstance(value, str) and len(value) <= 80 and bool(GATEWAY_SEGMENT.fullmatch(value)) and value != "mock"
+
+
+def machines_preset(entry):
+    info = entry.get("provider_info")
+    candidates = [entry.get("base_api_url")]
+    if isinstance(info, dict):
+        candidates.append(info.get("base_api_url"))
+    for candidate in candidates:
+        try:
+            if isinstance(candidate, str) and urlsplit(candidate).hostname == "api.machines.dev":
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 class Integrations:

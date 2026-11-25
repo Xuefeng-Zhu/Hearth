@@ -7,7 +7,8 @@ from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from hearth.checkpoints import LocalCheckpoints
-from hearth.connectors import DISCOVERY_PROVIDERS, GATEWAY, ConnectorError, Gateway, read_config
+from hearth.connections import CATALOG
+from hearth.connectors import CORE_PROVIDERS, GATEWAY, ConnectorError, Gateway, read_config
 from hearth.server import Application, HTTPServer
 from hearth.storage import HearthError, ROOT, Storage
 
@@ -20,15 +21,20 @@ class FakeGateway(Gateway):
         self.denied = set()
         self.offline = set()
         self.completions = []
+        self.methods = []
+        self.unset = list(CORE_PROVIDERS)
+        self.failed_models = set()
+        self.seen_tools = []
 
-    def request(self, path, body, headers, timeout):
+    def request(self, path, body, headers, timeout, *, method=None):
         if path == "list":
             if self.fail_discovery:
                 raise ConnectorError("private upstream details", 502)
-            payload = {"connections": self.entries, "available": [{"provider": p} for p in DISCOVERY_PROVIDERS]}
+            payload = {"connections": self.entries, "available": [{"provider": p} for p in self.unset]}
         else:
             provider, connection_id, endpoint = path.split("/", 2)
             self.probes.append((provider, connection_id, endpoint, body))
+            self.methods.append((method or ("GET" if body is None else "POST"), headers))
             if provider in self.denied:
                 raise ConnectorError("private upstream details", 403)
             if provider in self.offline:
@@ -53,6 +59,9 @@ class FakeGateway(Gateway):
 
     def completion(self, config, messages, tools, emit):
         self.completions.append(config["connection_id"])
+        self.seen_tools = tools
+        if config["provider"] in self.failed_models:
+            raise ConnectorError("Fake model unavailable.")
         emit("Muse Spark replied")
         return {"role": "assistant", "content": "Muse Spark replied"}
 
@@ -61,6 +70,8 @@ class DiscoveryTest(unittest.TestCase):
     def test_discovery_distinguishes_catalog_and_validates_urls(self):
         gateway = FakeGateway()
         gateway.add("meta", "conn_meta")
+        gateway.add("fresh_provider", "conn_new")
+        gateway.unset.append("future_provider")
         gateway.entries.extend([
             {"provider": "pinecone", "authorized": False, "gateway_base_url": f"{GATEWAY}/pinecone/conn_old"},
             {"provider": "tavily", "gateway_base_url": "https://example.com/v1/gateway/tavily/conn_outside"},
@@ -69,8 +80,19 @@ class DiscoveryTest(unittest.TestCase):
             {"provider": "tavily", "gateway_base_url": f"{GATEWAY}/tavily/conn_query?key=sensitive"},
         ])
         authorized, found = gateway.discover()
-        self.assertEqual(authorized, {"meta": ["conn_meta"], "pinecone": [], "tavily": [], "agentmail": []})
-        self.assertEqual(found, {"meta", "pinecone", "tavily"})
+        self.assertEqual(authorized, {"meta": ["conn_meta"], "pinecone": [], "tavily": [], "agentmail": [],
+                                      "fresh_provider": ["conn_new"], "future_provider": []})
+        self.assertEqual(found, {"meta", "pinecone", "tavily", "fresh_provider"})
+
+    def test_machines_preset_uses_custom_api_gateway_slug(self):
+        gateway = FakeGateway()
+        gateway.add("custom_api", "conn_fly")
+        gateway.entries[-1]["provider_info"] = {"base_api_url": "https://api.machines.dev"}
+        gateway.add("custom_api", "conn_other")
+        authorized, found = gateway.discover()
+        self.assertEqual(authorized["fly_machines"], ["conn_fly"])
+        self.assertEqual(authorized["custom_api"], ["conn_other"])
+        self.assertTrue({"fly_machines", "custom_api"} <= found)
 
     def test_gateway_requests_are_credential_free_and_read_methods_have_no_body(self):
         class Opener:
@@ -106,28 +128,24 @@ class ConnectionsTest(unittest.TestCase):
         path = self.checkpoints.root / checkpoint["id"] / "live" / self.path.name
         return json.loads(path.read_text()) if path.exists() else None
 
-    def test_startup_scan_saves_ids_once_and_activates_and_revokes_muse_spark(self):
+    def test_discovery_saves_ids_once_and_activates_and_revokes_muse_spark(self):
         self.gateway.add("meta", "conn_meta")
         self.gateway.add("meta", "conn_later")
         self.gateway.add("pinecone", "conn_index")
         self.gateway.add("tavily", "conn_search")
         self.gateway.add("agentmail", "conn_inbox")
-        self.gateway.denied.add("tavily")
+        self.gateway.entries[-2]["authorized"] = False
         self.app.scan_connections()
         snapshot = self.app.connection_info()
         self.assertEqual(snapshot["model"], "meta")
-        self.assertEqual({p: entry["status"] for p, entry in snapshot["providers"].items()},
+        self.assertEqual({p: snapshot["providers"][p]["status"] for p in CORE_PROVIDERS},
                          {"meta": "connected", "pinecone": "connected", "tavily": "unauthorized", "agentmail": "connected"})
         self.assertFalse(self.app.agent.tools.has_mail())
-        self.assertEqual(len(self.gateway.probes), 4)
-        self.assertEqual({p: endpoint for p, _, endpoint, _ in self.gateway.probes}, {
-            "meta": "v1/chat/completions", "pinecone": "indexes/hearth-memory",
-            "tavily": "search", "agentmail": "v0/inboxes?limit=1",
-        })
+        self.assertEqual(self.gateway.probes, [])
 
         saved = json.loads(self.path.read_text())
         self.assertEqual(saved["llm"][0]["connection_id"], "conn_later")
-        self.assertEqual(saved["tavily"]["connection_id"], "conn_search")
+        self.assertEqual(saved["tavily"]["connection_id"], "")
         self.assertNotIn("usage_snippet", self.path.read_text())
         self.assertNotIn("conn_", json.dumps(snapshot))
         checkpoints = self.checkpoints.list()
@@ -174,6 +192,47 @@ class ConnectionsTest(unittest.TestCase):
             self.app.connections.save("pinecone", "another-index")
         self.assertFalse(self.path.exists())
 
+    def test_catalog_pins_essentials_and_preserves_unknown_discovery_results(self):
+        self.gateway.add("extra_tools", "conn_tools")
+        self.gateway.unset.append("future_tools")
+        self.gateway.entries.append({"provider": "denied_tools", "authorized": False})
+        self.gateway.add("notion", "conn_notes")
+        self.app.scan_connections()
+        providers = self.app.connection_info()["providers"]
+        self.assertEqual(len(CATALOG), 61)
+        self.assertEqual(list(providers)[:4], list(CORE_PROVIDERS))
+        self.assertEqual([p for p, row in providers.items() if row["pinned"]], list(CORE_PROVIDERS))
+        self.assertEqual(providers["extra_tools"]["status"], "connected")
+        self.assertEqual(providers["future_tools"]["status"], "not_set_up")
+        self.assertEqual(providers["denied_tools"]["status"], "unauthorized")
+        self.assertEqual(providers["extra_tools"]["access_rule"], "Name Prefix hearth")
+        self.assertFalse(providers["extra_tools"]["can_test"])
+        self.app.connections.test("notion")
+        self.assertEqual(self.gateway.methods[-1], ("GET", {"Notion-Version": "2026-03-11"}))
+        self.assertEqual(self.gateway.probes[-1][2:], ("v1/users/me", None))
+        with self.assertRaises(HearthError):
+            self.app.connections.test("future_tools")
+        self.gateway.entries = [entry for entry in self.gateway.entries if entry["provider"] != "extra_tools"]
+        self.app.scan_connections()
+        self.assertEqual(self.app.connection_info()["providers"]["extra_tools"]["status"], "unauthorized")
+        self.assertNotIn("extra_tools", self.app.agent.tools.config["gateway"])
+
+    def test_llm_selection_uses_discovery_and_preserves_successful_fallback_on_rescan(self):
+        for provider in ("ollama", "gemini", "anthropic", "openai", "openrouter", "meta"):
+            self.gateway.add(provider, f"conn_{provider}")
+        self.app.scan_connections()
+        self.assertEqual([model["provider"] for model in self.app.agent.models],
+                         ["meta", "openrouter", "openai", "anthropic", "gemini", "ollama", "mock"])
+        self.gateway.failed_models.update(("meta", "openrouter", "openai", "anthropic"))
+        events = []
+        self.app.agent.chat("Hello", lambda name, data: events.append((name, data)))
+        self.assertEqual(events[-1], ("done", {"provider": "gemini"}))
+        self.assertEqual(self.gateway.completions, ["conn_meta", "conn_openrouter", "conn_openai",
+                                                     "conn_anthropic", "conn_gemini"])
+        self.app.brain = "gemini"  # The HTTP stream records the provider from the done event.
+        self.app.scan_connections()
+        self.assertEqual(self.app.brain, "gemini")
+
     def test_http_settings_test_and_chat_use_hot_reloaded_config(self):
         self.gateway.add("agentmail", "conn_inbox")
         self.gateway.add("meta", "conn_meta")
@@ -211,10 +270,11 @@ class ConnectionsTest(unittest.TestCase):
         before = len(self.gateway.probes)
         self.gateway.offline.add("agentmail")
         snapshot = request("/api/connections/test", {"provider": "agentmail"})
-        self.assertEqual(snapshot["providers"]["agentmail"]["status"], "unavailable")
+        self.assertEqual(snapshot["providers"]["agentmail"]["status"], "connected")
+        self.assertEqual(snapshot["providers"]["agentmail"]["test_status"], "failed")
         self.assertEqual(len(self.gateway.probes), before + 1)
         self.assertEqual(self.gateway.probes[-1], ("agentmail", "conn_inbox", "v0/inboxes/demo%40agentmail.to", None))
-        self.assertFalse(self.app.agent.tools.has_mail())
+        self.assertTrue(self.app.agent.tools.has_mail())
 
         for body, headers in [
             ({"provider": "agentmail", "value": "invalid"}, {}),

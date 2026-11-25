@@ -40,7 +40,10 @@ class Application:
 
     def scan_connections(self):
         if self.connections.scan():
-            self.reload_agent()
+            previous_models = self.agent.models
+            self.reload_agent(reset_brain=False)
+            if self.agent.models != previous_models:
+                self.brain = self.agent.models[0]["provider"] if self.agent.models else None
         else:
             self.connection_state = self.connections.report()
 
@@ -207,7 +210,7 @@ class Handler(BaseHTTPRequestHandler):
             self.app.scan_connections()
         elif self.path == "/api/connections/test" and body.keys() == {"provider"}:
             self.app.connections.test(body["provider"])
-            self.app.reload_agent(reset_brain=body["provider"] == "meta")
+            self.app.connection_state = self.app.connections.report()
         elif self.path == "/api/connections/settings" and body.keys() == {"provider", "value"}:
             self.app.connections.save(body["provider"], body["value"])
             self.app.reload_agent(reset_brain=False)
