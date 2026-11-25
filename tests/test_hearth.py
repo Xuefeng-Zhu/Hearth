@@ -208,8 +208,22 @@ class HearthTest(unittest.TestCase):
         self.assertIn("USER.md", get("/api/memory")["files"])
         path = "/api/memory?path=topics%2Fthanksgiving.md"
         original = get(path)["content"]
-        with self.assertRaises(HTTPError):
-            request("/api/chat", {"message": "Checkpoint"}, {"Sec-Fetch-Site": "cross-site"})
+        for route in ("/api/chat", "/api/approve", "/api/undo", "/api/redo", "/api/threads/create",
+                      "/api/connections/rescan", "/api/brain/settings", "/api/memory/forget",
+                      "/api/search/test", "/api/artifacts/create", "/api/inbox/poll",
+                      "/api/reminders/create", "/api/voice/redact", "/api/voice/transcribe?language=en",
+                      "/api/voice/call/token", "/api/scheduler/tick"):
+            for headers in ({"Sec-Fetch-Site": "cross-site"}, {"Sec-Fetch-Site": "same-site"},
+                            {"Origin": "https://other.example"}, {"Origin": "null"}):
+                with self.subTest(route=route, headers=headers), self.assertRaises(HTTPError) as error:
+                    request(route, {}, headers)
+                self.assertEqual(error.exception.code, 403)
+        for raw in (b'{"message":"' + b"x" * 24_000 + b'"}', b'{"message":"\\ud800"}',
+                    b'{"data":' + b"[" * 1500 + b"]" * 1500 + b"}"):
+            with self.assertRaises(HTTPError) as error:
+                opener.open(Request(base + "/api/chat", data=raw, headers={"Content-Type": "application/json"}))
+            self.assertEqual(error.exception.code, 400)
+        self.assertFalse(get("/api/state")["messages"])
         body, _ = request("/api/chat", {"message": "Wipe topics/thanksgiving.md"})
         self.assertIn("event: token", body)
         action = get("/api/state")["actions"][-1]

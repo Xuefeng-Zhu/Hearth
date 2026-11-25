@@ -323,7 +323,7 @@ class ConnectionsTest(unittest.TestCase):
         ]:
             with self.assertRaises(HTTPError) as error:
                 request("/api/connections/settings", body, headers)
-            self.assertEqual(error.exception.code, 400)
+            self.assertEqual(error.exception.code, 403 if headers else 400)
         self.assertEqual(json.loads(self.path.read_text()), saved)
 
         self.gateway.add("huggingface", "conn_hf")

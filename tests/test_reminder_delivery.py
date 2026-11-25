@@ -179,7 +179,7 @@ class DeliveryTest(unittest.TestCase):
                 with self.assertRaises(HTTPError) as error:
                     urlopen(Request(base + "/api/reminders/action", data=b'{"token":"invalid"}',
                                     headers={"Content-Type": "application/json", "Origin": "https://wrong.example"}))
-                self.assertEqual(error.exception.code, 400)
+                self.assertEqual(error.exception.code, 403)
                 self.assertIn("Send this request from Hearth", error.exception.read().decode())
             finally:
                 server.shutdown()

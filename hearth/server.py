@@ -598,7 +598,7 @@ class Handler(BaseHTTPRequestHandler):
                 path = parse_qs(url.query).get("path", [None])[0]
                 with self.app.storage.lock():
                     if path:
-                        data = {"path": path, "content": self.app.storage.read(path)}
+                        data = {"path": path, "content": redact_text(self.app.storage.read(path))}
                     else:
                         data = {"files": self.app.storage.files()}
                 self.json(data)
@@ -610,22 +610,31 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"error": "Hearth could not read workspace data."}, 500)
 
     def body(self, limit=24_000):
-        if self.headers.get("Sec-Fetch-Site") == "cross-site":
-            raise HearthError("Send this request from Hearth.")
         if self.headers.get_content_type() != "application/json":
             raise HearthError("Expected a JSON request.")
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= limit:
                 raise ValueError
+            self.connection.settimeout(15)
             body = json.loads(self.rfile.read(length))
-        except ValueError:
+            # JSON escapes can represent lone surrogates, which Hearth cannot store as UTF-8.
+            json.dumps(body, ensure_ascii=False).encode("utf-8")
+        except TimeoutError:
+            raise HearthError("The request timed out.") from None
+        except (ValueError, RecursionError):
             raise HearthError("Invalid or oversized request.") from None
         if not isinstance(body, dict):
             raise HearthError("Expected a JSON object.")
         return body
 
     def do_POST(self):
+        origin = self.headers.get("Origin")
+        if self.headers.get("Sec-Fetch-Site") not in (None, "none", "same-origin") or (
+            origin is not None and not self.same_origin(origin)
+        ):
+            self.json({"error": "Send this request from Hearth."}, 403)
+            return
         if self.path == "/api/scheduler/tick":
             if not equal(self.headers.get("X-Hearth-Tick-Token"), self.app.reminders.tick_token):
                 self.json({"error": "Scheduler token required."}, 401)
@@ -713,11 +722,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_reminders(self):
         try:
-            origin = self.headers.get("Origin")
-            if self.headers.get("Sec-Fetch-Site") not in (None, "none", "same-origin") or (
-                origin and not self.same_origin(origin)
-            ):
-                raise HearthError("Send this request from Hearth.")
             body = self.body()
             if self.app.restore and self.app.restore["status"] == "restoring":
                 self.json({"error": "A checkpoint is being restored."}, 409)
@@ -759,14 +763,7 @@ class Handler(BaseHTTPRequestHandler):
         if operation not in {"settings", "create", "save-message", "update", "retry", "delete", "undo"}:
             self.json({"error": "Page not found."}, 404)
             return
-        origin = self.headers.get("Origin")
-        if self.headers.get("Sec-Fetch-Site") not in (None, "none", "same-origin") or (
-            origin and not self.same_origin(origin)
-        ):
-            self.json({"error": "Send this request from Hearth."}, 403)
-            return
         try:
-            self.connection.settimeout(15)
             body = self.body(8 * box.MAX_BYTES)
             with self.app.operation:
                 if self.app.restore and self.app.restore["status"] == "restoring":
@@ -809,10 +806,6 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"error": "Page not found."}, 404)
             return
         try:
-            origin = self.headers.get("Origin")
-            fetch_site = self.headers.get("Sec-Fetch-Site")
-            if fetch_site not in (None, "none", "same-origin") or (origin and not self.same_origin(origin)):
-                raise voice.VoiceError("Send this request from Hearth.", 403)
             body = self.body(voice_call.MAX_REPORT_BYTES if operation == "report" else 24_000)
             if operation == "token":
                 if body:
@@ -872,8 +865,6 @@ class Handler(BaseHTTPRequestHandler):
         thread_id = params.get("thread", [None])[0]
         whisper = url.path == "/api/voice/transcribe"
         try:
-            if self.headers.get("Sec-Fetch-Site") == "cross-site":
-                raise voice.VoiceError("Send this request from Hearth.", 403)
             if not whisper:
                 body = self.body()
                 text = voice.clean_transcript(require_text(body.get("text"), 4000))
