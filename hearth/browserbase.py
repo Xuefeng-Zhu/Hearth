@@ -194,8 +194,17 @@ class Browserbase:
         except ConnectorError as error:
             raise HearthError(error_message(error)) from None
 
+    def running_sessions(self, *, timeout=8):
+        response = self.gateway.request(f"{PROVIDER}/{TEST_PATH}", None, None, timeout)
+        sessions = self.gateway.read_json(response, allow_array=True)
+        if not isinstance(sessions, list):
+            raise ConnectorError("Browserbase did not return its running sessions list.")
+
     def test(self):
-        self.call(TEST_PATH, timeout=8, allow_array=True)
+        try:
+            self.running_sessions()
+        except ConnectorError as error:
+            raise HearthError(error_message(error)) from None
 
     def fetch(self, url, *, mock=False):
         url = page_url(url)

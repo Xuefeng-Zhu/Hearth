@@ -3,11 +3,13 @@ import json
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from hearth.checkpoints import LocalCheckpoints
-from hearth.connections import CATALOG
+from hearth.browserbase import TEST_PATH
+from hearth.connections import CATALOG, HEALTH_TTL
 from hearth.connectors import CORE_PROVIDERS, GATEWAY, ConnectorError, Gateway, read_config
 from hearth.server import Application, HTTPServer
 from hearth.storage import HearthError, ROOT, Storage
@@ -20,6 +22,7 @@ class FakeGateway(Gateway):
         self.fail_discovery = False
         self.denied = set()
         self.offline = set()
+        self.missing = set()
         self.completions = []
         self.methods = []
         self.unset = list(CORE_PROVIDERS)
@@ -32,6 +35,8 @@ class FakeGateway(Gateway):
                 raise ConnectorError("private upstream details", 502)
             payload = {"connections": self.entries, "available": [{"provider": p} for p in self.unset]}
         else:
+            if path == f"browserbase/{TEST_PATH}":
+                path = f"browserbase/org-default/{TEST_PATH}"
             provider, connection_id, endpoint = path.split("/", 2)
             self.probes.append((provider, connection_id, endpoint, body))
             self.methods.append((method or ("GET" if body is None else "POST"), headers))
@@ -39,6 +44,8 @@ class FakeGateway(Gateway):
                 raise ConnectorError("private upstream details", 403)
             if provider in self.offline:
                 raise ConnectorError("private upstream details", 503)
+            if provider in self.missing:
+                raise ConnectorError("private upstream details", 404, missing_connection=True)
             if provider == "meta":
                 payload = {"choices": [{"message": {"content": "OK"}}]}
             elif provider == "huggingface" and endpoint == "v1/models":
@@ -51,6 +58,10 @@ class FakeGateway(Gateway):
                 payload = {"name": endpoint.removeprefix("indexes/")}
             elif provider == "tavily":
                 payload = {"results": []}
+            elif provider == "exa":
+                payload = {"results": []}
+            elif provider == "browserbase":
+                payload = []
             elif endpoint.startswith("v0/inboxes?"):
                 payload = {"inboxes": []}
             else:
@@ -117,6 +128,20 @@ class DiscoveryTest(unittest.TestCase):
         self.assertEqual(opener.request.get_method(), "GET")
         self.assertIsNone(opener.request.data)
         self.assertEqual(dict(opener.request.header_items()), {"X-pinecone-api-version": "2025-10"})
+
+    def test_gateway_distinguishes_missing_connection_from_missing_resource(self):
+        class Opener:
+            def open(self, request, timeout):
+                raise HTTPError(request.full_url, 404, "Not Found", {}, io.BytesIO(self.payload))
+
+        gateway = Gateway()
+        gateway.opener = opener = Opener()
+        for message, missing in (("no browserbase connection configured for this organization", True),
+                                 ("session not found", False)):
+            opener.payload = json.dumps({"error": message}).encode()
+            with self.assertRaises(ConnectorError) as received:
+                gateway.request(f"browserbase/{TEST_PATH}", None, None, 1)
+            self.assertEqual(received.exception.missing_connection, missing)
 
 
 class ConnectionsTest(unittest.TestCase):
@@ -238,11 +263,15 @@ class ConnectionsTest(unittest.TestCase):
         self.assertIsNone(rows["huggingface"]["test_status"])
         self.app.connections.test("huggingface")
         self.app.connections.test("exa")
-        self.assertEqual(self.gateway.probes, [("huggingface", "conn_huggingface", "v1/models", None)])
+        self.assertEqual(self.gateway.probes, [
+            ("huggingface", "conn_huggingface", "v1/models", None),
+            ("exa", "conn_exa", "search", {"query": "example.com", "numResults": 1}),
+        ])
         self.assertEqual(self.app.connections.report()["providers"]["exa"]["test_status"], "passed")
 
         self.gateway.denied.add("huggingface")
         self.app.connections.test("huggingface")
+        self.gateway.denied.add("exa")
         self.gateway.entries = [entry for entry in self.gateway.entries if entry["provider"] != "exa"]
         self.app.connections.test("exa")
         self.gateway.add("exa", "conn_replacement")
@@ -252,6 +281,39 @@ class ConnectionsTest(unittest.TestCase):
         self.app.scan_connections()
         self.assertEqual(self.app.connection_info()["providers"]["huggingface"]["test_status"], "denied")
         self.assertIsNone(self.app.connection_info()["providers"]["exa"]["test_status"])
+
+    def test_home_probes_live_provider_health_with_expiring_cache(self):
+        for name in ("browserbase", "exa", "box"):
+            self.gateway.add(name, f"conn_{name}")
+        self.gateway.missing.add("browserbase")
+        self.gateway.offline.add("box")
+        self.app.scan_connections()
+
+        def statuses():
+            pinecone = self.app.memory_index.pinecone_status(self.app.agent.config)
+            return {row["id"]: row["status"] for row in self.app.connections.health(pinecone)["items"]}
+
+        with patch("hearth.connections.time.monotonic", return_value=100) as clock:
+            self.assertEqual(statuses(), {"browserbase": "not_connected", "exa": "ok", "box": "error"})
+            self.assertCountEqual(self.gateway.probes, [
+                ("browserbase", "org-default", TEST_PATH, None),
+                ("exa", "conn_exa", "search", {"query": "example.com", "numResults": 1}),
+                ("box", "conn_box", "2.0/users/me", None),
+            ])
+            self.gateway.missing.clear()
+            self.gateway.offline.clear()
+            clock.return_value += HEALTH_TTL - 1
+            self.assertEqual(statuses()["browserbase"], "not_connected")
+            self.assertEqual(len(self.gateway.probes), 3)
+            clock.return_value += 1
+            self.assertEqual(statuses(), {"browserbase": "ok", "exa": "ok", "box": "ok"})
+            self.assertEqual(len(self.gateway.probes), 6)
+            self.gateway.entries = [entry for entry in self.gateway.entries if entry["provider"] != "exa"]
+            self.gateway.add("exa", "conn_replacement")
+            self.gateway.missing.add("exa")
+            self.app.scan_connections()
+            self.assertEqual(statuses()["exa"], "not_connected")
+            self.assertEqual(self.gateway.probes[-1][1], "conn_replacement")
 
     def test_llm_selection_uses_discovery_and_preserves_successful_fallback_on_rescan(self):
         for provider in ("ollama", "gemini", "anthropic", "openai", "openrouter", "meta"):

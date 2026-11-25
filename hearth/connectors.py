@@ -39,11 +39,12 @@ CUSTOM_PROVIDER = "custom_api"
 
 
 class ConnectorError(HearthError):
-    def __init__(self, message, status=None, *, unsupported=False, location=None):
+    def __init__(self, message, status=None, *, unsupported=False, location=None, missing_connection=False):
         super().__init__(message)
         self.status = status
         self.unsupported = unsupported
         self.location = location
+        self.missing_connection = missing_connection
 
 
 def model_error(error):
@@ -85,8 +86,16 @@ class Gateway:
         try:
             return self.opener.open(request, timeout=timeout)
         except HTTPError as error:
-            unsupported, location = False, None
+            unsupported, location, missing_connection = False, None, False
             with error:
+                if error.code == 404:
+                    try:
+                        detail = json.loads(error.read(4096))
+                        provider = path.partition("/")[0]
+                        missing_connection = isinstance(detail, dict) and detail.get("error") == (
+                            f"no {provider} connection configured for this organization")
+                    except (OSError, HTTPException, ValueError):
+                        pass
                 if path.startswith(("box/", "pinecone/")):
                     if error.code == 403:
                         try:
@@ -101,7 +110,8 @@ class Gateway:
                     if error.code in (301, 302, 303, 307, 308):
                         location = error.headers.get("Location")
             raise ConnectorError("The gateway rejected the request.", error.code,
-                                 unsupported=unsupported, location=location) from None
+                                 unsupported=unsupported, location=location,
+                                 missing_connection=missing_connection) from None
         except (TimeoutError, URLError) as error:
             if isinstance(getattr(error, "reason", error), TimeoutError):
                 raise ConnectorError("The gateway request timed out.", 504) from None

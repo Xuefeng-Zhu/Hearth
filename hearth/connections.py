@@ -1,5 +1,8 @@
 import json
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from urllib.parse import quote
 
@@ -17,6 +20,9 @@ INBOX = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0
 MODEL = re.compile(r"[A-Za-z0-9_.:/-]{1,150}")
 NON_CHAT_MODEL = re.compile(r"(?:^|[/_.:-])(?:embeddings?|rerank(?:er)?|whisper|tts|stt|dall-e|"
                             r"image|transcribe|moderation|guard|safeguard)(?:$|[/_.:-])", re.I)
+HEALTH_TTL = 300
+HEALTH_TIMEOUT = 4
+HEALTH_PATHS = {"vocalbridge": "api/v1/agent/versions"}
 
 
 def valid_model(value):
@@ -160,6 +166,7 @@ class Connections:
         self.gateway = gateway
         self.storage = storage
         self.checkpoints = checkpoints
+        self.health_lock = threading.Lock()
         self.reset()
 
     def reset(self):
@@ -175,6 +182,7 @@ class Connections:
         self.available = set()
         self.checks = {}
         self.check_times = {}
+        self.health_checks = {}
         self.last_scan = None
 
     def load(self):
@@ -414,6 +422,8 @@ class Connections:
             if provider == browserbase.PROVIDER and test_status in {"passed", "denied", "not_connected"}:
                 status = {"passed": "connected", "denied": "unauthorized", "not_connected": "not_set_up"}[test_status]
                 detail = test_detail
+            elif provider == "exa" and test_status == "not_connected":
+                status, detail = "not_set_up", test_detail
             field = SETTINGS.get(provider)
             providers[provider] = {
                 **info, "status": status, "detail": detail, "test_status": test_status, "test_detail": test_detail,
@@ -423,6 +433,63 @@ class Connections:
                 "dashboard_url": DASHBOARD, "access_rule": ACCESS_RULE, "pinned": provider in CORE_PROVIDERS,
             }
         return {"providers": providers, "last_scan": self.last_scan, "scan_error": self.scan_error}
+
+    def health(self, pinecone):
+        with self.health_lock:
+            selected, config = self.selected, self.config
+            known = self.found | self.saved_ids(config).keys() | selected.keys() | {"browserbase", "exa"}
+            providers = [provider for provider in CATALOG if provider in known]
+            providers.extend(sorted(known - CATALOG.keys()))
+            cache = self.health_checks
+            now = time.monotonic()
+            keys = {provider: (selected.get(provider), config.get(provider, {}).get(SETTINGS.get(provider)),
+                               pinecone["state"] if provider == "pinecone" else None) for provider in providers}
+            due = [provider for provider, key in keys.items()
+                   if provider not in cache or cache[provider][0] != key or now >= cache[provider][1]]
+            if due:
+                with ThreadPoolExecutor(max_workers=min(16, len(due))) as workers:
+                    checks = workers.map(lambda provider: self.health_probe(provider, *keys[provider][:2]), due)
+                    for provider, check in zip(due, checks):
+                        cache[provider] = (keys[provider], time.monotonic() + HEALTH_TTL, check)
+            items = [{"id": provider, "name": catalog_entry(provider)["name"], **cache[provider][2]}
+                     for provider in providers]
+        for item in items:
+            if item["id"] == "pinecone" and pinecone["state"] == "Unavailable" and item["status"] == "ok":
+                item.update(status="error", detail=pinecone.get("error") or "Pinecone memory sync is unavailable.")
+        return {"items": items, "error": self.scan_error}
+
+    def health_probe(self, provider, connection_id, setting):
+        if not connection_id:
+            return {"status": "not_connected", "detail": "No authorized connection is visible to Hearth."}
+        entry = self.gateway_entry(provider, connection_id)
+        path = HEALTH_PATHS.get(provider) or catalog_entry(provider)["test_path"]
+        try:
+            if provider == browserbase.PROVIDER:
+                browserbase.Browserbase(self.gateway).running_sessions(timeout=HEALTH_TIMEOUT)
+            elif provider == "exa":
+                self.probe_exa(entry, timeout=HEALTH_TIMEOUT)
+            else:
+                if provider == "pinecone":
+                    path = f"indexes/{quote(setting, safe='')}"
+                elif provider == "agentmail" and setting:
+                    path = f"v0/inboxes/{quote(setting, safe='')}"
+                if not path:
+                    return {"status": "error", "detail": "This connector has no read-only health endpoint in Hearth."}
+                result = self.gateway.json(entry, path, timeout=HEALTH_TIMEOUT, allow_array=True)
+                if isinstance(result, dict) and (result.get("error") or result.get("errors")
+                                                or result.get("ok") is False or result.get("success") is False):
+                    raise ConnectorError("The provider reported an error.")
+        except ConnectorError as error:
+            if error.missing_connection:
+                return {"status": "not_connected", "detail": "Fly reports that the connector is not configured."}
+            detail = f"The connector check returned HTTP {error.status}." if error.status else str(error)
+            return {"status": "error", "detail": detail}
+        return {"status": "ok", "detail": "The provider answered a read-only request."}
+
+    def probe_exa(self, entry, *, timeout):
+        # Exa search uses POST, with no contents requested for the single result.
+        result = self.gateway.json(entry, "search", {"query": "example.com", "numResults": 1}, timeout=timeout)
+        search.rows_for("exa", result)
 
     def saved_ids(self, config):
         return {**config.get("gateway", {}),
@@ -494,7 +561,16 @@ class Connections:
         if not isinstance(provider, str) or provider not in self.selected:
             raise HearthError("Authorize this connector in Fly, then re-scan.")
         connection_id = self.selected[provider]
-        if catalog_entry(provider)["test_path"]:
+        if provider == "exa":
+            try:
+                self.probe_exa(self.gateway_entry(provider, connection_id), timeout=HEALTH_TIMEOUT)
+            except ConnectorError as error:
+                status = ("not_connected" if error.missing_connection else
+                          "denied" if error.status in (401, 403) else "failed")
+                detail = f"Exa returned HTTP {error.status}." if error.status else str(error)
+            else:
+                status, detail = "passed", "Exa answered a one-result search."
+        elif catalog_entry(provider)["test_path"]:
             settings = self.config[provider] if provider in SETTINGS else {}
             status, detail = probe(self.gateway, {**settings, **self.gateway_entry(provider, connection_id)})
         else:
