@@ -160,25 +160,30 @@ def setup(config, selection=None, pool=None):
     if pool is None:
         pool = config.get("brain_pool", [])
     defaults = config.get("brain_tags", {})
-    models = [item for item in config["llm"] if item["provider"] == "mock"
-              or item["provider"] in MODEL_PATHS and item["connection_id"]]
-    models = [{**model, "tags": model_tags(model, defaults)} for model in models]
-    candidates = pool_models(models, pool, defaults)
+    connected = [item for item in config["llm"] if item["provider"] == "mock"
+                 or item["provider"] in MODEL_PATHS and item["connection_id"]]
+    models = [{**model, "tags": model_tags(model, defaults)} for model in connected]
+    candidates = pool_models(connected, pool, defaults)
     mode = mode_for(selection, candidates)
     if mode == "smart":
         if not candidates:
-            candidates = pool_models(models, [], defaults)
+            candidates = pool_models(connected, [], defaults)
         return mode, candidates + [model for model in models if model["provider"] == "mock"], None
+    configured_keys = {model_key(item) for item in models}
+    alternatives = [model for model in pool_models(connected, [], defaults)
+                    if model_key(model) not in configured_keys]
+    configured = [model for model in models if model["provider"] != "mock"]
+    fallback = [*configured, *alternatives, *[model for model in models if model["provider"] == "mock"]]
     if mode == "priority":
-        return mode, models, None
+        return mode, fallback, None
     chosen = next((model for model in models if model["provider"] == mode), None)
     if mode == "mock":
         return mode, [chosen], None
     if chosen:
         pinned = {**chosen, "model": selection["model"]}
         pinned["tags"] = model_tags({key: value for key, value in pinned.items() if key != "tags"}, defaults)
-        return mode, [pinned, *[model for model in models if model_key(model) != model_key(pinned)]], None
-    return mode, models, mode
+        return mode, [pinned, *[model for model in fallback if model_key(model) != model_key(pinned)]], None
+    return mode, fallback, mode
 
 
 def score(model, turn_type):

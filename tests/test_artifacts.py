@@ -409,8 +409,9 @@ class ArtifactTest(unittest.TestCase):
         calls = []
         agent = self.app.agent
         agent.brain_mode = "huggingface"
-        agent.models = [{"provider": "huggingface", "model": name, "tags": {"tools": "high"}}
-                        for name in (router.KIMI, router.FLASH)]
+        agent.models = [{"provider": "huggingface", "model": name, "tags": router.model_tags(
+            {"provider": "huggingface", "model": name}, agent.config["brain_tags"])}
+            for name in (router.KIMI, router.FLASH)]
 
         def completion(model, messages, tools, emit):
             calls.append(model["model"])

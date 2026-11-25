@@ -47,6 +47,7 @@ class RouterTest(unittest.TestCase):
     def test_smart_default_and_ordering_with_two_models_on_one_provider(self):
         self.assertEqual(self.mode, "smart")
         self.assertEqual(self.order("quick")[0], [FAST, KIMI, PRO, CODER, "hearth-demo"])
+        self.assertEqual(next(model["tags"]["speed"] for model in self.models if model["model"] == FAST), "fast")
         self.assertEqual(self.order("side")[0][0], FAST)
         self.assertEqual(self.order("tool")[0], [KIMI, FAST, PRO, CODER, "hearth-demo"])
         self.assertEqual(self.order("reasoning")[0][0], PRO)

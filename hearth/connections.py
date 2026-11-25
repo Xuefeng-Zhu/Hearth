@@ -193,13 +193,16 @@ class Connections:
         if not isinstance(data, dict):
             raise HearthError("Hearth could not read the saved connector settings.")
 
-        # Preserve old IDs and model overrides while using the shipped fallback priority.
+        # Preserve old IDs and custom model overrides while adopting the shipped default.
         models = data.get("llm")
         if isinstance(models, list):
             current = {item["provider"]: item for item in config["llm"]}
             for item in models:
                 if isinstance(item, dict) and isinstance(item.get("provider"), str):
                     if model := current.get(item["provider"]):
+                        if (item["provider"] == "huggingface" and item.get("model") == router.QWEN
+                                and model.get("model") == router.KIMI):
+                            item = {key: value for key, value in item.items() if key != "model"}
                         self.merge(model, item)
         for provider in CORE_PROVIDERS[1:]:
             self.merge(config[provider], data.get(provider))
@@ -234,11 +237,14 @@ class Connections:
             try:
                 rows = data["brain_pool"]
                 if isinstance(rows, list):
-                    retired = [row for row in rows if isinstance(row, dict) and router.retired_model(row.get("model"))]
-                    rows = [row for row in rows if row not in retired]
-                    if retired and all(row.get("provider") == "huggingface" and row.get("model") == router.QWEN
-                                       for row in rows if isinstance(row, dict)):
+                    active_rows = [row for row in rows
+                                   if not isinstance(row, dict) or not router.retired_model(row.get("model"))]
+                    if len(active_rows) != len(rows) and all(isinstance(row, dict)
+                            and row.get("provider") == "huggingface" and row.get("model") == router.QWEN
+                            for row in active_rows):
                         rows = []
+                    else:
+                        rows = active_rows
                 config["brain_pool"] = validate_pool(rows)
             except HearthError:
                 pass

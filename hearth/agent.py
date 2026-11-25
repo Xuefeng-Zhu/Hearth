@@ -35,6 +35,9 @@ Make a file only when the current user asks for one or the requested deliverable
 Use create_document for Word, create_pdf for PDF, create_spreadsheet for Excel, and create_presentation
 for PowerPoint, including requests for a single slide. Pass structured content for the full deliverable. Use JSON numbers for numeric spreadsheet cells
 and equals-prefixed strings for formulas, for example "=B2*C2". Never call these just to save a chat reply.
+For a single slide, set the title and a short multiline subtitle, and pass an empty slides array.
+Use the user’s prompt and recalled excerpts directly. Read an additional memory file only when there is
+a known path and it is necessary to finish the request.
 Use kind plan for plans, list for lists, and export for exports. Report whether Box synchronized the file.
 For an edit, identify the existing file from the available file references. If ambiguous, ask which file.
 Call read_artifact before update, keep the parts the user did not ask to change, and pass the complete revised
@@ -186,18 +189,17 @@ def mock_completion(messages, emit, clock, *, tool_names=(), demo=False):
     elif "create_document" in tool_names and not demo:
         if not prior:
             if "seattle trip" in lower and re.search(r"\bslides?\b", lower):
-                return tool_call("create_presentation", {"title": "Seattle trip", "slides": [{
-                    "title": "A day in Seattle",
-                    "bullets": ["Start at Pike Place Market", "Explore Seattle Center and the Space Needle",
-                                "Watch the sunset from Kerry Park"],
-                }]})
+                return tool_call("create_presentation", {
+                    "title": "Seattle trip", "slides": [],
+                    "subtitle": "Pike Place Market in the morning\nSeattle Center in the afternoon\nSunset at Kerry Park",
+                })
             if "thanksgiving" not in lower and "shopping list" not in lower:
                 return mock_text("The mock brain has sample files for Thanksgiving. Use a connected brain for a custom file.", emit)
             fmt = next((suffix for suffix, pattern in file_intent.TYPE_PATTERNS.items()
                         if re.search(rf"\b(?:{pattern})\b", lower)),
                        "xlsx" if "shopping list" in lower else "pdf")
             return tool_call(*DEMO_FILES[fmt])
-        answer = "Your file is ready in Artifacts."
+        answer = ""
     elif lower.startswith("gateway "):
         if not prior:
             pattern = r"gateway\s+(\S+)\s+(\S+)\s+(\S+)(?:\s*\|\s*(.*))?"
@@ -562,7 +564,9 @@ class Agent:
         if remembered:
             fields["remembered"] = list(remembered.values())
         if thread_id != MAIN:
-            fields["summary"] = self.side_summary(model, redact_text(prompt), content)
+            files = [item["filename"] for item in turn["artifacts"].values()] if turn else []
+            summary = "Files saved: " + ", ".join(files) if files else content
+            fields["summary"] = self.side_summary(model, redact_text(prompt), summary)
         with self.storage.lock():
             message = self.threads.append(thread_id, "assistant", content, **fields)
         if turn and turn["artifacts"]:
@@ -653,8 +657,10 @@ class Agent:
                     if any(not (group & attempted) for group in required) and not touched_state:
                         raise MalformedToolCall("The model did not call the required tool.")
                     lines = []
-                    for _, result in tool_results:
-                        if result.get("error"):
+                    successful_tools = {name for name, result in tool_results if "error" not in result}
+                    for name, result in tool_results:
+                        optional_read = name in READ_ONLY_TOOLS and not any(name in group for group in required)
+                        if result.get("error") and name not in successful_tools and not optional_read:
                             lines.append(result["error"])
                         elif action := result.get("action"):
                             if action["status"] == "complete":

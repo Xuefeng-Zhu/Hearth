@@ -879,7 +879,9 @@ class Handler(BaseHTTPRequestHandler):
                 if packet is None or packet[0] == "error":
                     raise voice.VoiceError("Hearth could not answer. Check Timeline for any completed actions.", 502)
                 if packet[0] == "done":
-                    return {"reply": packet[1]["message"]["content"]}
+                    message = packet[1]["message"]
+                    reply = message["content"] or ("Your file is ready in the chat." if message.get("artifacts") else "")
+                    return {"reply": reply}
         except Empty:
             pass
         raise voice.VoiceError("Hearth is still working. Check the thread for the reply.", 504)
