@@ -2,7 +2,7 @@ import { icon } from "./icons.js";
 import { markdown } from "./artifacts.js";
 
 const areas = [
-  { id: "profile", label: "Profile", icon: "user", singular: "saved field", empty: "Your personal details" },
+  { id: "profile", label: "Profile", icon: "user", singular: "field", empty: "Your personal details" },
   { id: "people", label: "People", icon: "people", singular: "contact", empty: "No contacts saved yet." },
   { id: "places", label: "Places", icon: "pin", singular: "place", empty: "No places saved yet." },
   { id: "topics", label: "Topics", icon: "book", singular: "note", empty: "No topics saved yet." },
