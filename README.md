@@ -9,8 +9,8 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 | Home | Chat approval | Artifacts and Pages |
 | --- | --- | --- |
 | [![Home with reminders, files, and activity](docs/screenshots/home.png)](docs/screenshots/home.png) | [![Ember beside an email approval card](docs/screenshots/chat-approval.png)](docs/screenshots/chat-approval.png) | [![HTML pages in the Artifacts library](docs/screenshots/artifacts-pages.png)](docs/screenshots/artifacts-pages.png) |
-| **Recurring tasks** | **Memory** | **Connections** |
-| [![Recurring task with schedule and run history](docs/screenshots/recurring-tasks.png)](docs/screenshots/recurring-tasks.png) | [![Markdown note browser](docs/screenshots/memory.png)](docs/screenshots/memory.png) | [![Connections catalog and Browserbase setup](docs/screenshots/connections.png)](docs/screenshots/connections.png) |
+| **Recurring tasks** | **Connections** | |
+| [![Recurring task with schedule and run history](docs/screenshots/recurring-tasks.png)](docs/screenshots/recurring-tasks.png) | [![Connections catalog and Browserbase setup](docs/screenshots/connections.png)](docs/screenshots/connections.png) | |
 
 [<img src="docs/screenshots/mobile-dark-drawer.png" alt="Hearth's navigation drawer in dark mode on mobile" width="195">](docs/screenshots/mobile-dark-drawer.png)
 
@@ -22,7 +22,8 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 - **Make files and pages.** Create and edit DOCX, PDF, XLSX, and PPTX from chat. Preview and download artifacts, keep versions locally, and sync to Box. Build single-file HTML pages with phone and desktop previews, version history, and optional approved snapshot sharing.
 - **Reuse skills in chat.** Start with four built-in Markdown playbooks or write your own. Use **Try it** to preload a skill in a side chat, see which skill Hearth loaded, and undo edits from Timeline. [Skills guide](docs/skills.md)
 - **Review actions.** Approve, edit supported fields, or decline proposed actions, including email. Timeline records tool activity and approvals. Supported changes offer item-level Undo or filesystem checkpoint restore.
-- **Remember and run on a schedule.** Browse and search Markdown memory, optionally use Pinecone for semantic recall, and set reminders or recurring prompts with their own run history. AgentMail can import forwarded mail as proposals and deliver configured reminder or task email.
+- **Review what Hearth remembers.** Edit your profile and browse linked People, Places, Topics, and Daily notes. Search uses keyword and optional Pinecone recall. With Auto-remember enabled, chat can save durable facts to subject notes during the turn. [Memory guide](docs/memory.md)
+- **Run on a schedule.** Create reminders or recurring prompts with their own run history. AgentMail can import forwarded mail as proposals and deliver configured reminder or task email.
 - **Talk to Hearth.** Dictate with browser speech recognition or Hugging Face Whisper. Vocal Bridge adds live calls routed to the originating chat, with a scripted call demo available locally.
 
 ## Architecture

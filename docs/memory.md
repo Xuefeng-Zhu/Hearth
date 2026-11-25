@@ -1,23 +1,41 @@
 # Memory and recall
 
-Hearth keeps Markdown notes under `live/memory/` in its data directory. On first startup it copies the [sample memory](../memory/) there. The Memory view reads the workspace files. Chat can cite matching excerpts from `USER.md` and the `people/`, `topics/`, and `daily/` folders.
+The **Memory** page shows what Hearth knows across **Profile**, **People**, **Places**, **Topics**, and **Daily**. Edit the profile in its form or open a note to edit its Markdown, follow related notes, rename it, or delete it. Renames update links in other notes. The search box uses the workspace’s recall settings and opens the source at the matching lines. **Settings → Approvals** updates the approval rules shown in `APPROVAL_PREFERENCES.md`.
 
-Under **Settings → Memory**, choose **Auto**, **Pinecone**, **Local**, **Hugging Face embeddings**, or **Keyword**, and set the result limit, minimum similarity, and folder scope. Auto tries Pinecone when available. Local recall uses text matching on the Sprite. The Hugging Face embeddings option stores a local vector cache and uses Hugging Face to compute embeddings. Text artifacts can be included in recall, and chat and voice transcripts are opt-in. [Recall implementation](../hearth/recall.py)
+## Files and agent tools
 
-## Pinecone index setup
+Hearth stores Markdown under `live/memory/` in the data directory. A fresh workspace copies the [fictional demo notes](../memory/).
 
-1. Add Pinecone and Hugging Face through the [Fly connector setup](connectors.md). Give the Pinecone connector access to the project where the index lives.
-2. Create a dense serverless index named `hearth-memory` with **384 dimensions** and **cosine** similarity. Choose a bring-your-own-vectors index. Hearth uses `intfloat/multilingual-e5-small` through Hugging Face for this configuration. The shipped connector settings specify AWS `us-east-1` for gateway creation attempts.
-3. Refresh **Connections** in Hearth, then select **Sync memories to Pinecone** in **Settings → Memory**. Check the status and chunk count, then run **Test recall**.
+| Area | Path | Front matter |
+| --- | --- | --- |
+| Profile | `USER.md` | `profile`, `id: user`, `type: user`, `related` |
+| People and organizations | `people/<name>.md` | `id`, `type: contact` or `organization`, `relation`, `related` |
+| Places | `locations/<place>.md` | `id`, `type: place`, `related` |
+| Topics | `food.md`, `travel.md`, `shopping-and-money.md`, `home-and-health.md`, `leisure.md`, and `topics/<subject>.md` | `id`, `type`, `related` |
+| Projects | `projects/<project>.md` | `id`, `type: project`, `related` |
+| Daily | `daily/YYYY-MM-DD.md` | `id`, `type: event`, `related` |
+| Approvals | `APPROVAL_PREFERENCES.md` | `id: approval-preferences`, `type: misc`, `related` |
 
-If the index is missing, Hearth tries integrated index creation first, followed by dense index creation when Hugging Face is available. Use the Pinecone console when the gateway rejects creation. Existing compatible integrated indexes can also work when their embedding input maps to the `text` field. [Pinecone index creation](https://docs.pinecone.io/guides/indexes/create-an-index), [Hearth index adapter](../hearth/pinecone.py)
+The profile begins with a YAML `profile:` mapping. It contains `name`, `preferred_name`, `pronouns`, `phone`, `addresses` (entries with `id`, `label`, `address`, and `notes`), `work` (with `employer` and `role`), and lists for `pets`, `interests`, and `communication`. Short Markdown notes follow. Apart from the fixed profile and approvals IDs, each note ID is its path without `.md`. Put note IDs in `related`. The full type set is `user`, `contact`, `organization`, `project`, `place`, `event`, `interest`, and `misc`.
 
-## Namespaces and sync
+Hearth regenerates `live/memory/.index.json` after memory changes and refreshes it when it reads the library. The system prompt receives the in-scope note IDs, types, relationships, sizes, and update times, plus the full `USER.md`. Recall supplies a short list of relevant excerpts separately. The agent can use `memory_search`, `memory_read` by ID or path with inclusive line numbers, `memory_write`, `memory_edit` for a passage or append, and `memory_move`.
 
-The default namespace for a new workspace is `hearth`. For multiple workspaces sharing an index, set a distinct `pinecone.namespace` in each private connector settings file before syncing. Namespaces isolate each workspace's records within the index. Existing local namespace overrides are kept. Rebuild reconciles Hearth's records within the selected namespace. It can prune records that fall outside the current corpus, so give each workspace its own namespace.
+New workspaces default to **Automatic** in **Settings → Memory → Auto-remember**. Existing settings carry forward. **Ask first** queues unsolicited memory writes for approval. **Off** requires a direct request to edit a note. Connected brains are instructed to save durable details during the turn, keep one note per subject, mark inferences, and use the latest user statement when facts conflict. Hearth screens writes for recognized secrets, identity-document IDs, and payment card numbers. [Agent tools](../hearth/agent.py)
 
-Startup and manual sync backfill notes and text artifacts. Edits, deletions, and Undo or Redo can trigger reconciliation. Pinecone recall can rerank results with `bge-reranker-v2-m3` when the route is available. Unavailable or timed-out Pinecone queries fall back to Local. [Sync worker](../hearth/memory_sync.py), [Pinecone namespaces](https://docs.pinecone.io/guides/data/implement-multitenancy)
+## Migrating and undoing notes
 
-## Remember and forget
+On first startup with legacy memory, Hearth adds front matter, preserves the old Markdown, moves matching legacy topic files into the standard paths when available, and adds the new topic and approvals files. It retains the original notes in `memory-backups/before-structured-memory.json` within the data directory. The **Memory moved to the new layout** Timeline entry offers item-level Undo and Redo. Later edits, renames, and ordinary note deletions can also be undone from Timeline. If a touched note has changed again, reverse the newer edit first.
 
-**Auto-remember** defaults to **Off**. **Ask first** creates an approval, and **Automatic** can add facts to a UTC daily note. Editing or forgetting a note records a checkpoint and can offer item-level Undo. Forgetting a chat excerpt excludes it from recall while preserving the transcript. Hearth redacts recognized credential patterns before indexing, but connected recall still sends selected text or vectors to the configured providers. [Memory edits](../hearth/memory_edits.py), [Approval settings](approvals-and-tasks.md)
+## Pinecone
+
+Under **Settings → Memory**, choose **Auto**, **Pinecone**, **Local**, **Hugging Face embeddings**, or **Keyword**. Set the result limit, similarity threshold, and library scope. Auto uses Pinecone when connected. Pinecone matches are supplemented by keyword hits, which can surface recent edits while sync is pending. If Pinecone is unavailable or exceeds the chat time budget, Hearth uses local keyword matching. The Hugging Face backend keeps a local vector cache. Text artifacts can appear in search. Chat and voice transcript recall is opt-in.
+
+The existing Hearth Sprite uses the `frank` namespace and a **384-dimension cosine** index with Hugging Face’s `intfloat/multilingual-e5-small` embeddings. Fresh generic installations still default to the `hearth` namespace. For installations that share an index, configure a distinct namespace in each workspace’s private connector settings. [Connector setup](connectors.md), [Pinecone adapter](../hearth/pinecone.py)
+
+Startup, edits, Undo, and Redo trigger reconciliation. Structured notes use heading sections as recall chunks, with additional splits for long sections. Pinecone records include the note ID, type, related IDs, and update time. Sync compares record fingerprints and upserts new or changed records and prunes stale Hearth records in the configured namespace. **Rebuild index** reconciles records within that namespace. The index itself stays in place. [Sync worker](../hearth/memory_sync.py)
+
+## Permanent forget from chat
+
+Ask Hearth to forget a specific fact or subject. The connected brain identifies matching phrases and known variants. Hearth removes matching note passages, chat and voice transcript entries, recall activity, and copies in its local migration and Undo data. It adds a standing rule, using phrase hashes, to block matching details from being saved or recalled again. Pinecone record cleanup runs through sync. Timeline records the action without an Undo.
+
+Matching depends on the phrases and variants identified for the request. Independent source documents, provider logs, and native Sprite snapshots are outside Hearth’s writable memory stores. Hearth excludes matches from artifact recall and blocks in-app restoration of native snapshots that predate a permanent forget request. Use **Delete** in the Memory page for ordinary note removal with Undo. [Permanent forget implementation](../hearth/memory_purge.py)
