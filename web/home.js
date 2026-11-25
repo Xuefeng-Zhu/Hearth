@@ -192,17 +192,25 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
       const pinecone = data.pinecone;
       const tone = /error|failed|unavailable/i.test(pinecone) ? "error" : /^(ready|connected|synced)$/i.test(pinecone) ? "ok" : "neutral";
       status.append(node("span", "", "Pinecone"), dotLabel(pinecone, tone));
+      body.append(status);
+      if (data.record_count != null) {
+        const records = node("p", "home-detail");
+        records.append(node("span", "", "Indexed records"), node("span", "", data.record_count.toLocaleString()));
+        body.append(records);
+      }
       const sync = node("p", "home-detail");
       sync.append(node("span", "", "Last synced"), data.last_sync ? pendingTime(data.last_sync) : node("span", "", "Never"));
-      body.append(status, sync);
+      body.append(sync);
     } else if (id === "activity") {
       body.append(labelCount(data.count, "event today", "events today"));
       if (data.errors) body.append(node("p", "home-error", `${data.errors} ${data.errors === 1 ? "error" : "errors"} today`));
       body.append(rows(data.items, "No activity yet.", (item) => [activityTime(item.at), node("span", "", item.title)]));
     } else if (id === "connections") {
       if (data.error) body.append(node("p", "home-error", data.error));
-      body.append(rows(data.items, "No configured connectors.", (item) =>
-        [node("span", "", item.name), dotLabel(item.ok ? "OK" : "Error", item.ok ? "ok" : "error")]));
+      body.append(rows(data.items, "No configured connectors.", (item) => [
+        node("span", "", item.name),
+        dotLabel(item.ok ? item.state || "OK" : "Error", item.state === "Connecting" ? "neutral" : item.ok ? "ok" : "error"),
+      ]));
     } else if (id === "weather") {
       const pair = node("div", "home-weather");
       const clock = node("div", "");

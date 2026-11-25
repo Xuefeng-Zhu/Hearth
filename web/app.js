@@ -62,6 +62,9 @@ let fileRequest = 0;
 let memoryFindRequest = 0;
 let busy = false;
 let connectionState;
+let workspaceModel;
+let workspaceConnectorError = false;
+const workspaceStatusLabels = document.querySelectorAll("[data-workspace-status]");
 let connectionRequest;
 let connectionTabPreference = localStorage.getItem(connectionTabStorage);
 let newlyConfigured = new Set();
@@ -104,8 +107,9 @@ const homePage = createHome({
   openFile: (id, trigger) => artifactLibrary.open(id, trigger),
   onData(data) {
     setTimeZone(data.timezone);
+    const connections = data.builtin.connections;
+    workspaceConnectorError = !!connections.error || connections.items.some((entry) => !entry.ok);
     renderBrain(data);
-    byId("environment-label").textContent = data.checkpoints === "sprite" ? "Private Sprite" : "Local workspace";
   },
 });
 const delivery = createReminders({
@@ -1002,9 +1006,6 @@ async function refreshState() {
   }
   const saved = new Set(state.messages.map((message) => message.id));
   for (const turn of turns) if (saved.has(turn.reply?.id)) turns.delete(turn);
-  const environment = state.checkpoints === "sprite" ? "Private Sprite" : "Local workspace";
-  byId("environment-label").textContent = environment;
-  byId("start-call").title = `Call Hearth · ${environment}`;
   renderBrain(state);
   paintAvatars();
   if (view === "settings" && settingsSection === "voice") showVoiceEngine();
@@ -1012,12 +1013,43 @@ async function refreshState() {
 }
 
 function renderBrain({ model, model_id: id }) {
-  const name = modelNames[model] || "Unavailable";
-  const label = id && model !== "mock" ? `${name} · ${id.split("/").at(-1)}` : name;
-  const status = byId("model-status");
-  status.textContent = `Brain · ${label}`;
-  status.title = id && model !== "mock" ? `${name} · ${id}` : name;
-  byId("mobile-brain-label").textContent = shortModel({ name, model: id, provider: model });
+  workspaceModel = model;
+  const name = modelNames[model] || connectionState?.providers[model]?.name || model || "Unavailable";
+  byId("brain-active-model").textContent = id && model !== "mock" ? `${name} · ${id}` : name;
+  renderWorkspaceStatus();
+}
+
+function renderWorkspaceStatus() {
+  const status = !navigator.onLine ? "Offline" : workspaceConnectorError ? "Connector error"
+    : workspaceModel === "mock" ? "Mock mode" : "";
+  for (const label of workspaceStatusLabels) {
+    label.textContent = status;
+    label.parentElement.hidden = !status;
+  }
+}
+
+function connectorHasError(entry) {
+  return entry.status === "unauthorized" || ["failed", "denied"].includes(entry.test_status)
+    || entry.index_state === "Unavailable";
+}
+
+function applyConnections(data) {
+  connectionState = data;
+  workspaceConnectorError = !!data.scan_error || Object.values(data.providers).some(connectorHasError);
+  renderConnections();
+  renderBrain(data);
+}
+
+async function refreshPineconeHealth() {
+  const previous = connectionState;
+  const entry = previous?.providers.pinecone;
+  if (connectionRequest || entry?.status !== "connected" ||
+      (entry.index_state === "Ready" && !connectorHasError(entry))) return;
+  const data = await api("/api/connections");
+  if (view === "connections" && !connectionRequest && connectionState === previous &&
+      JSON.stringify(data.providers.pinecone) !== JSON.stringify(entry)) {
+    applyConnections(data);
+  }
 }
 
 function memoryLabel(hit) {
@@ -1197,14 +1229,17 @@ function connectionCard(provider, entry) {
   if (newlyConfigured.delete(provider)) card.classList.add("newly-configured");
 
   const configured = entry.status === "connected";
-  const check = entry.test_status === "passed" ? "ok" : entry.test_status ? "error" : "untested";
+  const check = connectorHasError(entry) ? "error"
+    : entry.index_state === "Ready" ? "ready" : entry.index_state === "Connecting" ? "checking"
+      : entry.test_status === "passed" ? "ok" : entry.test_status ? "error" : "untested";
   const status = configured ? check : entry.status;
   const labels = {
-    ok: "OK", error: "Error", untested: "Untested", unauthorized: "Found but not authorized",
+    ok: "OK", ready: "Ready", checking: "Checking", error: "Error", untested: "Untested", unauthorized: "Found but not authorized",
     not_set_up: "Not set up", unknown: "Not checked",
   };
   const heading = node("div", "card-header");
-  heading.append(node("h4", "", entry.name), node("span", `connection-status ${status}`, labels[status]));
+  const tone = status === "ready" ? "ok" : status === "checking" ? "untested" : status;
+  heading.append(node("h4", "", entry.name), node("span", `connection-status ${tone}`, labels[status]));
   card.append(heading);
   if (entry.auth) card.append(node("p", "meta", entry.auth));
   card.append(node("p", "connection-description", entry.description));
@@ -1214,7 +1249,8 @@ function connectionCard(provider, entry) {
     card.append(uses);
   }
   if (Object.hasOwn(connectorSettings, provider)) card.append(connectorForm(provider, entry, connectorSettings[provider]));
-  if (entry.test_detail) card.append(node("p", `connection-test ${entry.test_status}`, entry.test_detail));
+  if (entry.index_error) card.append(node("p", "connection-test failed", entry.index_error));
+  else if (entry.test_detail) card.append(node("p", `connection-test ${entry.test_status}`, entry.test_detail));
 
   const footer = node("div", "connector-footer");
   const access = node("span", "connector-access", entry.access_rule);
@@ -1381,13 +1417,12 @@ function updateConnections(operation, body = {}) {
   connectionRequest = (async () => {
     try {
       const previous = connectionState;
-      connectionState = await api(`/api/connections/${operation}`, body);
-      if (operation === "rescan" && previous && !connectionState.scan_error) {
-        announceNewConnections(previous, connectionState);
+      const data = await api(`/api/connections/${operation}`, body);
+      if (operation === "rescan" && previous && !data.scan_error) {
+        announceNewConnections(previous, data);
       }
       if (operation === "settings") connectionDrafts.delete(body.provider);
-      renderConnections();
-      renderBrain(connectionState);
+      applyConnections(data);
       if (view === "settings" && settingsSection === "voice") {
         showVoiceEngine();
         voiceCall.refreshSettings();
@@ -1402,9 +1437,7 @@ function updateConnections(operation, body = {}) {
       feedback.textContent = error.message;
       if (!connectionState) {
         try {
-          connectionState = await api("/api/connections");
-          renderConnections();
-          renderBrain(connectionState);
+          applyConnections(await api("/api/connections"));
         } catch {
           // The request message remains visible until a re-scan succeeds.
         }
@@ -2042,7 +2075,6 @@ async function openView(nextView, updateHistory = true) {
   if (view === "timeline" && nextView !== view) timeline.hide();
   view = nextView;
   byId("start-call").hidden = view !== "chat";
-  byId("environment").hidden = view === "chat";
   byId("view-title").textContent = view[0].toUpperCase() + view.slice(1);
   clearTimeout(reindexPoll);
   for (const item of nav) {
@@ -2697,19 +2729,23 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 let polling = false;
+window.addEventListener("offline", renderWorkspaceStatus);
+window.addEventListener("online", renderWorkspaceStatus);
 setInterval(async () => {
-  if (!["chat", "reminders"].includes(view) || busy || threadBusy || document.hidden || polling) return;
+  if (!["chat", "reminders", "connections"].includes(view) || busy || threadBusy || document.hidden || polling) return;
   polling = true;
   try {
-    await refreshView();
+    if (view === "connections") await refreshPineconeHealth();
+    else await refreshView();
   } catch {
-    // A transient connection failure leaves the visible conversation intact.
+    // Leave the current view intact during a transient connection failure.
   } finally {
     polling = false;
   }
 }, 3_000);
 setInterval(() => { if (!document.hidden) delivery.poll(); }, 60_000);
 applyAppearance();
+renderWorkspaceStatus();
 openView(requestedThread ? "chat" : "home", false);
 if (!document.hidden) delivery.poll();
 if (isConnectionsRoute()) syncConnectionRoute();

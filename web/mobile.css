@@ -31,18 +31,8 @@
     background: var(--paper);
   }
   .header h1 { font-size: 17px; }
-  .header-status { min-width: 0; flex: 1; flex-wrap: nowrap; align-items: center; }
-  #environment {
-    position: relative;
-    flex: none;
-    padding: 0;
-    border: 0;
-    background: transparent;
-  }
-  #environment-label { position: absolute; clip-path: inset(50%); }
   #return-to-call { flex: 0 0 auto; padding-inline: 8px; }
 
-  .header #model-status { display: none; }
   .menu-toggle {
     display: grid;
     place-items: center;
@@ -78,14 +68,6 @@
   .workspace-drawer::backdrop { background: var(--overlay-scrim); }
   @keyframes drawer-enter { from { transform: translateX(-100%); } }
   @media (prefers-reduced-motion: reduce) { .workspace-drawer[open] { animation: none; } }
-  #mobile-brain-status {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    margin: 5px 0 0;
-    color: var(--muted);
-    font-size: 12px;
-  }
   .workspace-drawer-header {
     flex: none;
     display: flex;
@@ -110,6 +92,7 @@
   .workspace-drawer-body { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; }
   .workspace-drawer-body > nav { flex: none; }
   .workspace-drawer .workspace-settings { flex: none; padding-top: 8px; margin-top: 8px; border-top: 1px solid var(--border); }
+  .workspace-drawer .workspace-status { padding-inline: 8px; }
   .workspace-drawer .nav-link > .line-icon { width: 21px; }
   #mobile-thread-panel { display: flex; flex: 1; min-height: 8rem; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
   .workspace-drawer .thread-panel { width: 100%; padding: 0; border: 0; background: transparent; }

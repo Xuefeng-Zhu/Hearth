@@ -34,6 +34,7 @@
         <button type="button" class="nav-link" data-view="memory"><span data-icon="book"></span> Memory</button>
       </nav>
       <nav class="workspace-settings" aria-label="Preferences">
+        <p class="workspace-status" role="status" hidden><span class="dot" aria-hidden="true"></span><span data-workspace-status></span></p>
         <button type="button" class="nav-link" data-view="settings"><span data-icon="settings"></span> Settings</button>
       </nav>
     </aside>
@@ -41,11 +42,9 @@
       <header class="header">
         <button type="button" class="mobile-only menu-toggle" id="open-menu" aria-label="Open menu" aria-haspopup="dialog" aria-controls="workspace-drawer" aria-expanded="false" title="Open menu"><span data-icon="menu" data-icon-size="23"></span></button>
         <h1 id="view-title">Home</h1>
-        <div class="header-status">
+        <div class="header-actions">
           <button type="button" class="call-button" id="return-to-call" aria-haspopup="dialog" hidden>Return to call</button>
-          <span class="environment" id="model-status">Brain · Checking…</span>
-          <span class="environment" id="environment"><span class="dot" aria-hidden="true"></span><span id="environment-label">Connecting</span></span>
-          <button type="button" class="icon-button" id="start-call" aria-label="Call Hearth" title="Call Hearth" aria-haspopup="dialog" disabled>
+          <button type="button" class="icon-button" id="start-call" aria-label="Call Hearth" title="Call Hearth" aria-haspopup="dialog" disabled hidden>
             <span data-icon="phone"></span><span class="call-status-dot dot" aria-hidden="true"></span>
           </button>
         </div>
@@ -406,6 +405,7 @@
           <div class="section-intro">
             <h2>Brain</h2>
             <p>Choose how Hearth selects a model for each turn.</p>
+            <p class="brain-active"><strong>Active model</strong> <span id="brain-active-model">Checking…</span></p>
           </div>
           <div class="settings-layout">
           <form class="card brain-form" id="brain-form">
@@ -690,10 +690,7 @@
   </div>
   <dialog class="mobile-only workspace-drawer" id="workspace-drawer" aria-labelledby="workspace-title">
     <header class="workspace-drawer-header">
-      <div>
-        <h2 id="workspace-title">Hearth</h2>
-        <p id="mobile-brain-status"><span class="dot" aria-hidden="true"></span><span id="mobile-brain-label">Checking brain…</span></p>
-      </div>
+      <h2 id="workspace-title">Hearth</h2>
       <form method="dialog"><button type="submit" aria-label="Close menu" autofocus><span data-icon="x"></span></button></form>
     </header>
     <div class="workspace-drawer-body">
@@ -714,6 +711,7 @@
       <div id="mobile-avatar-options"><span aria-hidden="true">Ember view</span></div>
     </div>
     <nav class="workspace-settings" aria-label="Preferences">
+      <p class="workspace-status" role="status" hidden><span class="dot" aria-hidden="true"></span><span data-workspace-status></span></p>
       <button type="button" class="nav-link" data-view="settings"><span data-icon="settings"></span> Settings</button>
     </nav>
   </dialog>
