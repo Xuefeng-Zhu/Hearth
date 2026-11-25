@@ -6,7 +6,7 @@ from urllib.parse import quote
 from .connectors import CORE_PROVIDERS, GATEWAY_SEGMENT, MODELS_PATHS, MODEL_PATHS, ConnectorError, valid_provider
 from .gateway_tools import redact_text
 from .storage import HearthError, ROOT, atomic_write, iso
-from . import recall, search
+from . import recall, router, search
 
 CATALOG = {entry["slug"]: entry for entry in json.loads((ROOT / "config/catalog.json").read_text(encoding="utf-8"))}
 DASHBOARD = "https://fly.io/dashboard/xuefeng-zhu/sprites/connectors"
@@ -21,6 +21,23 @@ NON_CHAT_MODEL = re.compile(r"(?:^|[/_.:-])(?:embeddings?|rerank(?:er)?|whisper|
 
 def valid_model(value):
     return isinstance(value, str) and bool(MODEL.fullmatch(value)) and redact_text(value) == value
+
+
+def validate_pool(rows):
+    if not isinstance(rows, list) or len(rows) > router.MAX_POOL:
+        raise HearthError(f"Supply a routing pool of up to {router.MAX_POOL} models.")
+    pool = {}
+    for row in rows:
+        if not isinstance(row, dict) or row.keys() - {"provider", "model", "tags"}:
+            raise HearthError("Invalid routing pool model.")
+        provider, model = row.get("provider"), row.get("model")
+        if not isinstance(provider, str) or provider not in MODEL_PATHS or not valid_model(model):
+            raise HearthError("Choose a valid routing pool provider and model.")
+        key = (provider, model)
+        if key in pool:
+            raise HearthError("Each model can appear only once in the routing pool.")
+        pool[key] = {"provider": provider, "model": model, "tags": router.validate_tags(row.get("tags", {}))}
+    return list(pool.values())
 
 
 def chat_models(provider, data):
@@ -147,6 +164,7 @@ class Connections:
         config = deepcopy(self.defaults)
         config["gateway"] = {}
         config.setdefault("brain", {"provider": "auto", "model": ""})
+        config.setdefault("brain_pool", [])
         config["memory"] = recall.settings(config.get("memory", {}))
         config["search"] = search.settings(config.get("search", {}))
         if not self.path.is_file():
@@ -180,8 +198,13 @@ class Connections:
             provider, model = brain.get("provider"), brain.get("model")
             if isinstance(provider, str) and provider in MODEL_PATHS and valid_model(model):
                 config["brain"] = {"provider": provider, "model": model}
-            elif provider in ("auto", "mock"):
+            elif provider in ("auto", "priority", "smart", "mock"):
                 config["brain"] = {"provider": provider, "model": ""}
+        if "brain_pool" in data:
+            try:
+                config["brain_pool"] = validate_pool(data["brain_pool"])
+            except HearthError:
+                pass
         for key, validate in (("memory", recall.settings), ("search", search.settings)):
             if key in data:
                 try:
@@ -246,16 +269,23 @@ class Connections:
                 "default_model": entries.get(provider, {}).get("model", ""),
                 "available": provider in self.selected, "supported": provider in MODEL_PATHS,
             })
-        return {"selection": saved, "providers": providers}
+        defaults = self.config.get("brain_tags", {})
+        pool = self.config.get("brain_pool", [])
+        default_pool = [{"provider": provider, "model": entry["model"]}
+                        for provider, entry in entries.items() if provider in MODEL_PATHS
+                        and provider in self.selected and entry["model"]]
 
-    def brain_entry(self, provider, model=""):
+        def describe(rows):
+            return [{**row, "tags": router.model_tags(row, defaults)} for row in rows]
+
+        return {"selection": saved, "providers": providers, "pool": describe(pool),
+                "default_pool": describe(default_pool)}
+
+    def brain_selection(self, provider, model=""):
         if not isinstance(provider, str) or not isinstance(model, str):
             raise HearthError("Choose a valid brain provider and model.")
-        if provider in ("auto", "mock"):
-            if provider == "auto":
-                return next(entry for entry in self.active_config()["llm"]
-                            if entry["provider"] == "mock" or entry["connection_id"])
-            return {"provider": "mock", "model": "hearth-demo"}
+        if provider in ("auto", "priority", "smart", "mock"):
+            return {"provider": provider, "model": ""}
         if provider not in MODEL_PATHS:
             raise HearthError("This connector does not have a Hearth chat adapter.")
         if provider not in self.selected:
@@ -264,7 +294,7 @@ class Connections:
         model = model.strip() or default
         if not valid_model(model):
             raise HearthError("Enter a model ID using letters, digits, and model path punctuation.")
-        return {**self.gateway_entry(provider, self.selected[provider]), "model": model}
+        return {"provider": provider, "model": model}
 
     def brain_models(self, provider):
         if not isinstance(provider, str) or provider not in self.selected:
@@ -275,16 +305,18 @@ class Connections:
             models = list_chat_models(self.gateway, self.gateway_entry(provider, self.selected[provider]))
         except ConnectorError:
             return {"models": [], "detail": "Could not load models. Enter a model ID."}
-        return {"models": models, "detail": "" if models else "No chat models listed. Enter a model ID."}
+        return {"models": models, "detail": "" if models else "No chat models listed. Enter a model ID.",
+                "tags": {model: router.model_tags({"provider": provider, "model": model},
+                                                 self.config.get("brain_tags", {})) for model in models}}
 
-    def save_brain(self, provider, model):
-        entry = self.brain_entry(provider, model)
-        selection = {"provider": provider, "model": "" if provider in ("auto", "mock") else entry["model"]}
+    def save_brain(self, selection, pool):
         config = self.load()
         if config != self.config:
             raise HearthError("Saved connection settings changed. Re-scan and try again.")
-        if selection != config["brain"]:
+        if selection != config["brain"] or (pool is not None and pool != config["brain_pool"]):
             config["brain"] = selection
+            if pool is not None:
+                config["brain_pool"] = pool
             self.persist(config, "Before saving Hearth brain settings")
             self.config = config
 

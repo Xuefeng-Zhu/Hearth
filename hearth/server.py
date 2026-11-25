@@ -10,10 +10,10 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, urlsplit
 
-from . import recall, search
+from . import recall, router, search
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
-from .connections import Connections, catalog_entry
+from .connections import Connections, catalog_entry, validate_pool
 from .connectors import Gateway, read_config
 from .gateway_tools import redact_text
 from .storage import HearthError, ROOT, Storage
@@ -47,27 +47,48 @@ class Application:
     def reload_agent(self, *, reset_brain=True):
         self.agent = Agent(self.storage, self.checkpoints, self.connections.active_config(), self.gateway, self.memory_index)
         if reset_brain:
-            self.brain = self.agent.models[0]["provider"] if self.agent.models else None
+            self.reset_brain_status()
         self.connection_state = self.connections.report()
+
+    def reset_brain_status(self):
+        agent = self.agent
+        stats = agent.brain_stats.snapshot() if agent.brain_mode == "smart" else {}
+        ordered, _ = router.order_models(agent.models, "quick", agent.brain_mode, stats)
+        model = ordered[0]
+        self.brain = model["provider"]
+        self.brain_reply = (self.brain, model["model"])
 
     def scan_connections(self):
         if self.connections.scan():
             previous_models = self.agent.models
-            self.reload_agent(reset_brain=False)
+            if self.connections.active_config() != self.agent.config:
+                self.reload_agent(reset_brain=False)
             if self.agent.models != previous_models:
-                self.brain = self.agent.models[0]["provider"] if self.agent.models else None
-        else:
-            self.connection_state = self.connections.report()
+                self.reset_brain_status()
+        self.connection_state = self.connections.report()
 
     def connection_info(self):
         return {**self.connection_state, **self.brain_status()}
 
     def brain_status(self):
-        model = next((entry["model"] for entry in self.agent.models if entry["provider"] == self.brain), "")
+        provider, model = self.brain_reply
+        if provider != self.brain:
+            model = next((entry["model"] for entry in self.agent.models if entry["provider"] == self.brain), "")
         return {"model": self.brain, "model_id": model}
 
     def brain_info(self):
-        return {**self.connections.brain_info(), **self.brain_status(), "scan_error": self.connections.scan_error}
+        agent = self.agent
+        stats = agent.brain_stats.snapshot()
+        preview = self.routing_preview(agent.brain_mode, agent.models, stats)
+        return {**self.connections.brain_info(), **self.brain_status(), **preview,
+                "scan_error": self.connections.scan_error}
+
+    def routing_preview(self, mode, models, stats, prompt=None):
+        plans = [self.agent.routing_plan(turn_type, mode, models, stats)[1] for turn_type in router.TURN_TYPES]
+        result = {"mode": mode, "preview": plans, "stats": stats}
+        if prompt is not None:
+            result["test"] = self.agent.routing_plan(router.classify(prompt), mode, models, stats)[1]
+        return result
 
     def memory_info(self):
         agent = self.agent
@@ -168,7 +189,8 @@ class Application:
             messages = self.threads.messages(thread_id)
         return {"thread_id": thread_id, "threads": [{**thread, "busy": thread["id"] in active} for thread in threads],
                 "messages": messages, "actions": list(state["actions"].values()),
-                "jobs": state["jobs"], "reminders": state["reminders"], "restore": self.restore,
+                "jobs": state["jobs"], "reminders": state["reminders"], "routing": state.get("routing", []),
+                "restore": self.restore,
                 "checkpoints": self.checkpoints.mode, **self.brain_status()}
 
     def timeline(self):
@@ -206,6 +228,7 @@ class Application:
             def event(name, data):
                 if name == "done" and self.agent is agent:
                     self.brain = data["provider"]
+                    self.brain_reply = (self.brain, data["model"])
                 events.put((name, data))
 
             try:
@@ -393,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         routes = {"/api/chat", "/api/approve", "/api/undo",
                   "/api/connections/rescan", "/api/connections/test", "/api/connections/settings",
-                  "/api/brain/test", "/api/brain/settings", "/api/threads/create", "/api/threads/rename",
+                  "/api/brain/test", "/api/brain/settings", "/api/brain/route", "/api/threads/create", "/api/threads/rename",
                   "/api/threads/delete", "/api/threads/share", "/api/memory/settings", "/api/memory/test",
                   "/api/memory/search", "/api/memory/reindex", "/api/memory/forget",
                   "/api/search/settings", "/api/search/test"}
@@ -460,15 +483,27 @@ class Handler(BaseHTTPRequestHandler):
         return self.app.connection_info()
 
     def update_brain(self, body):
-        if body.keys() != {"provider", "model"}:
+        operation = self.path.rsplit("/", 1)[-1]
+        allowed = {"provider", "model", "pool"}
+        if operation == "route":
+            allowed.add("prompt")
+        if body.keys() - allowed or not {"provider", "model"} <= body.keys():
             raise HearthError("Invalid brain settings.")
-        provider, model = body["provider"], body["model"]
-        if self.path == "/api/brain/test":
-            entry = self.app.connections.brain_entry(provider, model)
-            return self.app.agent.test_brain(entry)
-        self.app.connections.save_brain(provider, model)
-        self.app.reload_agent()
-        return self.app.brain_info()
+        connections = self.app.connections
+        selection = connections.brain_selection(body["provider"], body["model"])
+        pool = validate_pool(body["pool"]) if "pool" in body else None
+        if operation == "settings":
+            connections.save_brain(selection, pool)
+            self.app.reload_agent()
+            return self.app.brain_info()
+        agent = self.app.agent
+        mode, models, _ = router.setup(agent.config, selection, pool)
+        stats = agent.brain_stats.snapshot()
+        if operation == "test":
+            ordered, _ = router.order_models(models, "quick", mode, stats)
+            return agent.test_brain(ordered[0])
+        prompt = require_text(body["prompt"], 4_000) if "prompt" in body else None
+        return self.app.routing_preview(mode, models, stats, prompt)
 
     def update_preferences(self, body):
         _, _, feature, operation = self.path.split("/")

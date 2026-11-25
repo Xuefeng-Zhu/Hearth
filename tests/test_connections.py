@@ -66,7 +66,7 @@ class FakeGateway(Gateway):
     def completion(self, config, messages, tools, emit):
         self.completions.append(config["connection_id"])
         self.seen_tools = tools
-        if config["provider"] in self.failed_models:
+        if {config["provider"], config["model"]} & self.failed_models:
             raise ConnectorError("Private upstream model details", 503)
         emit("Muse Spark replied")
         return {"role": "assistant", "content": "Muse Spark replied"}
@@ -257,6 +257,9 @@ class ConnectionsTest(unittest.TestCase):
         for provider in ("ollama", "gemini", "anthropic", "openai", "openrouter", "meta"):
             self.gateway.add(provider, f"conn_{provider}")
         self.app.scan_connections()
+        self.assertEqual(self.app.agent.brain_mode, "smart")
+        self.app.connections.save_brain({"provider": "priority", "model": ""}, None)
+        self.app.reload_agent()
         self.assertEqual([model["provider"] for model in self.app.agent.models],
                          ["meta", "openrouter", "openai", "anthropic", "gemini", "ollama", "mock"])
         self.gateway.failed_models.update(("meta", "openrouter", "openai", "anthropic"))
@@ -369,3 +372,32 @@ class ConnectionsTest(unittest.TestCase):
         self.assertEqual([entry["provider"] for entry in self.app.agent.models], ["mock"])
         request("/api/brain/settings", {"provider": "auto", "model": ""})
         self.assertEqual(request("/api/state")["model"], "meta")
+
+        self.gateway.failed_models.clear()
+        coder = "Qwen/Qwen3-Coder-Next:fastest"
+        fast = "meta-llama/Llama-3.1-8B-Instruct:fastest"
+        pool = [{"provider": "huggingface", "model": model} for model in (coder, fast)]
+        smart = {"provider": "smart", "model": "", "pool": pool}
+        before = self.gateway.completions.copy()
+        preview = request("/api/brain/route", {**smart, "prompt": "Remind me to call home."})
+        self.assertEqual((preview["test"]["class"], preview["test"]["order"][0]["model"]), ("tool", coder))
+        self.assertEqual(len(preview["preview"]), 6)
+        self.assertEqual(self.gateway.completions, before)
+        with self.assertRaises(HTTPError) as error:
+            request("/api/brain/settings", {**smart, "pool": [pool[0], pool[0]]})
+        self.assertEqual(error.exception.code, 400)
+
+        request("/api/brain/settings", smart)
+        request("/api/connections/rescan", {})
+        self.assertEqual([row["model"] for row in request("/api/brain")["pool"]], [coder, fast])
+        self.gateway.failed_models.add(fast)
+        stream = request("/api/chat", {"message": "Hello again!"})
+        self.assertIn(f"{fast} could not reply.", stream)
+        self.assertIn(f"Trying Hugging Face \\u00b7 {coder}.", stream)
+        state = request("/api/state")
+        self.assertEqual(state["model_id"], coder)
+        self.assertEqual(state["messages"][-1]["routing"]["reason"], "Fallback")
+        self.assertEqual(state["routing"][-1]["order"][0]["model"], fast)
+        preview = request("/api/brain/route", {**smart, "prompt": "Hi again."})
+        self.assertEqual(preview["test"]["order"][0]["model"], coder)
+        self.assertIn("recent failure", preview["test"]["reason"])

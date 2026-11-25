@@ -6,9 +6,9 @@ from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 
-from . import recall, search
+from . import recall, router, search
 from .connections import catalog_entry, with_model
-from .connectors import ConnectorError, Integrations, MODEL_PATHS, model_error
+from .connectors import ConnectorError, Integrations, model_error
 from .gateway_tools import METHODS, gateway_read, gateway_result, redact_text, validate_request
 from .scheduler import add_job
 from .storage import HearthError, MAX_NOTE, iso, new_id
@@ -234,17 +234,31 @@ class Agent:
         self.search_settings = search.settings(config.get("search", {}))
         self.memory_index = memory_index or recall.Recall(storage, self.tools.gateway)
         self.gateway_connections = config.get("gateway", {})
-        self.models = [item for item in config["llm"]
-                       if item["provider"] == "mock" or item["provider"] in MODEL_PATHS and item["connection_id"]]
-        selection = config.get("brain", {"provider": "auto", "model": ""})
-        provider = selection["provider"]
-        chosen = next((item for item in self.models if item["provider"] == provider), None)
-        self.unavailable_provider = provider if not chosen and provider != "auto" else None
-        if provider == "mock":
-            self.models = [chosen]
-        elif chosen:
-            self.models.remove(chosen)
-            self.models.insert(0, {**chosen, "model": selection["model"]})
+        self.brain_mode, self.models, self.unavailable_provider = router.setup(config)
+        self.brain_stats = router.BrainStats(storage)
+
+    def routing_plan(self, turn_type, mode, models, stats):
+        ordered, reason = router.order_models(models, turn_type, mode, stats)
+        return ordered, {"class": turn_type, "label": router.TURN_TYPES[turn_type][0],
+                         "order": [self.model_description(model) for model in ordered], "reason": reason}
+
+    @staticmethod
+    def model_description(model):
+        provider = model["provider"]
+        return {"provider": provider, "name": catalog_entry(provider)["name"], "model": model["model"]}
+
+    def log_routing(self, plan):
+        with self.storage.lock():
+            state = self.storage.load()
+            state["routing"] = [*state.get("routing", [])[-49:], {**plan, **CHAT_ORIGIN.get(), "at": iso()}]
+            self.storage.save(state)
+
+    def record_brain_attempt(self, model, ok, started):
+        try:
+            self.brain_stats.record(model, ok, round((time.monotonic() - started) * 1_000))
+        except OSError:
+            # A stats write should never change the result of a chat turn.
+            pass
 
     def test_brain(self, model):
         start = time.monotonic()
@@ -318,37 +332,53 @@ class Agent:
 
         notices = []
         recovery = None
+        turn_type = router.classify(prompt, side=CHAT_ORIGIN.get()["thread_id"] != MAIN)
+        stats = self.brain_stats.snapshot() if self.brain_mode == "smart" else {}
+        models, plan = self.routing_plan(turn_type, self.brain_mode, self.models, stats)
+        self.log_routing(plan)
         if self.unavailable_provider:
             self.note_model_failure(self.unavailable_provider, "The connector is unavailable.",
-                                    self.models[0]["provider"], notices, event)
-        for index, model in enumerate(self.models):
+                                    models[0], notices, event)
+        for index, model in enumerate(models):
+            started = time.monotonic()
             try:
                 model = with_model(self.tools.gateway, model)
+                routing = {**self.model_description(model), "class": turn_type, "label": plan["label"],
+                           "reason": "Fallback" if notices else plan["reason"]}
                 if recovery is None:
-                    self.run_model(model, messages.copy(), tools, event, clock, notices, demo_addresses)
+                    ok = self.run_model(model, messages.copy(), tools, event, clock, notices, demo_addresses, routing)
                 else:
-                    self.resume_reply(model, messages, recovery, event, notices)
+                    self.resume_reply(model, messages, recovery, event, notices, routing)
+                    ok = True
+                self.record_brain_attempt(model, ok, started)
                 return
             except ConnectorError as error:
+                self.record_brain_attempt(model, False, started)
                 if isinstance(error, TurnActionError):
                     recovery = error.action_ids
-                next_provider = self.models[index + 1]["provider"] if index + 1 < len(self.models) else None
-                self.note_model_failure(model["provider"], model_error(error), next_provider, notices, event)
+                next_model = models[index + 1] if index + 1 < len(models) else None
+                self.note_model_failure(model["provider"], model_error(error), next_model, notices, event, model)
         event("error", {"message": "No model could finish this reply."})
 
-    def note_model_failure(self, provider, detail, next_provider, notices, event):
+    def note_model_failure(self, provider, detail, next_model, notices, event, model=None):
         name = catalog_entry(provider)["name"]
+        same_provider = next_model and next_model["provider"] == provider
+        if model and self.brain_mode == "smart" and model["model"]:
+            name += f" · {model['model']}"
         message = f"{name} could not reply. {detail}"
-        if next_provider:
-            message += f" Trying {catalog_entry(next_provider)['name']}."
+        if next_model:
+            next_name = catalog_entry(next_model["provider"])["name"]
+            if same_provider or (self.brain_mode == "smart" and next_model["provider"] != "mock" and next_model["model"]):
+                next_name += f" · {next_model['model']}"
+            message += f" Trying {next_name}."
         with self.storage.lock():
-            self.add_action("brain", "Brain fallback" if next_provider else "Brain interrupted",
+            self.add_action("brain", "Brain fallback" if next_model else "Brain interrupted",
                             status="complete", detail=message)
         notices.append(message)
         event("reset", {})
         event("model_warning", {"message": message})
 
-    def resume_reply(self, model, messages, action_ids, event, notices):
+    def resume_reply(self, model, messages, action_ids, event, notices, routing):
         emit = lambda text: event("token", {"text": text})
         if model["provider"] == "mock":
             reply = mock_text("The turn was interrupted. Review the workspace actions before retrying.", emit)
@@ -363,9 +393,9 @@ class Agent:
             reply = self.tools.gateway.completion(model, recovery_messages, [], emit)
         if not reply.get("content"):
             raise ConnectorError("The recovery reply contained no text.")
-        self.finish_reply(model, reply, action_ids, notices, event, messages[-1]["content"])
+        self.finish_reply(model, reply, action_ids, notices, event, messages[-1]["content"], routing)
 
-    def finish_reply(self, model, reply, action_ids, notices, event, prompt):
+    def finish_reply(self, model, reply, action_ids, notices, event, prompt, routing):
         thread_id = CHAT_ORIGIN.get()["thread_id"]
         content = redact_text(reply["content"])
         turn = TURN_MEMORY.get()
@@ -381,14 +411,14 @@ class Agent:
             return f"[{label}:{item['line']}]"
 
         content = recall.CITATION.sub(cite, content).strip()
-        fields = {"action_ids": action_ids, "notices": notices}
+        fields = {"action_ids": action_ids, "notices": notices, "routing": routing}
         if remembered:
             fields["remembered"] = list(remembered.values())
         if thread_id != MAIN:
             fields["summary"] = self.side_summary(model, redact_text(prompt), content)
         with self.storage.lock():
             message = self.threads.append(thread_id, "assistant", content, **fields)
-        event("done", {"provider": model["provider"], "message": message})
+        event("done", {"provider": model["provider"], "model": model["model"], "message": message})
 
     def side_summary(self, model, prompt, reply):
         if model["provider"] != "mock":
@@ -411,7 +441,7 @@ class Agent:
             return sorted({address for path in DEMO_GUEST_NOTES if path in files
                            for address in DEMO_ADDRESS.findall(self.storage.read(path))})
 
-    def run_model(self, model, messages, tools, event, clock, notices, demo_addresses):
+    def run_model(self, model, messages, tools, event, clock, notices, demo_addresses, routing):
         action_ids = []
         touched_state = False
         for _ in range(9):
@@ -428,11 +458,11 @@ class Agent:
             calls = reply.get("tool_calls", [])
             if not calls:
                 prompt = next(message["content"] for message in reversed(messages) if message["role"] == "user")
-                self.finish_reply(model, reply, action_ids, notices, event, prompt)
-                return
+                self.finish_reply(model, reply, action_ids, notices, event, prompt, routing)
+                return True
             if len(calls) > 8:
                 event("error", {"message": "The model requested too many tools at once. Try a smaller request."})
-                return
+                return False
             messages.append(reply)
             for call in calls:
                 function = call["function"]
@@ -464,6 +494,7 @@ class Agent:
             if reply.get("content"):
                 event("reset", {})
         event("error", {"message": "The tool limit was reached. Review the results in Timeline."})
+        return False
 
     def execute(self, name, arguments):
         if not isinstance(arguments, dict):
