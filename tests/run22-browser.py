@@ -14,7 +14,7 @@ from playwright.sync_api import expect, sync_playwright
 from hearth import home, panels, scheduler, timeline
 from hearth.agent import DEMO_FILES
 from hearth.checkpoints import LocalCheckpoints
-from hearth.connectors import read_config
+from hearth.connectors import ConnectorError, read_config
 from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage, iso
 from hearth.threads import MAIN_ORIGIN
@@ -46,7 +46,13 @@ CONTRAST = """() => {
 
 class FixtureGateway:
     def discover(self):
-        return {}, set()
+        connections = {"github": ["demo-github"], "tavily": ["demo-tavily"]}
+        return connections, set(connections)
+
+    def json(self, config, path, **kwargs):
+        if (config["provider"], path) == ("github", "user"):
+            return {"login": "hearth-demo"}
+        raise ConnectorError("The connector is unavailable.", 503)
 
 
 def seed(app):
@@ -65,8 +71,6 @@ def seed(app):
     for fmt in ("pdf", "xlsx"):
         data = dict(DEMO_FILES[fmt][1])
         app.artifacts.create(fmt, data, kind=data.pop("kind"), origin=MAIN_ORIGIN)
-    app.connection_state["providers"]["box"].update(status="connected", test_status="passed")
-    app.connection_state["providers"]["pinecone"].update(status="connected", test_status="failed")
     app.home.refresh_weather(now - timedelta(minutes=5))
 
 
@@ -122,6 +126,7 @@ def test_dashboard(page, base, mobile, label, shots, app):
     statuses = page.locator('[data-panel="connections"] .home-status')
     expect(statuses.filter(has_text="OK")).to_have_count(1)
     expect(statuses.filter(has_text="Error")).to_have_count(1)
+    expect(statuses.filter(has_text="Not connected")).to_have_count(2)
     assert page.evaluate("document.documentElement.scrollWidth === innerWidth")
     assert page.locator("#home-grid").evaluate("element => getComputedStyle(element).gridTemplateColumns.split(' ').length") == (1 if mobile else 3)
     if mobile:
@@ -237,6 +242,7 @@ def run(options):
                     config = read_config(ROOT / "config/connectors.json")
                     config["brain"] = {"provider": "mock", "model": ""}
                     app = Application(storage, LocalCheckpoints(storage), config, gateway=FixtureGateway())
+                    app.scan_connections()
                     seed(app)
                     with HTTPServer(("127.0.0.1", 0), app) as server:
                         threading.Thread(target=server.serve_forever, daemon=True).start()
