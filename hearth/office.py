@@ -62,7 +62,8 @@ SHEET_CELL = {**CELL, "description": "Use JSON numbers for quantities and amount
                                     "beginning with =, such as =B2*C2 or =SUM(D2:D5)."}
 SHEET_ROWS = {"type": "array", "items": {"type": "array", "items": SHEET_CELL}}
 SHEETS = objects({"name": STRING, "headers": STRINGS, "rows": SHEET_ROWS}, ["name", "headers", "rows"])
-SLIDES = objects({"title": STRING, "bullets": STRINGS, "notes": STRING}, ["title", "bullets"])
+SLIDES = {**objects({"title": STRING, "bullets": STRINGS, "notes": STRING}, ["title", "bullets"]),
+          "description": "Content slides only. Hearth builds the opening title slide from the top-level title."}
 SCHEMAS = {
     "docx": ("sections", SECTIONS),
     "pdf": ("sections", SECTIONS),
@@ -114,7 +115,7 @@ def prepare(fmt, value):
     except (ValueError, TypeError, RecursionError):
         raise HearthError("Supply valid JSON file content.") from None
     field, _ = SCHEMAS[fmt]
-    object_fields(value, ("title", field), ("subtitle",) if fmt == "pptx" else ())
+    object_fields(value, ("title", field), ("subtitle", "title_notes") if fmt == "pptx" else ())
     text(value["title"], limit=160)
     if fmt in ("docx", "pdf"):
         for section in array(value["sections"], 80, "sections", minimum=1):
@@ -136,12 +137,18 @@ def prepare(fmt, value):
             names.add(name.casefold())
     else:
         text(value.get("subtitle", ""), empty=True, limit=240)
-        for slide in array(value["slides"], 100, "content slides"):
+        text(value.get("title_notes", ""), empty=True)
+        slides = array(value["slides"], 100, "content slides")
+        for slide in slides:
             object_fields(slide, ("title", "bullets"), ("notes",))
             text(slide["title"], limit=160)
             for bullet in array(slide["bullets"], 14, "bullets per slide"):
                 text(bullet, limit=240)
             text(slide.get("notes", ""), empty=True)
+        if slides and slides[0]["title"].strip() == value["title"].strip() and not slides[0]["bullets"]:
+            if slides[0].get("notes"):
+                value.setdefault("title_notes", slides[0]["notes"])
+            value["slides"] = slides[1:]
     return value
 
 
@@ -278,6 +285,8 @@ def presentation(output, value):
     slide = deck.slides.add_slide(deck.slide_layouts[0])
     slide.shapes.title.text = value["title"]
     slide.placeholders[1].text = value.get("subtitle", "")
+    if value.get("title_notes"):
+        slide.notes_slide.notes_text_frame.text = value["title_notes"]
     for data in value["slides"]:
         slide = deck.slides.add_slide(deck.slide_layouts[1])
         slide.shapes.title.text = data["title"]

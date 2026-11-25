@@ -77,6 +77,15 @@ class OfficeTest(unittest.TestCase):
         outline = office.preview("pptx", raw)["slides"]
         self.assertEqual(outline[1], {"title": "甜点", "bullets": ["南瓜派", "苹果塔"]})
 
+    def test_pptx_collapses_a_repeated_title_slide_and_keeps_its_notes(self):
+        raw = render("pptx", {"title": "感恩节晚餐", "slides": [
+            {"title": "感恩节晚餐", "bullets": [], "notes": "欢迎大家。"},
+            {"title": "甜点", "bullets": ["南瓜派"]},
+        ]})
+        slides = Presentation(BytesIO(raw)).slides
+        self.assertEqual([slide.shapes.title.text for slide in slides], ["感恩节晚餐", "甜点"])
+        self.assertEqual(slides[0].notes_slide.notes_text_frame.text, "欢迎大家。")
+
     def test_rejects_invalid_and_oversized_structured_content(self):
         for content in (
             {"title": "Bad", "sections": [{"paragraphs": ["Bad\0"]}]},

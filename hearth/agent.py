@@ -107,6 +107,7 @@ for tool_type, fmt in office.TOOL_FORMATS.items():
     content_fields = {"title": STRING, field: field_schema}
     if fmt == "pptx":
         content_fields["subtitle"] = STRING
+        content_fields["title_notes"] = {**STRING, "description": "Optional speaker notes for the opening title slide."}
     for mode in ("create", "update"):
         name = f"{mode}_{tool_type}"
         FILE_TOOL_MODES[name] = mode
