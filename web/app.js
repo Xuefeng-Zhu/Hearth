@@ -6,35 +6,20 @@ const send = byId("send");
 const notice = byId("notice");
 const chatScroll = byId("chat-scroll");
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
-const modelNames = { mock: "Mock", meta: "Muse Spark", ollama: "Ollama Cloud", openrouter: "OpenRouter" };
-const flyConnectors = "https://fly.io/dashboard/xuefeng-zhu/sprites/connectors";
-const providers = {
-  meta: {
-    name: "Meta Muse Spark", role: "Chat",
-    setup: "In Meta Model API, select a team with access to muse-spark-1.3, then create a key under API keys.",
-    flyName: "Meta (Muse Spark)",
-  },
-  pinecone: {
-    name: "Pinecone", role: "Semantic recall",
-    setup: "In Pinecone, create a serverless dense vector index with 1024 dimensions, cosine similarity, and your own vectors. Use a project key with index, vector, and inference access.",
-    flyName: "Pinecone", field: "index", label: "Index name", placeholder: "hearth-memory", maxLength: 45,
-  },
-  tavily: {
-    name: "Tavily", role: "Web search",
-    setup: "Create a key under API Keys on the Tavily dashboard home page.",
-    flyName: "Tavily (Community)",
-  },
-  agentmail: {
-    name: "AgentMail", role: "Email",
-    setup: "In AgentMail, create or select a sending inbox. Use a key with permission to read that inbox and send messages.",
-    flyName: "AgentMail", field: "inbox_id", label: "Inbox ID", placeholder: "your-inbox@agentmail.to", maxLength: 254,
-  },
+const modelNames = {
+  mock: "Mock", meta: "Muse Spark", openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Claude",
+  gemini: "Gemini", ollama: "Ollama Cloud",
+};
+const connectorSettings = {
+  pinecone: { field: "index", label: "Index name", placeholder: "hearth-memory", maxLength: 45 },
+  agentmail: { field: "inbox_id", label: "Inbox ID", placeholder: "your-inbox@agentmail.to", maxLength: 254 },
 };
 const connectionLabels = {
   connected: "Connected", unauthorized: "Found but not authorized",
-  not_set_up: "Not set up", unavailable: "Unreachable", unknown: "Not checked",
+  not_set_up: "Not set up", unknown: "Not checked",
 };
 const connectionDrafts = new Map();
+const gatewayResults = new Map();
 let state;
 let view = "chat";
 let selectedFile;
@@ -112,7 +97,7 @@ function actionCard(action) {
   const statuses = {
     pending: "Awaiting approval", changing: "Interrupted", partial: "Partially applied",
     simulated: "Simulated send", unknown: "Delivery unknown", sending: "Delivery unknown",
-    sent: "Sent", complete: "",
+    sent: "Sent", complete: action.kind === "gateway" ? "Completed" : "", request_unknown: "Request unconfirmed",
   };
   header.append(node("h4", "", action.title), node("span", "meta", statuses[action.status] || ""));
   card.append(header);
@@ -124,11 +109,27 @@ function actionCard(action) {
       card.append(button("Approve", () => approve(action)));
     }
   }
+  if (action.kind === "gateway") {
+    const request = action.request;
+    card.append(node("p", "", `${request.provider} · ${request.method} ${request.path}`));
+    if (request.body !== null) card.append(node("pre", "", JSON.stringify(request.body, null, 2)));
+    if (action.status === "pending") {
+      card.append(node("p", "meta", "Hearth saves a checkpoint before the request. Provider changes can persist after a restore."));
+      card.append(button("Approve", () => approve(action)));
+    }
+    if (action.http_status) card.append(node("p", "meta", `Gateway returned HTTP ${action.http_status}.`));
+    if (gatewayResults.has(action.id)) {
+      const details = node("details");
+      details.append(node("summary", "meta", "Gateway response"),
+        node("pre", "", JSON.stringify(gatewayResults.get(action.id), null, 2)));
+      card.append(details);
+    }
+  }
   if (action.paths) card.append(node("p", "", action.paths.join(", ")));
   if (action.job) card.append(node("p", "", action.job.message), node("p", "meta", date(action.job.next_at)));
   if (action.checkpoint) {
     card.append(node("p", "meta", `Checkpoint ${action.checkpoint.id}`));
-    if (action.kind !== "email" || action.mocked) card.append(button("Undo", () => undo(action)));
+    if (action.kind !== "gateway" && (action.kind !== "email" || action.mocked)) card.append(button("Undo", () => undo(action)));
   }
   for (const item of card.querySelectorAll("button")) item.disabled = busy;
   return card;
@@ -230,83 +231,105 @@ async function renderTimeline() {
   }
 }
 
-function connectorSetup(info, status) {
-  const setup = node("div", "connector-setup");
-  if (status === "not_set_up" || status === "unknown") {
-    const steps = node("ol");
-    steps.append(
-      node("li", "", info.setup),
-      node("li", "", `In Fly, choose Add connection → ${info.flyName}. Enter the key in Fly’s form and save.`),
-    );
-    setup.append(steps);
-  }
-  const access = node("p");
-  access.append(
-    "In Access Configuration, turn off Allow all sprites and set Name Prefix to ",
-    node("code", "", "hearth"),
-    ". Verify that Authorized Sprites shows only Hearth, then save.",
-  );
-  const link = node("a", "", "Open Fly connectors ↗");
-  link.href = flyConnectors;
+function externalLink(label, url) {
+  const link = node("a", "", label);
+  link.href = url;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
-  setup.append(access, link);
-  return setup;
+  return link;
+}
+
+function connectorForm(provider, entry, info) {
+  const form = node("form", "connector-settings");
+  const inputId = `connection-${provider}`;
+  const label = node("label", "", info.label);
+  label.htmlFor = inputId;
+  const field = node("input");
+  field.id = inputId;
+  field.type = info.field === "inbox_id" ? "email" : "text";
+  field.required = info.field === "index";
+  field.maxLength = info.maxLength;
+  field.autocomplete = "off";
+  field.spellcheck = false;
+  field.placeholder = info.placeholder;
+  field.value = connectionDrafts.get(provider) ?? entry.settings[info.field];
+  field.addEventListener("input", () => connectionDrafts.set(provider, field.value));
+  const save = node("button", "", "Save");
+  save.type = "submit";
+  save.setAttribute("aria-label", `Save ${entry.name} settings`);
+  const controls = node("div", "connector-controls");
+  controls.append(field, save);
+  form.append(label, controls);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    updateConnections("settings", { provider, value: field.value });
+  });
+  return form;
 }
 
 function connectionCard(provider, entry) {
-  const info = providers[provider];
   const card = node("article", "card connection-card");
+  card.dataset.provider = provider;
   const heading = node("div", "card-header");
-  heading.append(node("h3", "", info.name), node("span", `connection-status ${entry.status}`, connectionLabels[entry.status]));
-  card.append(heading, node("p", "meta", info.role), node("p", "connection-detail", entry.detail));
-  if (entry.status !== "connected") card.append(connectorSetup(info, entry.status));
-  if (info.field) {
-    const form = node("form", "connector-settings");
-    const inputId = `connection-${provider}`;
-    const label = node("label", "", info.label);
-    label.htmlFor = inputId;
-    const field = node("input");
-    field.id = inputId;
-    field.type = info.field === "inbox_id" ? "email" : "text";
-    field.required = info.field === "index";
-    field.maxLength = info.maxLength;
-    field.autocomplete = "off";
-    field.spellcheck = false;
-    field.placeholder = info.placeholder;
-    field.value = connectionDrafts.get(provider) ?? entry.settings[info.field];
-    field.addEventListener("input", () => connectionDrafts.set(provider, field.value));
-    const save = node("button", "", "Save");
-    save.type = "submit";
-    save.setAttribute("aria-label", `Save ${info.name} settings`);
-    const controls = node("div", "connector-controls");
-    controls.append(field, save);
-    form.append(label, controls);
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      updateConnections("settings", { provider, value: field.value });
-    });
-    card.append(form);
+  heading.append(node("h4", "", entry.name), node("span", `connection-status ${entry.status}`, connectionLabels[entry.status]));
+  const metadata = [entry.category, entry.auth].filter(Boolean).join(" · ");
+  card.append(heading, node("p", "meta", metadata), node("p", "connection-description", entry.description));
+  if (Object.hasOwn(connectorSettings, provider)) card.append(connectorForm(provider, entry, connectorSettings[provider]));
+  if (entry.test_detail) card.append(node("p", `connection-test ${entry.test_status}`, entry.test_detail));
+
+  const footer = node("div", "connector-footer");
+  const access = node("span", "connector-access", entry.access_rule);
+  const links = node("div", "connector-links");
+  links.append(externalLink("Open in Fly ↗", entry.dashboard_url), externalLink("Docs ↗", entry.docs_url));
+  footer.append(access, links);
+  if (entry.test_path) {
+    const test = button("Test", () => updateConnections("test", { provider }));
+    test.setAttribute("aria-label", `Test ${entry.name}`);
+    test.dataset.canTest = String(entry.can_test);
+    test.disabled = !entry.can_test;
+    if (!entry.can_test) test.title = "Authorize this connector in Fly, then re-scan.";
+    links.append(test);
   }
-  const test = button("Test", () => updateConnections("test", { provider }));
-  test.className = "test-connection";
-  test.setAttribute("aria-label", `Test ${info.name}`);
-  test.dataset.canTest = String(entry.can_test);
-  test.disabled = !entry.can_test;
-  card.append(test);
+  card.append(footer);
   return card;
 }
 
 function renderConnections() {
   if (!connectionState) return;
-  byId("connection-grid").replaceChildren(...Object.entries(connectionState.providers)
-    .map(([provider, entry]) => connectionCard(provider, entry)));
+  const entries = Object.entries(connectionState.providers);
+  const filter = byId("connector-category");
+  const category = filter.value;
+  const categories = [...new Set(entries.map(([, entry]) => entry.category))].sort();
+  if (categories.join("|") !== filter.dataset.categories) {
+    filter.replaceChildren(new Option("All categories", ""), ...categories.map((name) => new Option(name, name)));
+    filter.value = categories.includes(category) ? category : "";
+    filter.dataset.categories = categories.join("|");
+  }
+
+  const terms = byId("connector-search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const pinned = [];
+  const more = [];
+  for (const [provider, entry] of entries) {
+    const searchable = [provider, entry.gateway_provider, entry.name, entry.category, entry.auth, entry.description]
+      .join(" ").toLowerCase();
+    if ((filter.value && entry.category !== filter.value) || !terms.every((term) => searchable.includes(term))) continue;
+    (entry.pinned ? pinned : more).push(connectionCard(provider, entry));
+  }
+  byId("pinned-section").hidden = !pinned.length;
+  byId("catalog-section").hidden = !more.length;
+  byId("pinned-connections").replaceChildren(...pinned);
+  byId("catalog-connections").replaceChildren(...more);
+  const count = byId("connector-count");
+  const matches = pinned.length + more.length;
+  count.hidden = false;
+  count.textContent = matches ? `${matches} of ${entries.length} providers` : "No providers match your filters.";
+  if (connectionRequest) setConnectionsBusy(true);
   renderBrain(connectionState.model);
 }
 
 function setConnectionsBusy(value) {
   byId("rescan-connections").disabled = value;
-  for (const control of byId("connection-grid").querySelectorAll("button, input")) {
+  for (const control of byId("connections-view").querySelectorAll(".connection-grid button, .connection-grid input")) {
     control.disabled = value || control.dataset.canTest === "false";
   }
 }
@@ -314,7 +337,7 @@ function setConnectionsBusy(value) {
 function updateConnections(operation, body = {}) {
   if (connectionRequest) return connectionRequest;
   const feedback = byId("connection-notice");
-  const name = providers[body.provider]?.name;
+  const name = connectionState?.providers[body.provider]?.name;
   feedback.textContent = { rescan: "Checking connections…", test: `Testing ${name}…`, settings: "Saving settings…" }[operation];
   setConnectionsBusy(true);
   connectionRequest = (async () => {
@@ -325,7 +348,7 @@ function updateConnections(operation, body = {}) {
       const entry = connectionState.providers[body.provider];
       feedback.textContent = {
         rescan: connectionState.scan_error || `Last checked ${date(connectionState.last_scan)}.`,
-        test: entry ? `${name} · ${entry.detail}` : "",
+        test: entry ? `${name} · ${entry.test_detail}` : "",
         settings: `${name} settings saved.`,
       }[operation];
     } catch (error) {
@@ -433,12 +456,15 @@ async function approve(action) {
   showNotice();
   try {
     const result = await api("/api/approve", { id: action.id });
+    if (result.response) gatewayResults.set(action.id, result.response);
     await refreshView();
     const message = {
       sent: "Email sent.", simulated: "Simulated send recorded. Undo is available on the card.",
       unknown: "AgentMail could not confirm delivery. Check your inbox’s sent messages.",
     };
-    showNotice(message[result.status]);
+    showNotice(action.kind === "gateway"
+      ? (result.status === "complete" ? "Connector request completed." : "The gateway could not confirm the request.")
+      : message[result.status]);
   } catch (error) {
     showNotice(error.message);
   } finally {
@@ -490,6 +516,8 @@ byId("composer").addEventListener("submit", (event) => {
   event.preventDefault();
   chat(input.value);
 });
+byId("connector-search").addEventListener("input", renderConnections);
+byId("connector-category").addEventListener("change", renderConnections);
 byId("rescan-connections").addEventListener("click", () => updateConnections("rescan"));
 input.addEventListener("input", resizeInput);
 input.addEventListener("keydown", (event) => {

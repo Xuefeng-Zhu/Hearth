@@ -64,11 +64,29 @@
       </section>
       <section class="view panel" id="connections-view" aria-labelledby="view-title" hidden>
         <div class="section-intro connections-intro">
-          <div><h2>Connect your providers</h2><p>Set up access in Fly, then let Hearth discover your connections.</p></div>
+          <div><h2>Fly connector catalog</h2><p>In Fly, turn off Allow all sprites and set Name Prefix to <strong>hearth</strong>.</p></div>
           <button type="button" class="rescan" id="rescan-connections">Re-scan</button>
         </div>
-        <p class="empty connection-notice" id="connection-notice" role="status">Checking connections…</p>
-        <div class="connection-grid" id="connection-grid"></div>
+        <div class="connection-filters">
+          <label for="connector-search">Search providers
+            <input type="search" id="connector-search" placeholder="Name or capability" autocomplete="off">
+          </label>
+          <label for="connector-category">Category
+            <select id="connector-category"><option value="">All categories</option></select>
+          </label>
+        </div>
+        <div class="connection-summary">
+          <p class="empty" id="connector-count" role="status" hidden></p>
+          <p class="empty" id="connection-notice" role="status">Checking connections…</p>
+        </div>
+        <section class="connection-section" id="pinned-section" aria-labelledby="pinned-title" hidden>
+          <h3 id="pinned-title">Hearth essentials</h3>
+          <div class="connection-grid" id="pinned-connections"></div>
+        </section>
+        <section class="connection-section" id="catalog-section" aria-labelledby="catalog-title" hidden>
+          <h3 id="catalog-title">More providers</h3>
+          <div class="connection-grid" id="catalog-connections"></div>
+        </section>
       </section>
     </main>
   </div>
