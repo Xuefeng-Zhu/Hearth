@@ -1,6 +1,9 @@
 """Record reversible edits to the memory corpus for Timeline."""
 
+from . import recall
+from .gateway_tools import redact_text
 from .storage import HearthError, iso
+from .threads import MAIN
 
 
 def read_notes(storage, paths):
@@ -22,8 +25,16 @@ def record(storage, state, action, before, message_id=None):
             if content is None:
                 origins.pop(path, None)
             elif content != paths[path]:
-                origins[path] = {"thread_id": action.get("thread_id"),
-                                 "created_at": (before["origins"][path] or {}).get("created_at", action["at"])}
+                old = before["origins"][path] or {}
+                previous = {item["id"] for item in recall.note_chunks(path, redact_text(paths[path] or ""))}
+                current_origin = {"thread_id": action.get("thread_id") or MAIN, "created_at": action["at"]}
+                prior_origin = {"thread_id": old.get("thread_id") or MAIN,
+                                "created_at": old.get("created_at") or action["at"]}
+                origins[path] = {"excerpts": {
+                    item["id"]: old.get("excerpts", {}).get(item["id"], prior_origin)
+                    if item["id"] in previous else current_origin
+                    for item in recall.note_chunks(path, redact_text(content))
+                }}
     after = snapshot(storage, state, paths, message_id)
     if before != after:
         action["memory_change"] = True

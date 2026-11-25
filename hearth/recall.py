@@ -112,7 +112,9 @@ def note_kind(item):
     if item["path"].startswith("people/"):
         return "person"
     heading = item["heading"].casefold()
-    if re.search(r"preferences?|偏好|likes|dislikes", heading):
+    excerpt = item["excerpt"].casefold().lstrip("-* ")
+    if (re.search(r"preferences?|偏好|likes|dislikes", heading)
+            or re.match(r"(?:i |we )?prefer\b", excerpt)):
         return "preference"
     if re.search(r"thanksgiving|event|schedule|节日", heading):
         return "event"
@@ -257,7 +259,9 @@ class Recall:
                 created_at = origin.get("created_at") or iso(datetime.fromtimestamp(file.stat().st_mtime, timezone.utc))
                 scope = path.split("/", 1)[0] if "/" in path else "root"
                 for item in note_chunks(path, redact_text(self.storage.read(path)), created_at=created_at, source="Markdown", scope=scope):
-                    item.update(kind=note_kind(item), origin_thread=origin.get("thread_id") or MAIN)
+                    excerpt_origin = origin.get("excerpts", {}).get(item["id"], origin)
+                    item.update(kind=note_kind(item), origin_thread=excerpt_origin.get("thread_id") or MAIN,
+                                created_at=excerpt_origin.get("created_at") or created_at)
                     items.append(item)
             rows = state.get("artifacts", {})
             cache = self.read_index(self.box_path)

@@ -7,6 +7,7 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
 from hearth import pinecone, recall
+from hearth.agent import CHAT_ORIGIN
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import GATEWAY, Gateway, read_config
 from hearth.server import Application
@@ -276,6 +277,24 @@ class PineconeMemoryTest(unittest.TestCase):
         self.app.replay_memory(action["id"])
         self.wait()
         self.assertIn(replacement["_id"], remote)
+
+    def test_saved_note_excerpts_keep_their_originating_thread(self):
+        self.start()
+        path = "topics/thread-origins.md"
+        first = "I prefer the blue notebook."
+        self.app.agent.memory_write([{"path": path, "content": first}])
+        self.wait()
+        with self.storage.lock():
+            thread = self.app.threads.create()
+        origin = CHAT_ORIGIN.set({"thread_id": thread["id"], "thread_title": thread["title"]})
+        try:
+            self.app.agent.memory_write([{"path": path, "content": first + "\n\nSecond note."}])
+        finally:
+            CHAT_ORIGIN.reset(origin)
+        self.wait()
+        rows = {row["text"]: row for row in self.http.records["frank"].values()}
+        self.assertEqual((rows[first]["thread_id"], rows[first]["kind"]), ("main", "preference"))
+        self.assertEqual(rows["Second note."]["thread_id"], thread["id"])
 
     def test_rerank_optional_and_deadlines_use_local_or_unreranked_hits(self):
         self.start()
