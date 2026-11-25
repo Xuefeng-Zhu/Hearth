@@ -41,13 +41,34 @@
         </aside>
         <div class="chat-pane">
           <header class="thread-header">
-            <h2 id="thread-title">Main</h2>
+            <div id="avatar-header" class="avatar-header" aria-hidden="true"></div>
+            <div class="thread-heading">
+              <h2 id="thread-title">Main</h2>
+              <p id="avatar-caption" hidden></p>
+            </div>
+            <span class="visually-hidden" id="avatar-status" role="status"></span>
             <span class="thread-activity" id="thread-activity" role="status" hidden>Replying</span>
             <div id="thread-controls" class="thread-controls" hidden>
               <button type="button" id="rename-thread">Rename</button>
               <button type="button" id="delete-thread">Delete</button>
             </div>
+            <label class="visually-hidden" for="avatar-view">Avatar view</label>
+            <select class="avatar-view" id="avatar-view">
+              <option value="off">Off</option>
+              <option value="beside">Beside chat</option>
+              <option value="face">Full screen</option>
+            </select>
           </header>
+          <section class="face-stage" id="face-stage" aria-label="Face to face" hidden>
+            <div class="face-portrait" id="avatar-portrait"></div>
+            <h3 id="avatar-name">Ember</h3>
+            <p class="face-status" id="face-status" aria-hidden="true"></p>
+            <div class="face-caption" id="face-captions" aria-label="Reply captions" tabindex="0" hidden></div>
+            <details id="face-actions" hidden>
+              <summary>Turn actions</summary>
+              <div class="cards"></div>
+            </details>
+          </section>
           <div class="chat-scroll" id="chat-scroll">
             <section class="welcome" id="welcome">
               <span class="welcome-mark" aria-hidden="true">✦</span>
@@ -135,6 +156,7 @@
           <button type="button" data-settings="brain" aria-current="page">Brain</button>
           <button type="button" data-settings="memory">Memory</button>
           <button type="button" data-settings="search">Search</button>
+          <button type="button" data-settings="appearance">Appearance</button>
         </nav>
         <div id="settings-brain">
           <div class="section-intro">
@@ -316,6 +338,21 @@
                 <h3 id="search-connectors-title">Search connections</h3>
                 <ul id="search-connections" class="search-connections"></ul>
               </section>
+            </div>
+          </div>
+        </div>
+        <div id="settings-appearance" hidden>
+          <div class="section-intro"><h2>Appearance</h2><p>Choose Hearth’s look in chat.</p></div>
+          <div class="card appearance-card">
+            <label class="appearance-toggle"><input type="checkbox" id="avatar-enabled" checked> Show avatar in chat</label>
+            <fieldset class="avatar-looks">
+              <legend>Avatar preset</legend>
+              <div id="avatar-looks" class="avatar-choices"></div>
+            </fieldset>
+            <div class="avatar-color">
+              <label for="avatar-color">Avatar color</label>
+              <input type="color" id="avatar-color">
+              <button type="button" id="avatar-color-reset">Use preset color</button>
             </div>
           </div>
         </div>

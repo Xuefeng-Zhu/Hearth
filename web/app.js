@@ -1,3 +1,6 @@
+import { avatarEvent, avatarPose, newAvatar } from "./avatar-state.js";
+import { announcePose, looks, mascot, poseLabel, setLook, setPose } from "./avatar.js";
+
 const byId = (id) => document.getElementById(id);
 const nav = [...document.querySelectorAll("[data-view]")];
 const transcript = byId("transcript");
@@ -60,6 +63,117 @@ const brainModel = byId("brain-model");
 const customModel = byId("brain-custom");
 const poolProvider = byId("pool-provider");
 const poolModel = byId("pool-model");
+const avatarModes = ["off", "beside", "face"];
+const savedMode = localStorage.getItem("hearth-avatar-view");
+let avatarMode = avatarModes.includes(savedMode) ? savedMode : "beside";
+const savedLook = localStorage.getItem("hearth-avatar-look");
+let avatarLook = Object.hasOwn(looks, savedLook) ? savedLook : "ember";
+let avatarColor = localStorage.getItem("hearth-avatar-color") || "";
+if (!/^#[0-9a-f]{6}$/i.test(avatarColor)) avatarColor = "";
+const avatarStates = new Map();
+const avatarThreads = new Map();
+const headerMascot = mascot(avatarLook, avatarColor);
+const portraitMascot = mascot(avatarLook, avatarColor);
+byId("avatar-header").append(headerMascot);
+byId("avatar-portrait").append(portraitMascot);
+
+function avatarState(threadId, now) {
+  if (!avatarStates.has(threadId)) avatarStates.set(threadId, newAvatar(now));
+  return avatarStates.get(threadId);
+}
+
+function avatarSignal(threadId, event) {
+  if (!threadId) return;
+  const now = Date.now();
+  avatarStates.set(threadId, avatarEvent(avatarState(threadId, now), event, now));
+  paintAvatars();
+}
+
+function threadPose(thread, now) {
+  const pose = avatarPose(avatarState(thread.id, now), now, isWorking(thread));
+  const local = [...turns].some((turn) => turn.threadId === thread.id && turn.user && !turn.finished);
+  if (pose.pose === "thinking" && !local && thread.activity) return thread.activity;
+  return pose;
+}
+
+function updateText(element, text) {
+  if (element.textContent !== text) element.textContent = text;
+}
+
+function paintAvatars() {
+  if (view !== "chat" || avatarMode === "off") return;
+  const now = Date.now();
+  const active = threadList.find((thread) => thread.id === currentThread) || { id: currentThread };
+  const current = threadPose(active, now);
+  setPose(avatarMode === "face" ? portraitMascot : headerMascot, current);
+  updateText(byId("avatar-caption"), current.pose === "idle" ? "" : poseLabel(current));
+  byId("avatar-caption").hidden = current.pose === "idle";
+  updateText(byId("face-status"), poseLabel(current));
+  updateText(byId("avatar-status"), announcePose(current));
+  for (const thread of threadList) {
+    if (avatarThreads.has(thread.id)) setPose(avatarThreads.get(thread.id), threadPose(thread, now));
+  }
+  for (const turn of turns) {
+    if (turn.threadId === currentThread && turn.bubble?.avatar && !turn.finished) {
+      setPose(turn.bubble.avatar, current);
+    }
+  }
+}
+
+function updateFaceCaption(text) {
+  const captions = byId("face-captions");
+  if (captions.textContent === text) return;
+  captions.hidden = !text;
+  captions.textContent = text;
+  captions.scrollTop = captions.scrollHeight;
+}
+
+function renderFace(local, messages, actions) {
+  if (avatarMode !== "face") return;
+  const active = local.find((turn) => turn.user && !turn.reply && !turn.finished);
+  const latest = [...local].reverse().find((turn) => turn.reply || turn.error);
+  const saved = messages.findLast((message) => message.role === "assistant");
+  const reply = latest?.reply || saved;
+  updateFaceCaption(active ? active.text : latest?.error || reply?.content || "");
+  const items = active ? [...active.actions.values()]
+    : (reply?.action_ids || []).map((id) => actions.get(id) || latest?.actions.get(id)).filter(Boolean);
+  const details = byId("face-actions");
+  details.hidden = !items.length;
+  if (details.hidden) details.open = false;
+  details.querySelector(".cards").replaceChildren(...items.map((action) => actionCard(actions.get(action.id) || action)));
+}
+
+function applyAppearance() {
+  const hidden = avatarMode === "off";
+  const full = avatarMode === "face";
+  byId("avatar-view").value = avatarMode;
+  byId("avatar-enabled").checked = !hidden;
+  byId("avatar-header").hidden = hidden;
+  byId("face-stage").hidden = !full;
+  byId("chat-view").classList.toggle("avatar-off", hidden);
+  byId("chat-view").classList.toggle("face-view", full);
+  if (hidden) {
+    byId("avatar-caption").hidden = true;
+    updateText(byId("avatar-status"), "");
+  }
+  setLook(headerMascot, avatarLook, avatarColor);
+  setLook(portraitMascot, avatarLook, avatarColor);
+  updateText(byId("avatar-name"), looks[avatarLook].name);
+  for (const [preset, look] of Object.entries(looks)) {
+    const choice = byId(`look-${preset}`);
+    choice.setAttribute("aria-pressed", String(preset === avatarLook));
+    setLook(choice.firstChild, preset, preset === avatarLook ? avatarColor : look.color);
+  }
+  byId("avatar-color").value = avatarColor || looks[avatarLook].color;
+  byId("avatar-color-reset").disabled = !avatarColor;
+  renderChat(true);
+}
+
+function chooseAvatarMode(mode) {
+  avatarMode = mode;
+  localStorage.setItem("hearth-avatar-view", mode);
+  applyAppearance();
+}
 
 function node(tag, className, text) {
   const item = document.createElement(tag);
@@ -116,9 +230,10 @@ function nearBottom() {
 
 function messageBubble(role, content, { message, status } = {}) {
   const item = node("article", `message ${role}`);
+  let avatar;
   if (role === "assistant") {
-    const avatar = node("span", "avatar", "✦");
-    avatar.setAttribute("aria-label", "Hearth");
+    avatar = mascot(avatarLook, avatarColor);
+    avatar.dataset.still = "";
     item.append(avatar);
   }
   const body = node("div");
@@ -136,7 +251,10 @@ function messageBubble(role, content, { message, status } = {}) {
   }
   if (message?.remembered?.length) {
     const sources = node("details", "remembered");
-    sources.append(node("summary", "", `Remembered · ${message.remembered.length}`));
+    const summary = node("summary", "", `Remembered · ${message.remembered.length}`);
+    const sourceThread = currentThread;
+    summary.addEventListener("click", () => avatarSignal(sourceThread, { type: "remembered" }));
+    sources.append(summary);
     sources.append(...message.remembered.map((hit) => button(memoryLabel(hit), () => openMemorySource(hit))));
     body.append(sources);
   }
@@ -148,7 +266,7 @@ function messageBubble(role, content, { message, status } = {}) {
   }
   item.append(body);
   transcript.append(item);
-  return { cards, notices, text };
+  return { avatar, cards, notices, text };
 }
 
 function threadSource(item, fallback = "Main") {
@@ -211,11 +329,12 @@ function isWorking(thread) {
 function renderThreads() {
   const entries = threadList.map((item) => ({ ...item, busy: isWorking(item) }));
   const active = entries.find((item) => item.id === currentThread);
-  const signature = JSON.stringify([entries, currentThread, busy, threadBusy]);
+  const signature = JSON.stringify([entries, currentThread, busy, threadBusy, avatarMode, avatarLook, avatarColor]);
   if (signature === threadSignature) return;
   threadSignature = signature;
   const list = byId("threads");
   const focused = list.contains(document.activeElement) && document.activeElement.dataset.thread;
+  avatarThreads.clear();
   list.replaceChildren(...entries.map((thread) => {
     const item = button("", () => selectThread(thread.id));
     item.className = "thread-link";
@@ -223,11 +342,17 @@ function renderThreads() {
     item.title = thread.title;
     item.append(node("span", "", thread.title));
     if (thread.id === currentThread) item.setAttribute("aria-current", "true");
-    if (thread.busy) {
+    if (avatarMode !== "off") {
+      const avatar = mascot(avatarLook, avatarColor);
+      avatar.dataset.still = "";
+      avatarThreads.set(thread.id, avatar);
+      item.append(avatar);
+    } else if (thread.busy) {
       const dot = node("span", "thread-dot");
       dot.setAttribute("aria-hidden", "true");
-      item.append(dot, node("span", "visually-hidden", " · Replying"));
+      item.append(dot);
     }
+    if (thread.busy) item.append(node("span", "visually-hidden", " · Replying"));
     return item;
   }));
   if (focused) [...list.children].find((item) => item.dataset.thread === focused)?.focus();
@@ -235,7 +360,7 @@ function renderThreads() {
   select.replaceChildren(...entries.map((thread) => new Option(`${thread.busy ? "● " : ""}${thread.title}`, thread.id)));
   select.value = currentThread;
   byId("thread-title").textContent = active?.title || (currentThread === mainThread.id ? "Main" : "Side chat");
-  byId("thread-activity").hidden = !active?.busy;
+  byId("thread-activity").hidden = avatarMode !== "off" || !active?.busy;
   byId("thread-controls").hidden = !active || active.id === mainThread.id;
   byId("new-thread").disabled = busy || threadBusy;
   byId("rename-thread").disabled = busy || threadBusy;
@@ -244,6 +369,7 @@ function renderThreads() {
   remove.title = active?.busy ? "Wait for this chat to finish" : "Delete this side chat";
   send.title = active?.busy ? "Queue follow-up" : "Send message";
   send.setAttribute("aria-label", send.title);
+  paintAvatars();
 }
 
 function rememberThread(thread) {
@@ -286,6 +412,8 @@ function renderChat(force = false) {
     for (const warning of turn.warnings) turn.bubble.notices.append(node("p", "model-warning", warning));
     for (const action of turn.actions.values()) turn.bubble.cards.append(actionCard(actions.get(action.id) || action));
   }
+  renderFace(local, messages, actions);
+  paintAvatars();
   if (follow) scrollDown();
 }
 
@@ -1197,6 +1325,7 @@ async function openSettings(section) {
     byId(`settings-${item.dataset.settings}`).hidden = !active;
   }
   if (section === "brain") return openBrainSettings();
+  if (section === "appearance") return;
   if (preferences[section].pending) return;
   try {
     const info = await api(`/api/${section}/settings`);
@@ -1292,6 +1421,7 @@ async function openView(nextView, updateHistory = true) {
     }
     byId(`${item.dataset.view}-view`).hidden = !active;
   }
+  paintAvatars();
   if (view === "connections") {
     renderConnections();
     await updateConnections("rescan");
@@ -1345,6 +1475,7 @@ async function changeThread(operation, body = {}) {
       threadList = threadList.filter((item) => item.id !== body.thread_id);
       if (currentThread === body.thread_id) activateThread(mainThread.id);
       threadDrafts.delete(body.thread_id);
+      avatarStates.delete(body.thread_id);
       for (const turn of turns) if (turn.threadId === body.thread_id) turns.delete(turn);
       await refreshView();
       showNotice("Side chat deleted. Its checkpoint is in Timeline.");
@@ -1364,6 +1495,7 @@ function readChatEvent(turn, name, payload) {
   if (name === "queued") {
     turn.threadId = payload.thread.id;
     turn.prompt = payload.prompt;
+    avatarSignal(turn.threadId, { type: "queued" });
     rememberThread(payload.thread);
     if (turn.command && turn.selection === selectionVersion) {
       activateThread(turn.threadId);
@@ -1372,20 +1504,36 @@ function readChatEvent(turn, name, payload) {
   } else if (name === "started") {
     turn.user = payload.message;
     rememberThread(payload.thread);
+    avatarSignal(turn.threadId, { type: "started" });
   } else if (name === "token" || name === "reset") {
     const follow = turn.threadId === currentThread && nearBottom();
     turn.text = name === "reset" ? "" : turn.text + payload.text;
+    avatarSignal(turn.threadId, { type: name, text: payload.text });
     if (turn.bubble) turn.bubble.text.textContent = turn.text || payload.message || "Thinking…";
+    if (avatarMode === "face" && turn.threadId === currentThread) updateFaceCaption(turn.text);
     if (follow) scrollDown();
     return;
   } else if (name === "action") {
     turn.actions.set(payload.id, payload);
+    if (payload.kind === "reminder") {
+      avatarSignal(turn.threadId, { type: "reminder", until: Date.parse(payload.job.next_at) });
+    } else if (payload.status === "complete" && ["memory", "remember"].includes(payload.kind)) {
+      avatarSignal(turn.threadId, { type: "celebrate" });
+    }
   } else if (name === "model_warning") {
     turn.warnings.push(payload.message);
+    avatarSignal(turn.threadId, { type: "warning" });
   } else if (name === "done") {
     turn.reply = payload.message;
+    avatarSignal(turn.threadId, { type: "done", remembered: !!turn.reply.remembered?.length });
   } else if (name === "error") {
     throw new Error(payload.message);
+  } else if (name === "tool_started" || name === "tool_finished" || name === "demo_listening") {
+    avatarSignal(turn.threadId, { type: name, title: payload.title });
+    return;
+  } else if (name === "tool_warning" || name === "demo_warning") {
+    avatarSignal(turn.threadId, { type: "warning" });
+    return;
   }
   if (turn.threadId === currentThread) renderChat(true);
   else renderThreads();
@@ -1431,6 +1579,7 @@ async function chat(prompt) {
     if (!turn.reply) throw new Error("The reply was interrupted. Check Timeline for any saved actions.");
   } catch (error) {
     turn.error = error.message;
+    avatarSignal(turn.threadId || source, { type: "error" });
     if (!turn.user) {
       turns.delete(turn);
       if (source === currentThread && !input.value) {
@@ -1451,9 +1600,12 @@ async function approve(action) {
   if (busy) return;
   setBusy(true);
   showNotice();
+  const threadId = action.thread_id || mainThread.id;
+  avatarSignal(threadId, { type: "approval_started", title: action.title });
   try {
     const result = await api("/api/approve", { id: action.id });
     if (result.response) gatewayResults.set(action.id, result.response);
+    avatarSignal(threadId, { type: "approval_done", success: ["complete", "sent", "simulated"].includes(result.status) });
     await refreshView();
     const message = {
       sent: "Email sent.", simulated: "Simulated send recorded. Undo is available on the card.",
@@ -1464,6 +1616,7 @@ async function approve(action) {
       ? "Connector request completed." : "The gateway could not confirm the request.");
     else showNotice(message[result.status]);
   } catch (error) {
+    avatarSignal(threadId, { type: "approval_done", success: false });
     showNotice(error.message);
   } finally {
     setBusy(false);
@@ -1509,6 +1662,49 @@ function resizeInput() {
   input.style.height = "auto";
   input.style.height = `${Math.min(input.scrollHeight, 132)}px`;
 }
+
+function followComposer() {
+  const caret = input.selectionStart;
+  const start = input.value.lastIndexOf("\n", caret - 1) + 1;
+  const breakAt = input.value.indexOf("\n", caret);
+  const end = breakAt < 0 ? input.value.length : breakAt;
+  const gaze = 2 * (caret - start) / Math.max(1, end - start) - 1;
+  avatarSignal(currentThread, { type: "typing", gaze });
+}
+
+for (const [preset, look] of Object.entries(looks)) {
+  const choice = button("", () => {
+    avatarLook = preset;
+    localStorage.setItem("hearth-avatar-look", preset);
+    applyAppearance();
+  });
+  choice.id = `look-${preset}`;
+  const preview = mascot(preset);
+  preview.dataset.still = "";
+  choice.append(preview, node("span", "", look.name));
+  byId("avatar-looks").append(choice);
+}
+byId("avatar-view").addEventListener("change", (event) => chooseAvatarMode(event.target.value));
+byId("avatar-enabled").addEventListener("change", (event) => chooseAvatarMode(event.target.checked ? "beside" : "off"));
+byId("avatar-color").addEventListener("input", (event) => {
+  avatarColor = event.target.value;
+  localStorage.setItem("hearth-avatar-color", avatarColor);
+  applyAppearance();
+});
+byId("avatar-color-reset").addEventListener("click", () => {
+  avatarColor = "";
+  localStorage.removeItem("hearth-avatar-color");
+  applyAppearance();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && view === "chat" && avatarMode === "face") {
+    chooseAvatarMode("beside");
+    byId("avatar-view").focus();
+  }
+});
+setInterval(() => {
+  if (!document.hidden) paintAvatars();
+}, 100);
 
 byId("composer").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -1626,7 +1822,13 @@ for (const feature of ["memory", "search"]) {
   });
 }
 byId("memory-reindex").addEventListener("click", () => changePreferences("memory", "reindex"));
-input.addEventListener("input", resizeInput);
+input.addEventListener("input", () => {
+  resizeInput();
+  followComposer();
+});
+input.addEventListener("select", () => {
+  if (Date.now() < avatarStates.get(currentThread)?.typing) followComposer();
+});
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
@@ -1656,7 +1858,7 @@ setInterval(async () => {
     polling = false;
   }
 }, 3_000);
-renderChat(true);
+applyAppearance();
 openView("chat", false);
 if (isConnectionsRoute()) syncConnectionRoute();
 else updateConnections("rescan");

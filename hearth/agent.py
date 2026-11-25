@@ -32,6 +32,12 @@ THANKSGIVING_DEMO = "Plan Thanksgiving dinner"
 DEMO_GUEST_NOTES = ("people/maya.md", "people/daniel.md")
 DEMO_ADDRESS = re.compile(r"(?im)^Demo email: *([a-z0-9._+-]+@example\.invalid) *$")
 READ_ONLY_TOOLS = {"memory_read", "memory_search", "web_search"}
+TOOL_TITLES = {
+    "memory_read": "Reading a note", "memory_search": "Searching memory", "memory_write": "Saving memory",
+    "send_email": "Preparing an email", "remember_fact": "Remembering a fact", "web_search": "Searching the web",
+    "schedule": "Scheduling a reminder", "checkpoint": "Saving a checkpoint", "undo": "Finding a checkpoint",
+    "gateway_request": "Contacting a connector",
+}
 EXPLICIT_NOTE_EDIT = re.compile(
     r"^\s*(?:(?:please|(?:can|could|would|will) you|I (?:want|need) you to)\s+)*"
     r"(?:(?:remember|write|save|wipe|clear|blank|erase|edit|update|replace|remove|delete|"
@@ -82,7 +88,7 @@ def tool_call(name, arguments):
     }]}
 
 
-def mock_completion(messages, emit, clock, *, tool_names=()):
+def mock_completion(messages, emit, clock, *, tool_names=(), demo=False):
     since_user = next(index for index in reversed(range(len(messages))) if messages[index]["role"] == "user")
     prompt = messages[since_user]["content"].strip()
     prior = [json.loads(message["content"]) for message in messages[since_user:] if message["role"] == "tool"]
@@ -207,13 +213,13 @@ def mock_completion(messages, emit, clock, *, tool_names=()):
         hits = last.get("results", [])
         answer = "\n\n".join(f"{hit['excerpt']} {hit['citation']}" for hit in hits)
         answer = answer or "I didn't find a matching note. Try “Plan Thanksgiving dinner”, read a note, or ask me to set a reminder."
-    return mock_text(answer, emit)
+    return mock_text(answer, emit, delay=0.048 if demo else 0.006)
 
 
-def mock_text(answer, emit):
+def mock_text(answer, emit, delay=0.006):
     for part in re.findall(r"\S+\s*|\s+", answer):
         emit(part)
-        time.sleep(0.006)
+        time.sleep(delay)
     return {"role": "assistant", "content": answer}
 
 
@@ -285,11 +291,22 @@ class Agent:
             history = self.threads.messages(thread_id, limit=16)
             label, context = self.threads.context(thread_id)
         origin = CHAT_ORIGIN.set({"thread_id": thread_id, "thread_title": thread["title"]})
-        turn = {"prompt": prompt, "message_id": message["id"], "queries": {}, "citations": {}}
+        demo = self.models[0]["provider"] == "mock" and prompt.casefold() == THANKSGIVING_DEMO.casefold()
+        turn = {"prompt": prompt, "message_id": message["id"], "queries": {}, "citations": {},
+                "event": event, "demo": demo}
         token = TURN_MEMORY.set(turn)
         try:
+            if demo:
+                event("demo_listening", {})
+                time.sleep(0.75)
             event("started", {"message": message, "thread": thread})
-            hits = self.memory_search(prompt[:1_000])["results"]
+            if demo:
+                time.sleep(1)
+            event("tool_started", {"title": TOOL_TITLES["memory_search"]})
+            try:
+                hits = self.memory_search(prompt[:1_000])["results"]
+            finally:
+                event("tool_finished", {})
             reference = {"Recalled memory (citation, path, line, heading, excerpt)": [
                 {key: hit[key] for key in ("citation", "path", "line", "heading", "excerpt")} for hit in hits
             ], label: context}
@@ -444,11 +461,17 @@ class Agent:
     def run_model(self, model, messages, tools, event, clock, notices, demo_addresses, routing):
         action_ids = []
         touched_state = False
+        demo = TURN_MEMORY.get()["demo"]
         for _ in range(9):
             emit = lambda text: event("token", {"text": text})
             try:
                 if model["provider"] == "mock":
-                    reply = mock_completion(messages, emit, clock, tool_names={tool["function"]["name"] for tool in tools})
+                    if demo and len(action_ids) == 2:
+                        # Preview the warning pose without recording a fake provider outage in Timeline.
+                        event("demo_warning", {})
+                        time.sleep(1.8)
+                    reply = mock_completion(messages, emit, clock, demo=demo,
+                                            tool_names={tool["function"]["name"] for tool in tools})
                 else:
                     reply = self.tools.gateway.completion(model, messages, tools, emit)
             except ConnectorError as error:
@@ -466,9 +489,12 @@ class Agent:
             messages.append(reply)
             for call in calls:
                 function = call["function"]
+                name = function["name"]
+                event("tool_started", {"title": TOOL_TITLES.get(name, "Running a tool")})
                 try:
+                    if demo:
+                        time.sleep(1 if name != "memory_read" else 2)
                     arguments = json.loads(function["arguments"])
-                    name = function["name"]
                     if name == "send_email" and demo_addresses is not None and isinstance(arguments, dict):
                         arguments["to"] = demo_addresses
                     touched_state |= name not in READ_ONLY_TOOLS and not (
@@ -484,6 +510,10 @@ class Agent:
                     result = {"error": str(error)}
                 except (TypeError, ValueError, RecursionError):
                     result = {"error": "The tool received invalid arguments."}
+                finally:
+                    event("tool_finished", {})
+                if "error" in result:
+                    event("tool_warning", {})
                 if "action" in result:
                     action = result["action"]
                     action_ids.append(action["id"])
@@ -670,6 +700,8 @@ class Agent:
 
     def run_search(self, query, selection):
         def failure(provider, next_provider, status):
+            if turn := TURN_MEMORY.get():
+                turn["event"]("tool_warning", {})
             detail = f"{catalog_entry(provider)['name']} search failed"
             detail += f" (HTTP {status})." if status else "."
             if next_provider:

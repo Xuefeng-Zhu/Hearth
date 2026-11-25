@@ -22,6 +22,8 @@ from .threads import MAIN, Threads, compact
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/avatar.js": ("avatar.js", "text/javascript; charset=utf-8"),
+    "/avatar-state.js": ("avatar-state.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 SIDE_COMMAND = re.compile(r"/(?:side|btw)(?:\s+(.+))?", re.I | re.S)
@@ -39,6 +41,7 @@ class Application:
         self.operation = threading.Lock()
         self.turn_lock = threading.Lock()
         self.turns = {}
+        self.turn_activity = {}
         self.restore = None
         self.reindex = None
         self.memory_index = recall.Recall(storage, self.gateway)
@@ -180,14 +183,17 @@ class Application:
 
     def info(self, thread_id=MAIN):
         with self.turn_lock:
-            active = set(self.turns)
+            active = {thread: self.turn_activity.get(thread) for thread in self.turns}
         with self.storage.lock():
             state = self.storage.load()
             threads = self.threads.list()
             if not any(thread["id"] == thread_id for thread in threads):
                 thread_id = MAIN
             messages = self.threads.messages(thread_id)
-        return {"thread_id": thread_id, "threads": [{**thread, "busy": thread["id"] in active} for thread in threads],
+        return {"thread_id": thread_id, "threads": [
+                    {**thread, "busy": thread["id"] in active,
+                     **({"activity": active[thread["id"]]} if active.get(thread["id"]) else {})}
+                    for thread in threads],
                 "messages": messages, "actions": list(state["actions"].values()),
                 "jobs": state["jobs"], "reminders": state["reminders"], "routing": state.get("routing", []),
                 "restore": self.restore,
@@ -226,6 +232,11 @@ class Application:
             agent = self.agent
 
             def event(name, data):
+                phase = {"started": "thinking", "tool_started": "working", "tool_finished": "thinking",
+                         "token": "speaking", "reset": "thinking"}.get(name)
+                if phase:
+                    with self.turn_lock:
+                        self.turn_activity[thread_id] = {"pose": phase, "detail": data.get("title")}
                 if name == "done" and self.agent is agent:
                     self.brain = data["provider"]
                     self.brain_reply = (self.brain, data["model"])
@@ -239,6 +250,7 @@ class Application:
                 with self.turn_lock:
                     pending = self.turns[thread_id]
                     pending.popleft()
+                    self.turn_activity.pop(thread_id, None)
                     if not pending:
                         del self.turns[thread_id]
                 events.put(None)
