@@ -103,7 +103,7 @@ class ThreadTest(unittest.TestCase):
         self.chat("Remind me to water the mint in 1 minute", side_id)
         self.chat("Email guest@example.invalid | Garden | Water the mint", side_id)
         self.assertEqual(self.state()["messages"], [])
-        self.assertEqual(self.request("/api/memory?path=topics%2Fgarden.md")["content"], "Grow late mint")
+        self.assertEqual(self.request("/api/memory?path=topics%2Fgarden.md")["body"], "Grow late mint")
         memory, reminder, approval = self.state()["actions"]
         for action in (memory, reminder, approval):
             self.assertEqual(action["thread_id"], side_id)

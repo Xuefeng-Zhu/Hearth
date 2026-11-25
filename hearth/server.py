@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import approvals, artifacts, box, browserbase, home, inbox, memory_edits, page_policy, pages, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
+from . import approvals, artifacts, box, browserbase, home, inbox, memory, memory_edits, memory_purge, page_policy, pages, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -26,6 +26,8 @@ from .threads import MAIN, Threads, compact
 
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
+    "/memory.js": ("memory.js", "text/javascript; charset=utf-8"),
+    "/memory.css": ("memory.css", "text/css; charset=utf-8"),
     "/home.js": ("home.js", "text/javascript; charset=utf-8"),
     "/home.css": ("home.css", "text/css; charset=utf-8"),
     "/workers.js": ("workers.js", "text/javascript; charset=utf-8"),
@@ -259,8 +261,13 @@ class Application:
                                     thread_id=thread_id, message_id=identity)
         raise HearthError("That chat memory no longer exists.")
 
+    def purge_memory(self, matches, message_id):
+        return memory_purge.purge(self, matches, message_id)
+
     def forget_memory(self, body):
         path = require_text(body.get("path"), 120)
+        if path in memory.PINNED and body.get("item_id") is None:
+            raise HearthError("Edit the profile or approval preferences in their settings.")
         # The index takes its corpus snapshot under the same lock order.
         with self.memory_index.lock, self.storage.lock():
             state = self.storage.load()
@@ -279,20 +286,24 @@ class Application:
                 self.storage.save(state)
             else:
                 content = self.storage.read(path)
-                before = memory_edits.snapshot(self.storage, state, [path])
                 item_id = body.get("item_id")
-                removed = [item for item in recall.note_chunks(path, redact_text(content))
+                changes = memory.related_changes(self.storage, path) if item_id is None else {}
+                before = memory_edits.snapshot(self.storage, state, [path, *changes])
+                removed = [item for item in recall.section_chunks(path, redact_text(content))
                            if item_id is None or item["id"] == item_id]
                 if item_id is not None and not removed:
                     raise HearthError("This excerpt changed. Search again before forgetting it.")
+                if path == memory.APPROVAL_NOTE or any(item.get("profile_fields") for item in removed) and item_id:
+                    raise HearthError("Edit these fields directly in the profile or approval settings.")
                 checkpoint = self.checkpoints.create("Before forgetting Hearth memory")
                 if item_id is None:
-                    self.storage.memory_path(path).unlink()
+                    memory_edits.write_notes(self.storage, {path: None, **changes})
                 else:
                     lines = content.splitlines(keepends=True)
                     item, = removed
                     del lines[item["line"] - 1:item["end_line"]]
                     self.storage.write(path, "".join(lines))
+                memory.catalog(self.storage)
             self.memory_index.forget_vectors(removed)
             return self.agent.add_action("memory", "Memory forgotten", status="complete",
                                          checkpoint=checkpoint, paths=[path], memory_before=before,
@@ -565,6 +576,10 @@ class Application:
             action = self.storage.load()["actions"].get(action_id)
             if not self.agent.can_undo(action):
                 raise HearthError("This action has no available Undo.")
+            if self.checkpoints.mode == "sprite" and any(
+                rule["at"] >= action["checkpoint"]["created_at"] for rule in memory.standing_rules(self.storage)
+            ):
+                raise HearthError("This checkpoint predates a permanent forget request and cannot be restored.")
         self.restore = {"action_id": action_id, "status": "restoring"}
         threading.Thread(target=self.restore_checkpoint, args=(action,), daemon=True).start()
 
@@ -585,6 +600,8 @@ class Application:
                     self.reindex = None
                     self.call_check = None
                     self.reload_agent()
+                    with self.storage.lock():
+                        memory.catalog(self.storage)
                     self.restore = None
                     self.memory_sync.request("startup")
                     return
@@ -765,12 +782,22 @@ class Handler(BaseHTTPRequestHandler):
                 message = params.get("message", [None])[0]
                 self.json(self.app.chat_memory(thread, message))
             elif url.path == "/api/memory":
-                path = parse_qs(url.query).get("path", [None])[0]
-                with self.app.storage.lock():
-                    if path:
-                        data = {"path": path, "content": redact_text(self.app.storage.read(path))}
+                params = parse_qs(url.query)
+                path, identity = (params.get(key, [None])[0] for key in ("path", "id"))
+                storage = self.app.storage
+                with storage.lock():
+                    if path or identity:
+                        path = memory.resolve(storage, path=path, id=identity)
+                        raw = storage.read(path)
+                        content = redact_text(raw)
+                        meta, note, header = memory.parse(path, content)
+                        data = {"path": path, "content": content, "body": note, "header_lines": header,
+                                "meta": meta, "revision": memory.revision(raw)}
                     else:
-                        data = {"files": self.app.storage.files()}
+                        rows = memory.catalog(storage)
+                        data = {"files": [row["path"] for row in rows], "index": rows,
+                                **memory.profile_record(storage),
+                                "forget_rules": len(memory.standing_rules(storage))}
                 self.json(data)
             else:
                 self.json({"error": "Page not found."}, 404)
@@ -865,13 +892,15 @@ class Handler(BaseHTTPRequestHandler):
                   "/api/brain/test", "/api/brain/settings", "/api/brain/route", "/api/threads/create", "/api/threads/rename",
                   "/api/threads/delete", "/api/threads/share", "/api/memory/settings", "/api/memory/test",
                   "/api/memory/search", "/api/memory/reindex", "/api/memory/sync", "/api/memory/forget",
+                  "/api/memory/write", "/api/memory/move", "/api/memory/profile",
                   "/api/search/settings", "/api/search/test", "/api/browse/settings", "/api/browse/approve",
                   "/api/skills/create", "/api/skills/save", "/api/skills/delete", "/api/skills/duplicate", "/api/skills/try"}
         if self.path not in routes:
             self.json({"error": "Page not found."}, 404)
             return
         try:
-            body = self.body(limit=100_000) if self.path.startswith("/api/skills/") else self.body()
+            large = self.path.startswith(("/api/skills/", "/api/memory/"))
+            body = self.body(limit=160_000 if large else 24_000)
         except HearthError as error:
             self.json({"error": str(error)}, 400)
             return
@@ -1094,6 +1123,7 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path.startswith("/api/approvals/"):
                     if operation == "settings":
                         result = approvals.settings(self.app.storage, body)
+                        self.app.memory_index.changed()
                     elif operation in {"approve", "edit", "decline"}:
                         result = approvals.decide(self.app.agent, require_text(body.get("id"), 40), operation,
                                                   body.get("changes"))
@@ -1353,6 +1383,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self.app.start_reindex()
             if operation == "forget":
                 return self.app.forget_memory(body)
+            storage = self.app.storage
+            if operation == "profile" and body.keys() == {"profile", "notes", "revision"}:
+                with storage.lock():
+                    current = memory.profile_record(storage)
+                    if body["revision"] != current["revision"]:
+                        raise HearthError("The profile changed. Reload Memory before saving.")
+                    profile = memory.normalize_profile(body["profile"])
+                    if not isinstance(body["notes"], str):
+                        raise HearthError("Enter the profile notes as text.")
+                    data, _, _ = memory.parse(memory.PROFILE_NOTE, storage.read(memory.PROFILE_NOTE)
+                                              if current["revision"] else "")
+                    data["profile"] = profile
+                    note = memory.render(data, "\n" + body["notes"].strip() + "\n")
+                    return agent.write_memory_notes([{"path": memory.PROFILE_NOTE, "content": note}])
+            if operation in {"write", "move"} and body.keys() == {"path", "revision", "content" if operation == "write" else "target"}:
+                with storage.lock():
+                    path = memory.resolve(storage, path=body["path"])
+                    if body["revision"] != memory.revision(storage.read(path)):
+                        raise HearthError("The note changed. Reload it before saving.")
+                    if operation == "write":
+                        return agent.write_memory_notes([{"path": path, "content": body["content"]}])
+                    return agent.move_memory_note(body["target"], path=path)
         if operation == "test" and {"selection", "query"} <= body.keys():
             if feature == "search" and body.keys() == {"selection", "query"}:
                 return agent.run_search(body["query"], search.settings(body["selection"]))

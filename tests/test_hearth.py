@@ -79,7 +79,8 @@ class HearthTest(unittest.TestCase):
         self.assertEqual(self.storage.read("USER.md"), original)
         self.assertEqual(self.checkpoints.list(), [])
         action = self.agent.memory_write([{"path": "USER.md", "content": ""}])["action"]
-        self.assertEqual(self.storage.read("USER.md"), "")
+        from hearth import memory
+        self.assertEqual(memory.parse("USER.md", self.storage.read("USER.md"), strict=True)[1], "")
         self.checkpoints.restore(action["checkpoint"]["id"])
         self.assertEqual(self.storage.read("USER.md"), original)
         self.assertNotIn(action["id"], self.storage.load()["actions"])
@@ -369,14 +370,14 @@ class HearthTest(unittest.TestCase):
         self.assertIn("topics/thanksgiving.md", card["title"])
         self.assertFalse(any(row["kind"] == "checkpoint" for row in timeline))
         self.assertTrue(any(row["kind"] == "chat" for row in timeline))
-        self.assertEqual(get(path)["content"], "")
+        self.assertEqual(get(path)["body"], "")
         self.assertEqual(get("/api/checkpoints")["checkpoints"][0]["id"], action["checkpoint"]["id"])
         self.assertEqual(request("/api/undo", {"id": action["id"]})[1], 200)
         self.assertEqual(get(path)["content"], original)
         undone, = [row for row in get("/api/timeline")["entries"] if row["id"] == card["id"]]
         self.assertTrue(undone["redoable"])
         self.assertEqual(request("/api/redo", {"id": action["id"]})[1], 200)
-        self.assertEqual(get(path)["content"], "")
+        self.assertEqual(get(path)["body"], "")
 
     def test_timeline_stream_signals_scheduler_writes_and_projects_redacted_history(self):
         app = Application(self.storage, self.checkpoints, self.config)

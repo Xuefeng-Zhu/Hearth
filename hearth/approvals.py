@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote
 
-from . import browserbase, timeline
+from . import browserbase, memory, timeline
 from .connections import catalog_entry
 from .connectors import ConnectorError
 from .gateway_tools import scrub, validate_request
@@ -24,9 +24,9 @@ LOCAL_TOOLS = frozenset({
     "remember_fact", "schedule", "checkpoint", "create_panel", "update_panel", "create_recurring_task",
     "update_recurring_task", "pause_recurring_task", "create_document", "create_pdf", "create_spreadsheet",
     "create_presentation", "update_document", "update_pdf", "update_spreadsheet", "update_presentation",
-    "spawn_workers",
+    "spawn_workers", "memory_move",
 })
-DELETE_TOOLS = frozenset({"delete_panel", "delete_recurring_task", "delete_memory", "delete_artifact"})
+DELETE_TOOLS = frozenset({"delete_panel", "delete_recurring_task", "delete_memory", "delete_artifact", "memory_forget"})
 SAFE_HTTP = {"GET", "HEAD", "OPTIONS"}
 
 
@@ -40,7 +40,19 @@ def settings(storage, changes):
     with storage.lock():
         state = storage.load()
         state["approval_policy"] = {**policy(state), **changes}
-        storage.save(state)
+        path = memory.APPROVAL_NOTE
+        previous = storage.read(path) if storage.memory_path(path).is_file() else None
+        try:
+            storage.write(path, memory.approval_content(state["approval_policy"], previous))
+            memory.catalog(storage)
+            storage.save(state)
+        except OSError:
+            if previous is None:
+                storage.memory_path(path).unlink(missing_ok=True)
+            else:
+                storage.write(path, previous)
+            memory.catalog(storage)
+            raise
         return state["approval_policy"]
 
 
@@ -85,7 +97,7 @@ def classify(tool, args, *, prompt=""):
         steps = browserbase.normalize_steps(args.get("steps"))
         # Interacting with a page may submit, publish, or remove data.
         return CONNECTOR_CATEGORIES if any(step["action"] in browserbase.WRITE_STEPS for step in steps) else ("spend",)
-    if tool == "memory_write":
+    if tool in {"memory_write", "memory_edit"}:
         notes = args.get("notes")
         clears = isinstance(notes, list) and any(isinstance(note, dict) and isinstance(note.get("content"), str)
                                                  and not note["content"].strip() for note in notes)

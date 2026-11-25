@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 from urllib.parse import quote
 
-from . import pinecone
+from . import memory, pinecone
 from .connectors import ConnectorError
 from .gateway_tools import redact_text
 from .storage import HearthError, atomic_write, iso
@@ -21,7 +21,8 @@ MODELS = {
     pinecone.DENSE_MODEL: "Multilingual E5 Small · multilingual",
     "intfloat/multilingual-e5-base": "Multilingual E5 · Chinese and other languages",
 }
-FOLDERS = ("root", "people", "topics", "daily")
+FOLDERS = ("root", "people", "locations", "topics", "projects", "daily")
+OLD_FOLDERS = {"root", "people", "topics", "daily"}
 DEFAULTS = {
     "backend": "auto", "model": next(iter(MODELS)), "top_k": 8, "min_similarity": 0.55,
     "include_chat": False, "auto_remember": "off", "include": list(FOLDERS), "exclude": [],
@@ -55,8 +56,14 @@ def settings(values):
 
 
 def folder_allowed(path, selection):
-    folder = path.split("/", 1)[0] if "/" in path else "root"
+    folder = note_scope(path)
     return folder in selection["include"] and folder not in selection["exclude"]
+
+
+def note_scope(path):
+    if path.removesuffix(".md") in memory.TOPICS:
+        return "topics"
+    return path.split("/", 1)[0] if "/" in path else "root"
 
 
 def digest(text):
@@ -71,7 +78,7 @@ def chunk(path, line, end_line, excerpt, heading="", **fields):
             "end_line": end_line, "excerpt": excerpt, "heading": heading, **fields}
 
 
-def note_chunks(path, content, **fields):
+def note_chunks(path, content, *, offset=0, **fields):
     heading, heading_line = "", None
     lines = []
 
@@ -80,7 +87,7 @@ def note_chunks(path, content, **fields):
         if text:
             return chunk(path, lines[0][0], lines[-1][0], text, heading, **fields)
 
-    for number, line in enumerate(content.splitlines(), 1):
+    for number, line in enumerate(content.splitlines(), offset + 1):
         match = HEADING.match(line)
         if match or not line.strip() or (lines and sum(len(value) + 1 for _, value in lines) + len(line) > 1_000):
             if item := paragraph():
@@ -102,6 +109,52 @@ def note_chunks(path, content, **fields):
         yield item
     elif heading_line:
         yield chunk(path, heading_line, heading_line, heading, **fields)
+
+
+def section_chunks(path, content, **fields):
+    data, body, offset = memory.parse(path, content)
+    if not offset:
+        yield from note_chunks(path, content, **fields)
+        return
+
+    def section(lines, heading, first):
+        if not any(line.strip() for line in lines):
+            return
+        batch = []
+        size = 0
+        for number, line in enumerate(lines, first):
+            if batch and size + len(line) > 1_000:
+                excerpt = "\n".join(value for _, value in batch)
+                if excerpt.strip():
+                    yield chunk(path, batch[0][0], batch[-1][0], excerpt, heading, **fields)
+                batch, size = [], 0
+            batch.append((number, line))
+            size += len(line) + 1
+        while batch and not batch[0][1].strip():
+            batch.pop(0)
+        while batch and not batch[-1][1].strip():
+            batch.pop()
+        if batch:
+            yield chunk(path, batch[0][0], batch[-1][0], "\n".join(value for _, value in batch), heading, **fields)
+
+    # Profile is always in the system prompt. Give its populated fields a safe, dedicated recall source.
+    if path == memory.PROFILE_NOTE:
+        populated = {key: value for key, value in data["profile"].items() if value and (
+            not isinstance(value, dict) or any(value.values()))}
+        if populated:
+            yield chunk(path, 2, offset - 1, json.dumps(populated, ensure_ascii=False), "Profile",
+                        **fields, profile_fields=True)
+    if not memory.HEADING.search(body):
+        yield from note_chunks(path, body, offset=offset, **fields)
+        return
+    lines, heading, first = [], "", offset + 1
+    for number, line in enumerate(body.splitlines(), offset + 1):
+        if match := HEADING.match(line):
+            yield from section(lines, heading, first)
+            heading, lines, first = match[1], [], number + 1
+        else:
+            lines.append(line)
+    yield from section(lines, heading, first)
 
 
 def vector_text(item):
@@ -139,12 +192,15 @@ def chat_text(message):
 
 
 def metadata(item):
-    return {key: redact_text(str(value)) for key, value in {
+    data = {key: redact_text(str(value)) for key, value in {
         "memory_id": item["id"], "kind": item.get("kind") or note_kind(item),
         "thread_id": item.get("thread_id") or item.get("origin_thread") or MAIN, "created_at": item["created_at"],
         "source": item["source"], "text": vector_text(item),
         "scope": item["scope"],
     }.items()}
+    if "note_id" in item:
+        data.update(id=item["note_id"], type=item["type"], related=item["related"], updated=item["updated"])
+    return data
 
 
 def artifact_text(value):
@@ -258,21 +314,30 @@ class Recall:
             return {}
 
     def replace_box_artifacts(self, rows):
-        atomic_write(self.box_path, json.dumps(rows, ensure_ascii=False))
+        with self.storage.lock():
+            rules = memory.standing_rules(self.storage)
+            rows["rows"] = {key: row for key, row in rows["rows"].items() if not any(
+                memory.matches_rule(f"{hit['path']} {hit['heading']} {hit['excerpt']}", rules)
+                for hit in artifact_chunks([row]))}
+            atomic_write(self.box_path, json.dumps(rows, ensure_ascii=False))
 
     def items(self, selection, box_connection=None, box_folder=None):
         with self.storage.lock():
             state = self.storage.load()
             origins = state.get("memory_origins", {})
+            rules = memory.standing_rules(self.storage)
             items = []
-            for path in self.storage.files():
+            for row in memory.catalog(self.storage):
+                path = row["path"]
                 if not folder_allowed(path, selection):
                     continue
                 file = self.storage.memory_path(path)
                 origin = origins.get(path, {})
                 created_at = origin.get("created_at") or iso(datetime.fromtimestamp(file.stat().st_mtime, timezone.utc))
-                scope = path.split("/", 1)[0] if "/" in path else "root"
-                for item in note_chunks(path, redact_text(self.storage.read(path)), created_at=created_at, source="Markdown", scope=scope):
+                scope = note_scope(path)
+                for item in section_chunks(path, redact_text(self.storage.read(path)), created_at=created_at,
+                                           source="Markdown", scope=scope, note_id=row["id"], type=row["type"],
+                                           related=row["related"], updated=row["updated"]):
                     excerpt_origin = origin.get("excerpts", {}).get(item["id"], origin)
                     item.update(kind=note_kind(item), origin_thread=excerpt_origin.get("thread_id") or MAIN,
                                 created_at=excerpt_origin.get("created_at") or created_at)
@@ -299,7 +364,8 @@ class Recall:
                                            thread_id=thread["id"], message_id=identity, kind="transcript",
                                            scope="chat", source="Voice transcript" if message["role"] == "call" else "Chat",
                                            created_at=message.get("at") or ""))
-            return items
+            return [item for item in items if not memory.matches_rule(
+                f"{item['path']} {item['heading']} {item['excerpt']}", rules)]
 
     def corpus(self, config, selection):
         box_entry = config.get("gateway", {}).get("box", {})
@@ -344,6 +410,9 @@ class Recall:
         index_id = digest(json.dumps([2, "huggingface", model, self.hf_entry(config)["connection_id"]]))[:24]
         path = self.storage.live / "index" / f"{index_id}.json"
         with self.lock:
+            rules = memory.standing_rules(self.storage)
+            items = [item for item in items if not memory.matches_rule(
+                f"{item['path']} {item['heading']} {item['excerpt']}", rules)]
             saved = self.read_index(path)
             texts = {digest(vector_text(item)): vector_text(item) for item in items}
             vectors = {} if rebuild else {key: value for key, value in saved.get("vectors", {}).items() if key in texts}
@@ -510,6 +579,10 @@ class Recall:
                     elapsed = time.monotonic() - start
                     hits, reranked = self.pinecone_hits(config, selection, query, candidates, filters, budget - elapsed)
                     backend = "pinecone"
+                    keyword = ranked_hits(candidates.values(), query, selection)
+                    seen = {hit["id"] for hit in hits}
+                    hits += [{**hit, "backend": "keyword"} for hit in keyword if hit["id"] not in seen]
+                    hits = hits[:selection["top_k"]]
                 except ConnectorError as error:
                     warnings.append(f"Pinecone recall unavailable. {error_message(error)}")
             elif requested == "pinecone":

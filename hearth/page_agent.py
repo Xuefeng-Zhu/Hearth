@@ -106,7 +106,7 @@ def plan(agent, model, name, history, context, recent, asked):
     payload = {"requested_tool": name, "latest_user_message": history[-1]["content"],
                "chat": [{"role": row["role"], "content": row["content"]} for row in history[:-1]],
                "reference_data": json.loads(context), "latest_page": recent, "already_asked": asked}
-    messages = completion_messages(PLANNER, payload)
+    messages = completion_messages(PLANNER + "\n" + agent.memory_context(), payload)
     result = agent.model_completion(model, messages, [tool_schema(name)], lambda _: None)
     calls = result.get("tool_calls", [])
     if calls:

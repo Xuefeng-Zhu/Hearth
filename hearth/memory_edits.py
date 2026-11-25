@@ -1,6 +1,6 @@
 """Record reversible edits to the memory corpus for Timeline."""
 
-from . import recall
+from . import memory, recall
 from .gateway_tools import redact_text
 from .storage import HearthError, iso
 from .threads import MAIN
@@ -26,14 +26,14 @@ def record(storage, state, action, before, message_id=None):
                 origins.pop(path, None)
             elif content != paths[path]:
                 old = before["origins"][path] or {}
-                previous = {item["id"] for item in recall.note_chunks(path, redact_text(paths[path] or ""))}
+                previous = {item["id"] for item in recall.section_chunks(path, redact_text(paths[path] or ""))}
                 current_origin = {"thread_id": action.get("thread_id") or MAIN, "created_at": action["at"]}
                 prior_origin = {"thread_id": old.get("thread_id") or MAIN,
                                 "created_at": old.get("created_at") or action["at"]}
                 origins[path] = {"excerpts": {
                     item["id"]: old.get("excerpts", {}).get(item["id"], prior_origin)
                     if item["id"] in previous else current_origin
-                    for item in recall.note_chunks(path, redact_text(content))
+                    for item in recall.section_chunks(path, redact_text(content))
                 }}
     after = snapshot(storage, state, paths, message_id)
     if before != after:
@@ -62,8 +62,12 @@ def restore(storage, action_id, *, redo=False):
         message_id = change["message_id"]
         if snapshot(storage, state, previous["notes"], message_id) != previous:
             raise HearthError("This memory changed again. Undo the newer change first.")
+        for text in next_state["notes"].values():
+            if text is not None:
+                memory.check_standing_rules(storage, text)
         try:
             write_notes(storage, next_state["notes"])
+            memory.catalog(storage)
             origins = state.setdefault("memory_origins", {})
             for path, value in next_state["origins"].items():
                 if value is None:
@@ -80,5 +84,25 @@ def restore(storage, action_id, *, redo=False):
             storage.save(state)
         except OSError:
             write_notes(storage, previous["notes"])
+            memory.catalog(storage)
             raise
         return action
+
+
+def commit(agent, title, notes, *, checkpoint_comment=None):
+    """Apply a set of note changes under the caller's storage lock."""
+    storage = agent.storage
+    before = snapshot(storage, storage.load(), notes)
+    notes = {path: content for path, content in notes.items() if content != before["notes"][path]}
+    if not notes:
+        return {"status": "complete", "title": "Memory is already up to date", "paths": []}
+    checkpoint = agent.checkpoints.create(checkpoint_comment) if checkpoint_comment else None
+    try:
+        write_notes(storage, notes)
+        memory.catalog(storage)
+        return agent.add_action("memory", title, status="complete", paths=sorted(notes),
+                                checkpoint=checkpoint, memory_before=before)
+    except OSError:
+        write_notes(storage, before["notes"])
+        memory.catalog(storage)
+        raise

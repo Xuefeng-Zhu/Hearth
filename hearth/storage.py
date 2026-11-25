@@ -10,7 +10,8 @@ from pathlib import Path
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
-MEMORY_PATH = re.compile(r"(?:USER|(?:people|topics)/[\w-]+|daily/\d{4}-\d{2}-\d{2})\.md")
+MEMORY_PATH = re.compile(r"(?:USER|APPROVAL_PREFERENCES|food|travel|shopping-and-money|home-and-health|leisure|"
+    r"(?:people|locations|topics|projects)/[\w-]{1,90}|daily/\d{4}-\d{2}-\d{2})\.md")
 MAX_NOTE = 24_000
 
 
@@ -48,7 +49,8 @@ class Storage:
         self.state = self.live / "state.json"
         self.root.mkdir(parents=True, exist_ok=True)
         with self.lock():
-            if not self.memory.is_dir():
+            fresh = not self.memory.is_dir()
+            if fresh:
                 staging = Path(tempfile.mkdtemp(dir=self.root))
                 try:
                     shutil.copytree(ROOT / "memory", staging / "memory")
@@ -56,6 +58,11 @@ class Storage:
                     (staging / "memory").rename(self.memory)
                 finally:
                     shutil.rmtree(staging)
+            from .memory import initialize
+            initialize(self, fresh=fresh)
+            if (self.root / "memory-forget-pending.json").is_file():
+                from .memory_purge import recover
+                recover(self)
 
     @contextmanager
     def lock(self):
@@ -73,7 +80,7 @@ class Storage:
 
     def memory_path(self, name):
         if not isinstance(name, str) or not MEMORY_PATH.fullmatch(name):
-            raise HearthError("Use USER.md or a Markdown file under people, topics, or daily.")
+            raise HearthError("Choose a profile, topic or approvals note, or a Markdown file under people, locations, projects or daily.")
         path = self.memory / name
         if path.resolve() != path:
             raise HearthError("Memory files must stay inside the memory directory.")

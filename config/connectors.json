@@ -32,6 +32,7 @@
     {"provider": "echo", "connection_id": "", "model": "echo"},
     {"provider": "mock", "connection_id": "", "model": "hearth-demo"}
   ],
+  "memory": {"auto_remember": "automatic"},
   "pinecone": {"provider": "pinecone", "connection_id": "", "index": "hearth-memory", "namespace": "hearth", "model": "multilingual-e5-large", "cloud": "aws", "region": "us-east-1"},
   "tavily": {"provider": "tavily", "connection_id": ""},
   "agentmail": {"provider": "agentmail", "connection_id": "", "inbox_id": ""}

@@ -1,4 +1,13 @@
+---
+id: people/maya
+type: contact
+relation: relative
+related:
+- topics/thanksgiving
+---
+
 # Maya
 
 Maya is a relative in the sample household. She is vegetarian and usually brings a dessert.
-Demo email: maya@example.invalid
+
+This is a fictional demo contact.

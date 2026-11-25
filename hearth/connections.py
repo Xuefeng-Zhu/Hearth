@@ -192,6 +192,7 @@ class Connections:
         config.setdefault("brain_pool", [])
         config.setdefault("parallel_workers", workers.DEFAULT_CAP)
         config["memory"] = recall.settings(config.get("memory", {}))
+        config["memory_scope_version"] = 2
         config["search"] = search.settings(config.get("search", {}))
         config["browsing"] = browserbase.settings(config.get("browsing", {}))
         config["artifacts"] = box.settings(artifact_preferences(config.get("artifacts", {})))
@@ -264,7 +265,12 @@ class Connections:
                               ("browsing", browserbase.settings), ("parallel_workers", workers.validate_cap)):
             if key in data:
                 try:
-                    config[key] = validate(artifact_preferences(data[key]) if key == "artifacts" else data[key])
+                    value = artifact_preferences(data[key]) if key == "artifacts" else data[key]
+                    config[key] = validate(value)
+                    if key == "memory" and data.get("memory_scope_version") != 2 and set(
+                        config[key]["include"]
+                    ) == recall.OLD_FOLDERS:
+                        config[key]["include"] = list(recall.FOLDERS)
                 except HearthError:
                     pass
         folders = data.get("box_folders")

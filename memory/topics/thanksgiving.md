@@ -1,3 +1,13 @@
+---
+id: topics/thanksgiving
+type: event
+relation: ''
+related:
+- people/maya
+- people/daniel
+- food
+---
+
 # Thanksgiving dinner
 
 Guests: Maya and Daniel. Acknowledge Maya's vegetarian preference with a main dish.

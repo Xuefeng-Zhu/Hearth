@@ -79,6 +79,8 @@ class Index:
             raise ConnectorError("The Pinecone index must map embedding input to the text field.")
         embedding_model = embed.get("model") or self.entry.get("embedding_model") or (
             "intfloat/multilingual-e5-base" if dimension == 768 else DENSE_MODEL)
+        if self.namespace == "frank" and (embed or dimension != DENSE_DIMENSION or embedding_model != DENSE_MODEL):
+            raise ConnectorError("The frank namespace requires a 384-dimension dense index with multilingual E5 Small.")
         if not embed and not dense_available:
             raise ConnectorError("Connect Hugging Face to use this dense Pinecone index.")
         return {"host": host, "dimension": dimension, "embedding_model": embedding_model,
@@ -86,6 +88,10 @@ class Index:
 
     def create(self, dense_available):
         cloud, region = self.entry.get("cloud", "aws"), self.entry.get("region", "us-east-1")
+        if self.namespace == "frank":
+            if not dense_available:
+                raise ConnectorError("Connect Hugging Face to create the frank memory index.")
+            return self.create_dense(cloud, region)
         try:
             self.control("indexes/create-for-model", {
                 "name": self.name, "cloud": cloud, "region": region,
@@ -103,6 +109,9 @@ class Index:
             if not dense_available:
                 raise ConnectorError(f"Integrated index creation returned HTTP {error.status}. "
                                      "Connect Hugging Face to try dense index creation.", error.status) from None
+        self.create_dense(cloud, region)
+
+    def create_dense(self, cloud, region):
         try:
             self.control("indexes", {
                 "name": self.name, "dimension": DENSE_DIMENSION, "metric": "cosine",

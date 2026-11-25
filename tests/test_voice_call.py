@@ -134,7 +134,9 @@ class VoiceCallTest(unittest.TestCase):
                          [("user", "voice-call"), ("assistant", "voice-call")])
         for record in (state["routing"][-1], state["actions"][-1]):
             self.assertEqual((record["source"], record["thread_id"]), ("voice-call", side))
-        self.assertEqual(self.storage.read("topics/call-test.md"), "Test the call bridge")
+        from hearth import memory
+        self.assertEqual(memory.parse("topics/call-test.md", self.storage.read("topics/call-test.md"), strict=True)[1],
+                         "Test the call bridge")
         checkpoint = state["actions"][-1]
         self.assertIn("checkpoint", checkpoint)
         self.app.checkpoints.restore(checkpoint["checkpoint"]["id"])
