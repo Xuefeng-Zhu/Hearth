@@ -473,6 +473,12 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     return mutate("retry", item, {});
   }
 
+  function worthSaving(item) {
+    const text = String(item?.content || "").trim();
+    if (text.length >= 600) return true;
+    return /^(#{1,6} |\|.*\||```|\s*(?:[-*] |\d+\. ).*\n\s*(?:[-*] |\d+\. ))/m.test(text);
+  }
+
   function chatActions(item, threadId, linked = [], { allowSave = true } = {}) {
     const actions = element("div", "artifact-chat-actions");
     for (const artifact of linked) {
@@ -484,7 +490,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       chip.title = artifact.sync_message || "";
       actions.append(chip);
     }
-    if (!linked.some((artifact) => artifact.from_message) && allowSave) {
+    if (!linked.some((artifact) => artifact.from_message) && allowSave && worthSaving(item)) {
       const active = savingMessages.has(item.id);
       const save = control(active ? "Saving…" : "Save as artifact", async () => {
         if (savingMessages.has(item.id)) return;
