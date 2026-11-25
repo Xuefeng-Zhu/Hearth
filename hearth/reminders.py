@@ -167,7 +167,8 @@ class Reminders:
                      for item in scheduler.email_records(state)]
         outbox = [{key: entry[key] for key in ("id", "subject", "created_at", "reason")}
                   for entry in state["outbox"] if entry.get("kind") == "reminder"]
-        return {"jobs": jobs, "delivered": delivered[::-1], "outbox": outbox[::-1]}
+        return {"jobs": jobs, "delivered": delivered[::-1], "outbox": outbox[::-1],
+                "timezone": saved(state)["timezone"]}
 
     def save(self, body):
         selection = settings(body)

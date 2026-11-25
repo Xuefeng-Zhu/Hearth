@@ -47,6 +47,14 @@ NO_FILE = re.compile(
     r"|\b(?:in (?:the |this )?chat only|no (?:files?|downloads?|attachments?))\b"
     r"|不要.{0,8}(?:生成|创建|制作|文件)", re.I,
 )
+READ_ATTACHED = re.compile(
+    r"\b(?:summari[sz]e|summary|key points|overview|extract|read|explain|review|compare|describe)\b"
+    r"|总结|總結|摘要|提取|解读|解讀|概述|描述", re.I,
+)
+OUTPUT_ATTACHED = re.compile(
+    rf"\b(?:as|into)\s+(?:an?\s+)?(?:{TYPES})\b|\bin\s+an?\s+(?:{TYPES})\b"
+    rf"|\bnew\s+(?:{FILE})\b|(?:输出|輸出|导出|匯出|保存|儲存)为", re.I,
+)
 
 
 def explicit_formats(prompt):
@@ -54,11 +62,13 @@ def explicit_formats(prompt):
             if re.search(rf"(?<![\w.-])(?:{pattern})\b", prompt, re.I)}
 
 
-def intent(prompt, has_recent_file=False):
+def intent(prompt, has_recent_file=False, *, has_attachments=False):
     if NO_FILE.search(prompt) or INFORMATIONAL.search(prompt):
         return None
     if prompt.strip().casefold() == DEMO.casefold():
         return "create"
+    if has_attachments and READ_ATTACHED.search(prompt) and not OUTPUT_ATTACHED.search(prompt):
+        return None
     if EDIT.search(prompt) and REFERENCE.search(prompt):
         if EDIT_TARGET.search(prompt) or (has_recent_file and not ASK.search(prompt)):
             return "update"

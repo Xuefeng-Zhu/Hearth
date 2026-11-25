@@ -1,5 +1,7 @@
 import json
+import tempfile
 from collections import deque
+from pathlib import Path
 
 from .gateway_tools import redact_text
 from .reply_text import clean_reply
@@ -115,14 +117,19 @@ class Threads:
     def delete(self, thread_id):
         index = self.load_index()
         self.require_side(thread_id, index)
-        removed = index.pop(thread_id)
-        self.save_index(index)
-        try:
-            self.path(thread_id).unlink(missing_ok=True)
-        except OSError:
-            index[thread_id] = removed
-            self.save_index(index)
-            raise
+        data = self.root / thread_id
+        with tempfile.TemporaryDirectory(dir=self.storage.root, ignore_cleanup_errors=True) as temporary:
+            staged = Path(temporary) / thread_id
+            if data.is_dir():
+                data.rename(staged)
+            try:
+                self.save_index({key: value for key, value in index.items() if key != thread_id})
+                self.path(thread_id).unlink(missing_ok=True)
+            except OSError:
+                if staged.exists():
+                    staged.rename(data)
+                self.save_index(index)
+                raise
 
     def context(self, thread_id):
         if thread_id != MAIN:

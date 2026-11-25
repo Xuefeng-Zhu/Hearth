@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from collections import deque
@@ -12,14 +13,14 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import artifacts, box, browserbase, inbox, memory_edits, recall, reminders, router, scheduler, search, timeline, voice, voice_call
+from . import artifacts, box, browserbase, inbox, memory_edits, recall, reminders, router, scheduler, search, timeline, uploads, voice, voice_call
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
 from .connectors import Gateway, read_config
 from .gateway_tools import redact_text, scrub
 from .memory_sync import MemorySync
-from .reminder_config import equal
+from .reminder_config import equal, saved
 from .storage import HearthError, ROOT, Storage, iso
 from .threads import MAIN, Threads, compact
 
@@ -28,6 +29,9 @@ STATIC = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/mobile.js": ("mobile.js", "text/javascript; charset=utf-8"),
     "/dom.js": ("dom.js", "text/javascript; charset=utf-8"),
+    "/icons.js": ("icons.js", "text/javascript; charset=utf-8"),
+    "/time.js": ("time.js", "text/javascript; charset=utf-8"),
+    "/attachments.js": ("attachments.js", "text/javascript; charset=utf-8"),
     "/reminders.js": ("reminders.js", "text/javascript; charset=utf-8"),
     "/reminder-action": ("reminder-action.html", "text/html; charset=utf-8"),
     "/reminder-action.js": ("reminder-action.js", "text/javascript; charset=utf-8"),
@@ -65,6 +69,7 @@ class Application:
         )
         self.operation = threading.RLock()
         self.artifacts = artifacts.Artifacts(storage, self.connections, self.operation)
+        self.uploads = uploads.Uploads(self)
         self.turn_lock = threading.Lock()
         self.turns = {}
         self.turn_activity = {}
@@ -104,7 +109,7 @@ class Application:
 
     def reload_agent(self, *, reset_brain=True):
         self.agent = Agent(self.storage, self.checkpoints, self.connections.active_config(), self.gateway,
-                           self.memory_index, self.artifacts)
+                           self.memory_index, self.artifacts, self.uploads)
         if reset_brain:
             self.reset_brain_status()
         self.connection_state = self.connections.report()
@@ -259,6 +264,7 @@ class Application:
             if not any(thread["id"] == thread_id for thread in threads):
                 thread_id = MAIN
             messages = self.threads.messages(thread_id)
+            message_uploads = self.uploads.for_messages(thread_id, messages)
         jobs = {job["id"]: job for job in state["jobs"]}
         actions = []
         for action in state["actions"].values():
@@ -277,6 +283,7 @@ class Application:
                     for thread in threads],
                 "messages": messages, "actions": actions,
                 "message_artifacts": artifacts.message_artifacts(state, thread_id),
+                "message_uploads": message_uploads, "timezone": saved(state)["timezone"],
                 "jobs": state["jobs"], "reminders": [reminders.public_item(item) for item in state["reminders"]],
                 "reminder_sending": sorted(sending),
                 "routing": state.get("routing", [])[-50:],
@@ -294,19 +301,21 @@ class Application:
         return [known.get(item["id"], item) for item in self.checkpoints.list()]
 
     def timeline_info(self):
+        with self.storage.lock():
+            zone = saved(self.storage.load())["timezone"]
         entries = timeline.entries(self.storage, self.threads, self.agent.can_undo)
         represented = {row["data"]["checkpoint"]["id"] for row in entries
                        if row.get("action_id") and row["data"].get("checkpoint")}
         try:
             checkpoints = self.timeline()
         except HearthError as error:
-            return {"entries": scrub(entries), "checkpoint_notice": str(error)}
+            return {"entries": scrub(entries), "checkpoint_notice": str(error), "timezone": zone}
         entries.extend(timeline.entry(
             "checkpoint", redact_text(item["comment"]), {**item, "thread_id": item.get("thread_id", ""),
                                                           "thread_title": item.get("thread_title", "Workspace")},
             id=f"checkpoint:{item['id']}", at=item["created_at"], data={"checkpoint": item},
         ) for item in checkpoints if item["id"] not in represented)
-        return {"entries": scrub(entries)}
+        return {"entries": scrub(entries), "timezone": zone}
 
     def call_status(self):
         provider = voice_call.PROVIDER
@@ -340,28 +349,32 @@ class Application:
         self.call_check = (connection_id, {"at": iso(), "status": "passed", "kind": "token"})
         return reply
 
-    def enqueue(self, thread_id, prompt, *, source=None, approval=None):
-        command = SIDE_COMMAND.fullmatch(prompt) if thread_id == MAIN and source is None and not approval else None
+    def enqueue(self, thread_id, prompt, *, source=None, approval=None, attachment_ids=None):
+        command = (SIDE_COMMAND.fullmatch(prompt)
+                   if thread_id == MAIN and source is None and not approval and not attachment_ids else None)
         if command:
             prompt = require_text(command[1], 4_000)
         with self.storage.lock():
             thread = self.threads.create() if command else self.threads.describe(thread_id)
+            attachments = self.uploads.validate(thread["id"], attachment_ids) if attachment_ids is not None else []
         thread_id = thread["id"]
         events = SimpleQueue()
-        events.put(("queued", {"thread": thread, "prompt": redact_text(prompt)}))
+        events.put(("queued", {"thread": thread, "prompt": redact_text(prompt),
+                               **({"attachments": attachments} if attachments else {})}))
         with self.turn_lock:
             pending = self.turns.get(thread_id)
+            queued = (prompt, events, source, approval, attachments)
             if pending is not None:
-                pending.append((prompt, events, source, approval))
+                pending.append(queued)
             else:
-                self.turns[thread_id] = deque([(prompt, events, source, approval)])
+                self.turns[thread_id] = deque([queued])
                 threading.Thread(target=self.run_turns, args=(thread_id,), daemon=True).start()
         return events
 
     def run_turns(self, thread_id):
         while True:
             with self.turn_lock:
-                prompt, events, source, approval = self.turns[thread_id][0]
+                prompt, events, source, approval, attachments = self.turns[thread_id][0]
             agent = self.agent
 
             def event(name, data):
@@ -394,7 +407,8 @@ class Application:
                 if approval:
                     agent.run_browse_approval(approval, thread_id, event)
                 else:
-                    agent.chat(prompt, event, thread_id, source=source)
+                    agent.chat(prompt, event, thread_id, source=source,
+                               **({"attachments": attachments} if attachments else {}))
             except HearthError as error:
                 event("error", {"message": str(error)})
             except Exception:
@@ -444,7 +458,11 @@ class Application:
                 if not message:
                     raise HearthError("That message no longer exists.")
                 thread = self.threads.describe(thread_id)
-                quote = compact(redact_text(message["content"]), 500)
+                text = message["content"]
+                if not text and message.get("attachment_ids"):
+                    names = [item["filename"] for item in self.uploads.for_messages(thread_id, [message]).values()]
+                    text = ", ".join(names)
+                quote = compact(redact_text(text), 500)
                 text = f"Shared from {thread['title']}\n\n> {quote}"
                 message = self.threads.append(MAIN, "user", text, shared_from=thread_id)
                 if self.agent.memory["include_chat"]:
@@ -541,7 +559,7 @@ class Handler(BaseHTTPRequestHandler):
                          "default-src 'self'; connect-src 'self' wss://*.livekit.cloud https://*.livekit.cloud; "
                          "frame-src 'self' https://browserbase.com https://*.browserbase.com "
                          "https://browserbase.live https://*.browserbase.live; "
-                         "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors "
+                         "img-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors "
                          + ("'self'" if inline_pdf else "'none'")
                          + ("; style-src 'unsafe-inline'; script-src 'none'" if email_preview else ""))
         if content_type == "text/event-stream":
@@ -623,12 +641,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.response_headers(200, "text/html; charset=utf-8", len(body), email_preview=True)
                 self.wfile.write(body)
             elif url.path == "/api/artifacts":
-                self.json(self.app.artifacts.list())
+                self.json(self.artifact_times(self.app.artifacts.list()))
+            elif url.path in {"/api/uploads/detail", "/api/uploads/file"}:
+                self.get_upload(url)
             elif url.path == "/api/artifacts/settings":
                 self.json(self.app.artifacts.info())
             elif url.path == "/api/artifacts/detail":
                 identity = parse_qs(url.query).get("id", [None])[0]
-                self.json(self.app.artifacts.detail(identity))
+                self.json(self.artifact_times(self.app.artifacts.detail(identity)))
             elif url.path == "/api/artifacts/file":
                 params = parse_qs(url.query)
                 identity = params.get("id", [None])[0]
@@ -684,6 +704,10 @@ class Handler(BaseHTTPRequestHandler):
             raise HearthError("Expected a JSON object.")
         return body
 
+    def artifact_times(self, result):
+        with self.app.storage.lock():
+            return {**result, "timezone": saved(self.app.storage.load())["timezone"]}
+
     def do_POST(self):
         origin = self.headers.get("Origin")
         if self.headers.get("Sec-Fetch-Site") not in (None, "none", "same-origin") or (
@@ -707,6 +731,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path.startswith("/api/artifacts/"):
             self.post_artifact()
+            return
+        if urlsplit(self.path).path in {"/api/uploads", "/api/uploads/box"}:
+            self.post_upload(urlsplit(self.path))
             return
         if self.path.startswith("/api/voice/call/"):
             self.post_call()
@@ -753,7 +780,10 @@ class Handler(BaseHTTPRequestHandler):
                 result, status = {"error": "A checkpoint is being restored."}, 409
             else:
                 if self.path == "/api/chat":
-                    stream = self.app.enqueue(body.get("thread_id", MAIN), require_text(body.get("message"), 4_000))
+                    identities = body.get("attachment_ids", [])
+                    prompt = body.get("message", "")
+                    prompt = "" if identities and isinstance(prompt, str) and not prompt.strip() else require_text(prompt, 4_000)
+                    stream = self.app.enqueue(body.get("thread_id", MAIN), prompt, attachment_ids=identities)
                 elif self.path == "/api/browse/approve" and body.keys() == {"id", "thread_id"}:
                     stream = self.app.enqueue(body["thread_id"], "", approval=require_text(body["id"], 40))
                 elif self.path == "/api/browse/settings":
@@ -788,6 +818,61 @@ class Handler(BaseHTTPRequestHandler):
             self.stream_chat(stream)
         else:
             self.json(result, status)
+
+    def post_upload(self, url):
+        try:
+            if self.app.restore and self.app.restore["status"] == "restoring":
+                raise uploads.UploadError("A checkpoint is being restored.", 409)
+            if url.path == "/api/uploads/box":
+                body = self.body()
+                result = self.app.uploads.save_box(body.get("thread_id"), body.get("id"))
+                self.json(result)
+            else:
+                thread_id = parse_qs(url.query).get("thread", [MAIN])[0]
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    length = 0
+                self.connection.settimeout(30)
+                result = self.app.uploads.stage(thread_id, self.rfile, length, self.headers.get("Content-Type", ""))
+                self.json(result, 201)
+        except uploads.UploadError as error:
+            self.json({"error": str(error)}, error.status)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+        except OSError:
+            self.json({"error": "Hearth could not save the attachment."}, 500)
+
+    def get_upload(self, url):
+        params = parse_qs(url.query)
+        thread_id = params.get("thread", [MAIN])[0]
+        identity = params.get("id", [""])[0]
+        try:
+            if url.path.endswith("/detail"):
+                self.json(self.app.uploads.detail(thread_id, identity))
+                return
+            row, directory = self.app.uploads.get(thread_id, identity)
+            mime = row["mime"]
+            thumbnail = params.get("thumbnail") == ["1"] and mime.startswith("image/")
+            inline = thumbnail or (params.get("inline") == ["1"]
+                                   and (mime.startswith(("image/", "audio/")) or row["format"] == "pdf"))
+            heif = inline and mime == "image/heic"
+            path = directory / ("thumbnail.jpg" if thumbnail else "preview.jpg" if heif else "file")
+            with path.open("rb") as stream:
+                if thumbnail or heif:
+                    mime = "image/jpeg"
+                mode = "inline" if inline else "attachment"
+                name = quote(row["filename"], safe="")
+                self.response_headers(200, mime, os.fstat(stream.fileno()).st_size,
+                                      inline_pdf=inline and row["format"] == "pdf",
+                                      disposition=f"{mode}; filename*=UTF-8''{name}")
+                shutil.copyfileobj(stream, self.wfile)
+        except uploads.UploadError as error:
+            self.json({"error": str(error)}, error.status)
+        except FileNotFoundError:
+            self.json({"error": "Attachment not found in this chat."}, 404)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def post_reminders(self):
         try:
