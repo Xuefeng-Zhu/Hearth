@@ -1,5 +1,12 @@
 # Hearth status
 
+## Run 23 · Pages
+
+- Pages is deployed on the private Hearth Sprite. Chat builds one self-contained HTML file, and follow-up edits use the latest page in that thread. Pages shows phone and desktop previews, version history, Timeline Undo, HTML download, and a manual Box save.
+- Live Kimi K3.1 Pro builds succeeded for **Seattle trip itinerary** and **周日家庭野餐**. The Seattle header edit saved v2. The DeepSeek V4 Pro coding fallback and manual Box upload passed fixture tests. [Run 23 verification](QA-REPORT.md#run-23--pages)
+- Hearth keeps the workspace behind Sprite sign-in. The dedicated **hearth-pages** Sprite serves approved read-only snapshots by token. The live check verified anonymous access after approval, revocation, and isolation from private routes.
+- Chromium verified the Pages flow at 390 and 1440 px in both themes and captured all 16 requested states. [Run 23 captures](QA-REPORT.md#verification)
+
 ## Run 21 · Chat attachments and mobile polish
 
 - The private Hearth Sprite serves the attachment release and reports `{"ok": true, "checkpoints": "sprite"}`. Six served JavaScript and CSS assets matched the release. Chat accepts up to 10 files per message and 20 MiB per file. Attachments stay with the thread. The **Save to Box** card action uses the binary upload to the workspace’s **Attachments** folder.

@@ -1,5 +1,40 @@
 # Hearth QA for Hacksgiving
 
+## Run 23 · Pages
+
+November 25, 2026 · Private Hearth Sprite
+
+### Demo script
+
+1. In a demo workspace, choose **Mock** in **Settings → Brain**. In Chat, send **Make a page for our Thanksgiving dinner.** Open the **Thanksgiving dinner** page card. The page uses the demo guest list and menu.
+2. Switch between **Phone** and **Desktop** to show the 390 px and 1440 px previews. Close the preview and send **Make the header green.** Open the new card and compare v2 with v1 in **Version history**.
+3. Open **Pages** from the sidebar or mobile menu, immediately after **Artifacts**. Open the page, use **Open in new tab**, then **Download .html**. **Save HTML to Box** saves the selected version to the **Pages** folder when Box is connected.
+4. With v1 selected, click **Share link**. Show the approval card, then approve. Open the share URL in a signed-out window. Revoke it from the page and reload the public URL to show the 404.
+5. Select v1 and click **Restore v1**. Hearth adds v3 with the original contents. Open **Timeline** and undo the restore to return to v2.
+
+### Verification
+
+- Chromium checked all four viewport and theme combinations, including navigation order, dialog focus, page cards, frame isolation, preview widths, sharing, HTML download, restore, and Timeline Undo. There were no browser errors. The Thanksgiving page had no horizontal overflow and its lowest sampled text contrast was **7.25:1** in light mode and **9.50:1** in dark mode. The Browser plugin was unavailable, so the captures use Playwright Chromium.
+- The deployed Hugging Face brain used **Kimi-K3.1-Pro** to build **Seattle trip itinerary** in **51.39 s** and **周日家庭野餐** in **47.39 s**. A follow-up in the Seattle thread changed the header to green and saved v2 in **20.63 s**. Both builds kept the supplied details. The **DeepSeek-V4-Pro-0813** code fallback passed the simulated provider failure. [Seattle v2](https://your-sprite.sprites.app/pages/6886c729b37f487ea925fa82a44169ca/v/2) · [周日家庭野餐](https://your-sprite.sprites.app/pages/b51dcf93d714485e82a37804702a8603)
+- Chromium rendered the three HTML documents pulled from the Sprite at both widths and in both themes. All sampled text passed WCAG AA contrast, with a minimum of **6.14:1** across the live examples and no horizontal overflow. The Seattle header changed from dark teal to green in both themes.
+- The authenticated private Sprite returned `{"ok": true, "checkpoints": "sprite"}`. Anonymous access to its page returned **302** to Sprite sign-in. An approved Seattle v1 snapshot opened without auth on the separate Pages origin and matched the private v1 byte for byte. The public origin returned **404** for the workspace, API, private page paths, and the revoked link. Sharing pins one version per approval.
+- **138 Python tests**, **7 Node tests**, JavaScript syntax checks, and shell syntax checks passed. The new tests cover sanitized HTML and CSS, the CSP, attachment-only images, a single clarification, mock builds, version conflicts and Undo, and create/revoke behavior. The Box upload was verified with a connector fixture. Pages use styled thumbnails. Generated documents use inline CSS and native HTML controls. The sanitizer removes JavaScript.
+
+| Capture | 390 px light | 390 px dark | 1440 px light | 1440 px dark |
+| --- | --- | --- | --- | --- |
+| Pages list | [Light](/workspace/tmp/hearth-qa/run23-pages-list-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-pages-list-390-dark.png) | [Light](/workspace/tmp/hearth-qa/run23-pages-list-1440-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-pages-list-1440-dark.png) |
+| Phone preview | [Light](/workspace/tmp/hearth-qa/run23-preview-phone-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-preview-phone-390-dark.png) | [Light](/workspace/tmp/hearth-qa/run23-preview-phone-1440-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-preview-phone-1440-dark.png) |
+| Desktop preview | [Light](/workspace/tmp/hearth-qa/run23-preview-desktop-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-preview-desktop-390-dark.png) | [Light](/workspace/tmp/hearth-qa/run23-preview-desktop-1440-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-preview-desktop-1440-dark.png) |
+| Chat card | [Light](/workspace/tmp/hearth-qa/run23-chat-card-390-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-chat-card-390-dark.png) | [Light](/workspace/tmp/hearth-qa/run23-chat-card-1440-light.png) | [Dark](/workspace/tmp/hearth-qa/run23-chat-card-1440-dark.png) |
+
+Run the browser regression from the repository root with Playwright Chromium installed.
+
+```sh
+PYTHONPATH=. python tests/run23-browser.py --output /tmp/hearth-shots
+```
+
+`scripts/deploy-pages-share.sh` installs the share-only service and its dedicated publishing key. `scripts/deploy.sh` installs Hearth on the private Sprite. Public snapshots live on the share origin, outside Hearth workspace checkpoints.
+
 ## Run 22 · Glanceable Home
 
 November 25, 2026 · Private Hearth Sprite
