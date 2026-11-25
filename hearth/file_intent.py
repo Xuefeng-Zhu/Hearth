@@ -7,7 +7,7 @@ TYPE_PATTERNS = {
     "pdf": r"pdf",
     "docx": r"docx|word\s+(?:doc(?:ument)?|file)|doc(?:ument)?",
     "xlsx": r"xlsx|excel(?:\s+(?:file|workbook|sheet))?|spreadsheets?|workbooks?|sheets?",
-    "pptx": r"pptx?|powerpoint|presentations?|slide\s*decks?|decks?",
+    "pptx": r"pptx?|powerpoint|presentations?|slides?(?:\s*decks?)?|decks?",
 }
 TYPES = "|".join(f"(?:{pattern})" for pattern in TYPE_PATTERNS.values())
 FILE = rf"(?:{TYPES}|files?|artifacts?)"
@@ -47,6 +47,11 @@ NO_FILE = re.compile(
     r"|\b(?:in (?:the |this )?chat only|no (?:files?|downloads?|attachments?))\b"
     r"|不要.{0,8}(?:生成|创建|制作|文件)", re.I,
 )
+
+
+def explicit_formats(prompt):
+    return {fmt for fmt, pattern in TYPE_PATTERNS.items()
+            if re.search(rf"(?<![\w.-])(?:{pattern})\b", prompt, re.I)}
 
 
 def intent(prompt, has_recent_file=False):

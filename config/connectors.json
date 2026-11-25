@@ -2,11 +2,17 @@
   "brain": {"provider": "auto", "model": ""},
   "brain_pool": [],
   "brain_tags": {
+    "huggingface:moonshotai/Kimi-K3.1-Pro:fastest": {
+      "speed": "balanced", "cost": "medium", "tools": "high", "context": 1000000, "multilingual": true
+    },
+    "huggingface:deepseek-ai/DeepSeek-V4.1-Flash:fastest": {
+      "speed": "fast", "cost": "low", "tools": "high", "context": 1000000, "multilingual": true
+    },
+    "huggingface:deepseek-ai/DeepSeek-V4-Pro-0813:fastest": {
+      "speed": "balanced", "cost": "medium", "tools": "high", "context": 1000000, "multilingual": true
+    },
     "huggingface:Qwen/Qwen3-Coder-Next:fastest": {
       "speed": "balanced", "cost": "medium", "tools": "high", "context": 262144, "multilingual": true
-    },
-    "huggingface:meta-llama/Llama-3.1-8B-Instruct:fastest": {
-      "speed": "fast", "cost": "low", "tools": "medium", "context": 131072, "multilingual": true
     }
   },
   "llm": [
@@ -16,7 +22,7 @@
     {"provider": "anthropic", "connection_id": "", "model": "claude-sonnet-4-6"},
     {"provider": "gemini", "connection_id": "", "model": "gemini-3.5-flash-lite"},
     {"provider": "ollama", "connection_id": "", "model": "kimi-k3"},
-    {"provider": "huggingface", "connection_id": "", "model": "Qwen/Qwen3-Coder-Next:fastest"},
+    {"provider": "huggingface", "connection_id": "", "model": "moonshotai/Kimi-K3.1-Pro:fastest"},
     {"provider": "digitalocean", "connection_id": "", "model": "openai-gpt-oss-120b"},
     {"provider": "fireworks", "connection_id": "", "model": "accounts/fireworks/models/muse-spark-open"},
     {"provider": "nscale", "connection_id": "", "model": ""},

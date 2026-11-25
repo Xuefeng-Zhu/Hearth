@@ -20,7 +20,8 @@ NON_CHAT_MODEL = re.compile(r"(?:^|[/_.:-])(?:embeddings?|rerank(?:er)?|whisper|
 
 
 def valid_model(value):
-    return isinstance(value, str) and bool(MODEL.fullmatch(value)) and redact_text(value) == value
+    return (isinstance(value, str) and not router.retired_model(value)
+            and bool(MODEL.fullmatch(value)) and redact_text(value) == value)
 
 
 def validate_pool(rows):
@@ -231,7 +232,14 @@ class Connections:
                 config["brain"] = {"provider": provider, "model": ""}
         if "brain_pool" in data:
             try:
-                config["brain_pool"] = validate_pool(data["brain_pool"])
+                rows = data["brain_pool"]
+                if isinstance(rows, list):
+                    retired = [row for row in rows if isinstance(row, dict) and router.retired_model(row.get("model"))]
+                    rows = [row for row in rows if row not in retired]
+                    if retired and all(row.get("provider") == "huggingface" and row.get("model") == router.QWEN
+                                       for row in rows if isinstance(row, dict)):
+                        rows = []
+                config["brain_pool"] = validate_pool(rows)
             except HearthError:
                 pass
         for key, validate in (("memory", recall.settings), ("search", search.settings), ("artifacts", box.settings)):
@@ -329,9 +337,10 @@ class Connections:
             })
         defaults = self.config.get("brain_tags", {})
         pool = self.config.get("brain_pool", [])
-        default_pool = [{"provider": provider, "model": entry["model"]}
-                        for provider, entry in entries.items() if provider in MODEL_PATHS
-                        and provider in self.selected and entry["model"]]
+        available = {provider: entry for provider, entry in entries.items() if provider in MODEL_PATHS
+                     and provider in self.selected and entry["model"]}
+        default_pool = [{key: entry[key] for key in ("provider", "model")}
+                        for entry in router.default_models(available, defaults)]
 
         def describe(rows):
             return [{**row, "tags": router.model_tags(row, defaults)} for row in rows]

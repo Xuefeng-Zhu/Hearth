@@ -371,17 +371,17 @@ class ConnectionsTest(unittest.TestCase):
         request("/api/brain/settings", {"provider": "mock", "model": ""})
         self.assertEqual([entry["provider"] for entry in self.app.agent.models], ["mock"])
         request("/api/brain/settings", {"provider": "auto", "model": ""})
-        self.assertEqual(request("/api/state")["model"], "meta")
+        self.assertEqual(request("/api/state")["model"], "huggingface")
 
         self.gateway.failed_models.clear()
         coder = "Qwen/Qwen3-Coder-Next:fastest"
-        fast = "meta-llama/Llama-3.1-8B-Instruct:fastest"
+        fast = "deepseek-ai/DeepSeek-V4.1-Flash:fastest"
         pool = [{"provider": "huggingface", "model": model} for model in (coder, fast)]
         smart = {"provider": "smart", "model": "", "pool": pool}
         before = self.gateway.completions.copy()
         preview = request("/api/brain/route", {**smart, "prompt": "Remind me to call home."})
-        self.assertEqual((preview["test"]["class"], preview["test"]["order"][0]["model"]), ("tool", coder))
-        self.assertEqual(len(preview["preview"]), 6)
+        self.assertEqual((preview["test"]["class"], preview["test"]["order"][0]["model"]), ("tool", fast))
+        self.assertEqual(len(preview["preview"]), 8)
         self.assertEqual(self.gateway.completions, before)
         with self.assertRaises(HTTPError) as error:
             request("/api/brain/settings", {**smart, "pool": [pool[0], pool[0]]})

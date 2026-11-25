@@ -207,6 +207,28 @@ class HearthTest(unittest.TestCase):
         self.assertEqual("".join(emitted), expected)
         self.assertEqual(clean_reply("".join(chunks)), expected)
 
+    def test_textual_tool_dialects_preserve_arguments_without_exposing_calls(self):
+        from hearth.reply_text import clean_reply, text_tool_calls
+
+        args = '{"path":"topics/round-two.md","content":"Line 1\\nLine 2"}'
+        envelope = '{"name":"memory_write","arguments":' + args + '}'
+        for raw in (
+            "<tool_call>" + envelope + "</tool_call>",
+            "memory_write>" + args,
+            "<|python_tag|>" + envelope,
+            "<|python_tag|>memory_write>" + args,
+            "```json\n" + envelope + "\n```",
+            '{"tool_calls":[{"type":"function","function":' + envelope + '}]}',
+        ):
+            with self.subTest(raw=raw):
+                prose, calls, malformed = text_tool_calls(raw)
+                self.assertEqual(prose, "")
+                self.assertFalse(malformed)
+                self.assertEqual(calls[0]["function"]["name"], "memory_write")
+                self.assertEqual(json.loads(calls[0]["function"]["arguments"])["content"], "Line 1\nLine 2")
+                self.assertEqual(clean_reply(raw), "")
+        self.assertEqual(text_tool_calls("artifact_create>{")[::2], ("", True))
+
     def test_mock_reply_stream_sanitizes_note_excerpt(self):
         self.storage.write("topics/round-two.md", "Start </function> here. <tool_call>internal work</tool_call> Done.")
         events = self.chat("Read topics/round-two.md")

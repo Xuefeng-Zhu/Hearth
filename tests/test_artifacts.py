@@ -396,6 +396,41 @@ class ArtifactTest(unittest.TestCase):
         self.assertTrue(all(item["sync"] == "synced" for item in items))
         self.assertEqual(len(self.request("/api/state")[1]["message_artifacts"][done["id"]]), 2)
 
+    def test_seattle_slide_retries_leaked_legacy_call_on_kimi_and_uses_real_result(self):
+        from hearth import router
+
+        prompt = "Can you create a slide for Seattle trip"
+        # The reported bubble exposed `artifact_create>{"format": "markdown", ... "path": ...}`
+        # with literal escaped newlines and a fabricated Markdown save.
+        leaked = (
+            'artifact_create>{"format": "markdown", "content": "# Seattle Trip\\n- Space Needle", '
+            '"path": "Seattle Trip.md"}\nI saved the Markdown artifact. I can export to PDF or PNG.'
+        )
+        calls = []
+        agent = self.app.agent
+        agent.brain_mode = "huggingface"
+        agent.models = [{"provider": "huggingface", "model": name, "tags": {"tools": "high"}}
+                        for name in (router.KIMI, router.FLASH)]
+
+        def completion(model, messages, tools, emit):
+            calls.append(model["model"])
+            if len(calls) == 1:
+                for chunk in (leaked[:13], leaked[13:25], leaked[25:]):
+                    emit(chunk)
+                return {"role": "assistant", "content": leaked}
+            if messages[-1]["role"] == "user":
+                self.assertIn("structured tool calls", messages[0]["content"])
+                return tool_call("create_presentation", {"title": "Seattle trip", "slides": [
+                    {"title": "Seattle trip", "bullets": ["Pike Place Market"]}]})
+            return {"role": "assistant", "content": "I also saved a Markdown and PNG version."}
+
+        with patch.object(agent.tools.gateway, "completion", side_effect=completion):
+            _, events = self.request("/api/chat", {"message": prompt})
+        self.assertEqual(calls, [router.KIMI] * 3)
+        self.assertEqual(events[-1]["message"]["artifacts"][0]["filename"], "Seattle trip.pptx")
+        self.assertNotRegex(str(events), r"artifact_create|Markdown save|export to PDF or PNG|PNG version")
+        self.assertEqual(len(events[-1]["message"]["artifacts"]), 1)
+
     def test_agent_gates_creation_and_updates_and_links_both_replies(self):
         agent = self.app.agent
         agent.models = [{"provider": "test-brain", "model": "test"}]
