@@ -102,6 +102,8 @@ def connector_uses(provider):
         return ["Artifacts", "Tools"]
     if provider == "vocalbridge":
         return ["Voice call"]
+    if provider == "agentmail":
+        return ["Reminders", "Inbox", "Tools"]
     uses = []
     if provider in MODEL_PATHS:
         uses.append("Brain")

@@ -10,19 +10,23 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, urlsplit
 
-from . import artifacts, box, memory_edits, recall, router, search, timeline, voice, voice_call
+from . import artifacts, box, inbox, memory_edits, recall, reminders, router, scheduler, search, timeline, voice, voice_call
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
 from .connectors import Gateway, read_config
 from .gateway_tools import redact_text, scrub
 from .memory_sync import MemorySync
+from .reminder_config import equal
 from .storage import HearthError, ROOT, Storage, iso
 from .threads import MAIN, Threads, compact
 
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/reminders.js": ("reminders.js", "text/javascript; charset=utf-8"),
+    "/reminder-action": ("reminder-action.html", "text/html; charset=utf-8"),
+    "/reminder-action.js": ("reminder-action.js", "text/javascript; charset=utf-8"),
     "/avatar.js": ("avatar.js", "text/javascript; charset=utf-8"),
     "/avatar-state.js": ("avatar-state.js", "text/javascript; charset=utf-8"),
     "/voice.js": ("voice.js", "text/javascript; charset=utf-8"),
@@ -66,6 +70,31 @@ class Application:
         self.memory_sync = MemorySync(self)
         self.memory_index.on_change = self.memory_sync.request
         self.artifacts.on_memory_change = self.memory_sync.request
+        self.reminders = reminders.Reminders(self)
+        self.inbox = inbox.Inbox(self)
+
+    def scheduler_tick(self):
+        fired = scheduler.run_due(self.storage, tick=True)
+        self.reminders.deliver(wait=True)
+        polled = self.inbox.poll(force=True)
+        info = self.reminders.info()
+        return {"fired": fired, "processed": polled, "last_tick": info["last_tick"], "next_due": info["next_due"]}
+
+    def background_reminders(self):
+        previous = None
+        while True:
+            now = time.time()
+            woke = previous is None or now - previous > 20
+            try:
+                if not self.restore or self.restore["status"] != "restoring":
+                    scheduler.run_due(self.storage, tick=woke)
+                    if woke:
+                        threading.Thread(target=self.inbox.poll, kwargs={"force": True}, daemon=True).start()
+                    self.reminders.deliver()
+            except (HearthError, OSError):
+                pass
+            previous = time.time()
+            time.sleep(2)
 
     def reload_agent(self, *, reset_brain=True):
         self.agent = Agent(self.storage, self.checkpoints, self.connections.active_config(), self.gateway,
@@ -223,13 +252,22 @@ class Application:
             if not any(thread["id"] == thread_id for thread in threads):
                 thread_id = MAIN
             messages = self.threads.messages(thread_id)
+        jobs = {job["id"]: job for job in state["jobs"]}
+        actions = []
+        for action in state["actions"].values():
+            if (job := jobs.get(action.get("job", {}).get("id"))) is not None:
+                action = {**action, "job": {**job, "cancelable": reminders.can_cancel(state, job)}}
+            actions.append(action)
         return {"thread_id": thread_id, "threads": [
                     {**thread, "busy": thread["id"] in active,
                      **({"activity": active[thread["id"]]} if active.get(thread["id"]) else {})}
                     for thread in threads],
-                "messages": messages, "actions": list(state["actions"].values()),
+                "messages": messages, "actions": actions,
                 "message_artifacts": artifacts.message_artifacts(state, thread_id),
-                "jobs": state["jobs"], "reminders": state["reminders"], "routing": state.get("routing", [])[-50:],
+                "jobs": state["jobs"], "reminders": [reminders.public_item(item) for item in state["reminders"]],
+                "reminder_sending": list({item["thread_id"] for item in scheduler.email_records(state)
+                                          if item.get("delivery", {}).get("email", {}).get("sending")}),
+                "routing": state.get("routing", [])[-50:],
                 "whisper_available": bool(self.memory_index.hf_entry(self.agent.config)),
                 "voice_call_available": voice_call.PROVIDER in self.connections.selected,
                 "restore": self.restore,
@@ -398,6 +436,8 @@ class Application:
     def undo_action(self, action_id):
         with self.storage.lock():
             action = self.storage.load()["actions"].get(action_id)
+        if action and action["kind"] == "reminder":
+            return self.reminders.cancel(action["job"]["id"]), 200
         if action and action.get("memory_change"):
             return self.replay_memory(action_id), 200
         self.start_restore(action_id)
@@ -460,7 +500,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-    def response_headers(self, status, content_type, length=None):
+    def response_headers(self, status, content_type, length=None, *, email_preview=False):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         if length is not None:
@@ -470,7 +510,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy",
                          "default-src 'self'; connect-src 'self' wss://*.livekit.cloud https://*.livekit.cloud; "
-                         "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+                         "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+                         + ("; style-src 'unsafe-inline'; script-src 'none'" if email_preview else ""))
         if content_type == "text/event-stream":
             self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
@@ -518,6 +559,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.json(self.app.memory_info())
             elif url.path == "/api/search/settings":
                 self.json(self.app.search_info())
+            elif url.path == "/api/reminders/settings":
+                self.json(self.app.reminders.info())
+            elif url.path == "/api/reminders":
+                self.json(self.app.reminders.list())
+            elif url.path == "/api/inbox":
+                self.json(self.app.inbox.list())
+            elif url.path == "/api/reminders/outbox":
+                identity = parse_qs(url.query).get("id", [""])[0]
+                email = self.app.reminders.outbox(identity)
+                body = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
+                        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                        '<title>Hearth reminder email</title></head><body style="margin:0">'
+                        + email["html"] + "</body></html>").encode("utf-8")
+                self.response_headers(200, "text/html; charset=utf-8", len(body), email_preview=True)
+                self.wfile.write(body)
             elif url.path == "/api/artifacts":
                 self.json(self.app.artifacts.list())
             elif url.path == "/api/artifacts/settings":
@@ -564,6 +620,20 @@ class Handler(BaseHTTPRequestHandler):
         return body
 
     def do_POST(self):
+        if self.path == "/api/scheduler/tick":
+            if not equal(self.headers.get("X-Hearth-Tick-Token"), self.app.reminders.tick_token):
+                self.json({"error": "Scheduler token required."}, 401)
+            elif self.app.restore and self.app.restore["status"] == "restoring":
+                self.json({"error": "A checkpoint is being restored."}, 409)
+            else:
+                try:
+                    self.json(self.app.scheduler_tick())
+                except (HearthError, OSError):
+                    self.json({"error": "Hearth could not run the scheduler tick."}, 500)
+            return
+        if self.path.startswith(("/api/reminders/", "/api/inbox/")):
+            self.post_reminders()
+            return
         if self.path.startswith("/api/artifacts/"):
             self.post_artifact()
             return
@@ -634,6 +704,49 @@ class Handler(BaseHTTPRequestHandler):
             self.stream_chat(stream)
         else:
             self.json(result, status)
+
+    def post_reminders(self):
+        try:
+            origin = self.headers.get("Origin")
+            if self.headers.get("Sec-Fetch-Site") not in (None, "none", "same-origin") or (
+                origin and not self.same_origin(origin)
+            ):
+                raise HearthError("Send this request from Hearth.")
+            body = self.body()
+            if self.app.restore and self.app.restore["status"] == "restoring":
+                self.json({"error": "A checkpoint is being restored."}, 409)
+                return
+            operation = self.path.rsplit("/", 1)[-1]
+            if self.path.startswith("/api/inbox/"):
+                if operation == "poll" and not body:
+                    result = {"processed": self.app.inbox.poll()}
+                elif operation in {"accept", "edit", "dismiss", "undo"}:
+                    result = self.app.inbox.update(operation, body)
+                else:
+                    raise HearthError("Invalid inbox request.")
+            elif operation == "settings":
+                result = self.app.reminders.save(body)
+            elif operation == "test":
+                result = self.app.reminders.test(body.get("channel"))
+            elif operation in ("inspect", "action") and body.keys() == {"token"}:
+                result = self.app.reminders.use_token(body["token"], apply=operation == "action")
+            elif operation == "cancel":
+                result = self.app.reminders.cancel(body.get("id"))
+            elif operation == "create":
+                allowed = {"message", "at", "cron", "note", "channel", "urgent"}
+                if "message" not in body or not body.keys() <= allowed:
+                    raise HearthError("Enter a reminder title and a time.")
+                with self.app.storage.lock():
+                    state = self.app.storage.load()
+                    result = scheduler.add_job(state, **body)
+                    self.app.storage.save(state)
+            else:
+                raise HearthError("Invalid reminder request.")
+            self.json(result)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+        except OSError:
+            self.json({"error": "Hearth could not update workspace data."}, 500)
 
     def post_artifact(self):
         operation = self.path.removeprefix("/api/artifacts/")
@@ -914,6 +1027,7 @@ def main():
     app = Application(storage, checkpoints, read_config(ROOT / "config/connectors.json"), config_path=path)
     app.scan_connections(sync_memory=True)
     with HTTPServer((args.host, args.port), app) as server:
+        threading.Thread(target=app.background_reminders, daemon=True).start()
         server.serve_forever()
 
 

@@ -2,6 +2,8 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 
+from .gateway_tools import redact_text
+from .reminder_config import CHANNELS, saved
 from .storage import HearthError, Storage, iso, new_id
 from .threads import MAIN_ORIGIN
 
@@ -49,7 +51,7 @@ def next_cron(expression, now):
     raise HearthError("That cron expression has no upcoming occurrence.")
 
 
-def add_job(state, message, clock=None, *, at=None, cron=None, origin=None):
+def add_job(state, message, clock=None, *, at=None, cron=None, origin=None, channel=None, urgent=False, note="", identity=None):
     now = clock or datetime.now(timezone.utc)
     if not isinstance(message, str) or not message.strip() or len(message) > 800:
         raise HearthError("Provide a reminder of 1–800 characters.")
@@ -67,28 +69,77 @@ def add_job(state, message, clock=None, *, at=None, cron=None, origin=None):
             due = due.astimezone(timezone.utc)
         except (TypeError, ValueError):
             raise HearthError("Use a future ISO date with a time zone.") from None
-    job = {"id": new_id(), "message": message.strip(), "next_at": iso(due), "cron": cron, "status": "scheduled",
-           **(origin or MAIN_ORIGIN)}
+    channel = saved(state)["channel"] if channel is None else channel
+    if not isinstance(channel, str) or channel not in CHANNELS or type(urgent) is not bool:
+        raise HearthError("Choose In app, Email, or Both and a valid urgency.")
+    if not isinstance(note, str) or len(note) > 4_000:
+        raise HearthError("Provide a note of at most 4,000 characters.")
+    job = {"id": identity or new_id(), "message": redact_text(message.strip()), "note": redact_text(note.strip()),
+           "next_at": iso(due), "next_fire_at": iso(due), "created_at": iso(now), "cron": cron, "status": "scheduled",
+           "channel": channel, "urgent": urgent, **(origin or MAIN_ORIGIN)}
     state["jobs"].append(job)
+    next_due(state)
     return job
 
 
-def run_due(storage, clock=None):
+def email_records(state):
+    return state["reminders"] + state.get("reminder_tests", [])
+
+
+def pending_occurrences(state, job):
+    return [item for item in state["reminders"] if item.get("job_id") == job["id"]
+            and (not job["cron"] or any(info.get("status") == "queued" for info in item.get("delivery", {}).values()))]
+
+
+def can_cancel(state, job):
+    occurrences = pending_occurrences(state, job)
+    active = job["status"] == "scheduled" or (job["status"] == "complete" and bool(occurrences))
+    return active and all(
+        not any(info.get("uncertain") or info.get("sending") or (info["status"] == "sent" and not job["cron"])
+                for info in item.get("delivery", {"app": {"status": "sent"}}).values())
+        for item in occurrences)
+
+
+def next_due(state):
+    times = [job.get("next_fire_at", job["next_at"]) for job in state["jobs"] if job["status"] == "scheduled"]
+    times.extend(email["next_at"] for item in email_records(state)
+                 if (email := item.get("delivery", {}).get("email")) and email["status"] == "queued")
+    state["next_fire_at"] = min(times, default=None)
+    return state["next_fire_at"]
+
+
+def occurrence(job, now, *, test=False):
+    due = job["next_at"]
+    late = max(0, int((now - datetime.fromisoformat(due)).total_seconds() // 60))
+    delivery = {name: {"status": "sent", "at": iso(now)} if name == "app" else
+                {"status": "queued", "next_at": iso(now), "attempts": 0}
+                for name in CHANNELS[job.get("channel", "app")]}
+    return {"id": new_id(), "job_id": job["id"], "message": job["message"], "note": job.get("note", ""),
+            "channel": job.get("channel", "app"), "urgent": job.get("urgent", False), "test": test,
+            "scheduled_at": due, "delivered_at": iso(now), "late_minutes": late, "delivery": delivery,
+            **{key: job.get(key, default) for key, default in MAIN_ORIGIN.items()}}
+
+
+def run_due(storage, clock=None, *, tick=False):
     now = clock or datetime.now(timezone.utc)
     with storage.lock():
         state = storage.load()
         due = [job for job in state["jobs"] if job["status"] == "scheduled"
-               and datetime.fromisoformat(job["next_at"]) <= now]
+               and datetime.fromisoformat(job.get("next_fire_at", job["next_at"])) <= now]
         for job in due:
-            state["reminders"].append({
-                "id": new_id(), "message": job["message"], "scheduled_at": job["next_at"], "delivered_at": iso(now),
-                **{key: job.get(key, default) for key, default in MAIN_ORIGIN.items()},
-            })
-            if job["cron"]:
-                job["next_at"] = iso(next_cron(job["cron"], now))
+            state["reminders"].append(occurrence(job, now))
+            if job.get("snoozed_at"):
+                job.pop("snoozed_at")
+            if job.get("cron"):
+                job["next_at"] = job["next_fire_at"] = iso(next_cron(job["cron"], now))
             else:
                 job["status"] = "complete"
-        if due:
+                job["next_fire_at"] = None
+        old = state.get("next_fire_at")
+        new = next_due(state)
+        if tick:
+            state["last_tick"] = iso(now)
+        if due or old != new or tick:
             storage.save(state)
         return len(due)
 

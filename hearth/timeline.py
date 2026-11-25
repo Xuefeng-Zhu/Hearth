@@ -3,6 +3,7 @@ from contextlib import closing
 
 from .connections import catalog_entry
 from .gateway_tools import scrub
+from .scheduler import can_cancel, email_records
 from .storage import iso, new_id
 from .threads import MAIN_ORIGIN, compact
 
@@ -105,26 +106,40 @@ def entries(storage, threads, can_undo):
         thread_list = threads.list()
         titles = {thread["id"]: thread["title"] for thread in thread_list}
         rows = [*activity, *chat_entries(threads, thread_list, recall_messages)]
+        jobs = {job["id"]: job for job in state["jobs"]}
         rows.extend(action_entry(action, can_undo) for action in state["actions"].values())
         scheduled = {row["data"]["job"]["id"]: row for row in rows if row["data"].get("job")}
-        for job in state["jobs"]:
-            if job["status"] != "scheduled":
-                continue
+        for job in jobs.values():
             original = scheduled.get(job["id"])
             if original:
-                if job["next_at"] != original["data"]["job"]["next_at"]:
-                    original["data"]["next_due"] = job["next_at"]
-            else:
+                original["undoable"] = can_cancel(state, job)
+                original["data"]["job"] = job
+                original["data"]["next_due"] = job.get("next_fire_at", job["next_at"])
+            elif job["status"] == "scheduled":
                 rows.append(entry("reminder", f"Reminder scheduled · {job['message']}", job,
                                   id=f"job:{job['id']}", at=job.get("created_at"), data={"job": job}))
+        for row in rows:
+            if row["kind"] == "inbox" and row["title"].startswith("Email accepted · "):
+                card = state.get("inbox", {}).get(row["data"].get("inbox_id"))
+                if card:
+                    row.update(action_id=card["id"], undoable=card["status"] == "accepted",
+                               undone=card["status"] == "undone", undone_at=card.get("undone_at"))
         for index, route in enumerate(state.get("routing", [])):
             first = next(iter(route["order"]), {})
             rows.append(entry("routing", f"Routed to {first.get('name', 'a model')} · {route['label']}",
                               route, id=f"routing:{route.get('id') or str(route['at']) + ':' + str(index)}",
                               at=route["at"], model=first.get("model"), provider=first.get("provider"), data=route))
-        rows.extend(entry("reminder", f"Reminder delivered · {item['message']}", item,
-                          id=f"reminder:{item['id']}", at=item["delivered_at"], data=item)
-                    for item in state["reminders"])
+        for item in email_records(state):
+            labels = {"app": "In app", "email": "Email"}
+            delivery = {channel: {key: info[key] for key in ("status", "reason", "at", "next_at") if key in info}
+                        for channel, info in item.get("delivery", {"app": {"status": "sent"}}).items()}
+            status = " · ".join(f"{labels.get(channel, channel)} {info['status']}" for channel, info in delivery.items())
+            late = f" · Late by {item['late_minutes']}m" if item.get("late_minutes") else ""
+            data = {**item, "delivery": delivery, "delivery_summary": status}
+            title = "Reminder delivered" if delivery.get("app", {}).get("status") == "sent" else "Reminder"
+            rows.append(entry("reminder", f"{title} · {item['message']} · {status}{late}", item,
+                              id=f"reminder:{item['id']}", at=item["delivered_at"], data=data,
+                              error=any(info["status"] == "failed" for info in delivery.values())))
     return [{**row, "thread_title": titles.get(row["thread_id"], row["thread_title"])} for row in rows]
 
 
