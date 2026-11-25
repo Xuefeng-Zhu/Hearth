@@ -11,6 +11,7 @@ from .artifacts import format_text
 from .connections import catalog_entry, with_model
 from .connectors import ConnectorError, Integrations, model_error
 from .gateway_tools import METHODS, gateway_read, gateway_result, redact_text, validate_request
+from .reply_text import ReplyStream, clean_reply
 from .scheduler import add_job
 from .reminder_config import channel_from_prompt
 from .storage import HearthError, MAX_NOTE, iso, new_id
@@ -381,10 +382,10 @@ class Agent:
                 reply = self.tools.gateway.completion(model, messages, [], lambda _: None)
         except ConnectorError as error:
             raise HearthError(f"{catalog_entry(model['provider'])['name']}. {model_error(error)}") from None
-        text = reply.get("content")
+        text = clean_reply(reply.get("content") or "")
         if not text or not text.strip():
             raise HearthError("The model did not return a text reply.")
-        return {"reply": redact_text(text)[:1_000], "latency_ms": round((time.monotonic() - start) * 1_000),
+        return {"reply": text[:1_000], "latency_ms": round((time.monotonic() - start) * 1_000),
                 "provider": model["provider"], "model": model["model"]}
 
     def chat(self, prompt, event, thread_id=MAIN, *, source=None):
@@ -523,14 +524,14 @@ class Agent:
                        "Summarize the interruption and ask the user to review the recorded actions. "
                        f"Recorded actions: {json.dumps(summary)}")
             recovery_messages = [messages[0], {"role": "user", "content": f"{messages[-1]['content']}\n\n{context}"}]
-            reply = self.tools.gateway.completion(model, recovery_messages, [], emit)
+            reply = self.model_completion(model, recovery_messages, [], emit)
         if not reply.get("content"):
             raise ConnectorError("The recovery reply contained no text.")
         self.finish_reply(model, reply, action_ids, notices, event, messages[-1]["content"], routing)
 
     def finish_reply(self, model, reply, action_ids, notices, event, prompt, routing):
         thread_id = CHAT_ORIGIN.get()["thread_id"]
-        content = redact_text(reply["content"])
+        content = clean_reply(reply["content"])
         turn = TURN_MEMORY.get()
         sources = turn["citations"] if turn else {}
         remembered = {}
@@ -579,6 +580,15 @@ class Agent:
             return sorted({address for path in DEMO_GUEST_NOTES if path in files
                            for address in DEMO_ADDRESS.findall(self.storage.read(path))})
 
+    def model_completion(self, model, messages, tools, emit):
+        stream = ReplyStream(emit)
+        reply = self.tools.gateway.completion(model, messages, tools, stream.write)
+        reply["content"] = clean_reply(reply.get("content") or "")
+        if not (reply["content"].strip() or reply.get("tool_calls")):
+            raise ConnectorError("The model connector returned an incomplete reply.")
+        stream.finish()
+        return reply
+
     def run_model(self, model, messages, tools, event, clock, notices, demo_addresses, routing):
         action_ids = []
         user_prompt = next(message["content"] for message in reversed(messages) if message["role"] == "user")
@@ -599,7 +609,7 @@ class Agent:
                                             tool_names={tool["function"]["name"] for tool in tools},
                                             artifact_format=self.artifacts.config()["format"] if self.artifacts else "md")
                 else:
-                    reply = self.tools.gateway.completion(model, messages, tools, emit)
+                    reply = self.model_completion(model, messages, tools, emit)
             except ConnectorError as error:
                 if touched_state:
                     raise TurnActionError(error, action_ids) from None
@@ -873,7 +883,7 @@ class Agent:
         subject = require_text(subject, 240)
         if "\n" in subject or "\r" in subject:
             raise HearthError("Use a single line for the subject.")
-        email = {"to": to, "subject": subject, "text": require_text(text, 8_000)}
+        email = {"to": to, "subject": redact_text(subject), "text": redact_text(require_text(text, 8_000))}
         return {"action": self.add_action("email", "Email draft", status="pending", email=email,
                                           mocked=not bool(self.tools.has_mail()))}
 

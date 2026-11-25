@@ -150,6 +150,37 @@ class HearthTest(unittest.TestCase):
         self.assertEqual(self.agent.threads.messages("main")[-1]["notices"], [fallback["detail"]])
         self.assertEqual(state["outbox"], [])
 
+    def test_model_turn_cleans_fragmented_tool_markup_and_credentials(self):
+        class ModelGateway(Recorder):
+            def completion(self, config, messages, tools, emit):
+                chunks = ["Hello ", "  <", "/func", "tion>\n", "<tool_", "call>",
+                          '{"arguments":"internal-only"}', "</tool_call>",
+                          "**Menu**\n", "password", ": ", "fake", "-value",
+                          "\n", "sk-", "abcdefghijklmnopqrstuvwx"]
+                for chunk in chunks:
+                    emit(chunk)
+                return {"content": "".join(chunks)}
+
+        self.config["llm"][0]["connection_id"] = "test-id"
+        self.agent = Agent(self.storage, self.checkpoints, self.config, ModelGateway())
+        events = self.chat("Hello")
+        text = "".join(data["text"] for name, data in events if name == "token")
+        self.assertGreater(sum(name == "token" for name, _ in events), 1)
+        self.assertIn('**Menu**\npassword: "[redacted]"\n[redacted]', text)
+        self.assertNotRegex(text, "function|tool_call|internal-only|fake-value|abcdefghijkl")
+        self.assertEqual(events[-1][1]["message"]["content"], text.strip())
+        self.assertEqual(self.agent.threads.messages("main")[-1]["content"], text.strip())
+
+    def test_reply_stream_redacts_credentials_before_a_tool_marker(self):
+        from hearth.reply_text import ReplyStream
+
+        emitted = []
+        stream = ReplyStream(emitted.append)
+        stream.write("Hello ")
+        stream.write("sk-abc</function>defghijklmnopqrstuvwxyz ")
+        stream.finish()
+        self.assertEqual(emitted, ["Hello ", "[redacted] "])
+
     def test_scheduler_persists_and_catches_up_once(self):
         now = datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc)
         state = self.storage.load()
