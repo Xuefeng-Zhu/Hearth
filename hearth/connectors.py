@@ -68,16 +68,18 @@ class Gateway:
         return self.request(f"{provider}/{connection_id}/{path}", body, headers, timeout, method=method)
 
     def request(self, path, body, headers, timeout, *, method=None):
+        binary = isinstance(body, bytes)
         request = Request(
             f"{GATEWAY}/{path}",
-            data=json.dumps(body).encode("utf-8") if body is not None else None,
+            data=body if binary or body is None else json.dumps(body).encode("utf-8"),
             method=method,
             headers={key: value for key, value in (headers or {}).items()
                      if key.lower() in {"accept", "idempotency-key", "x-pinecone-api-version",
                                         "anthropic-version", "notion-version"}},
         )
         if body is not None:
-            request.add_header("Content-Type", "application/json")
+            mime = (headers or {}).get("Content-Type", "application/octet-stream") if binary else "application/json"
+            request.add_header("Content-Type", mime)
         try:
             return self.opener.open(request, timeout=timeout)
         except HTTPError as error:

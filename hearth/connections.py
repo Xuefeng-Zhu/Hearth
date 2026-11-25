@@ -105,6 +105,8 @@ def connector_uses(provider):
         uses.append("Search")
     if provider in recall.BACKENDS and provider != "keyword":
         uses.append("Memory")
+    if provider == "huggingface":
+        uses.append("Voice")
     return [*uses, "Tools"]
 
 

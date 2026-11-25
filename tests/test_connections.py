@@ -231,7 +231,7 @@ class ConnectionsTest(unittest.TestCase):
         self.app.scan_connections()
         rows = self.app.connection_info()["providers"]
         self.assertEqual({provider: row["uses"] for provider, row in rows.items() if row["status"] == "connected"}, {
-            "huggingface": ["Brain", "Memory", "Tools"], "exa": ["Search", "Tools"],
+            "huggingface": ["Brain", "Memory", "Voice", "Tools"], "exa": ["Search", "Tools"],
             "pinecone": ["Memory", "Tools"], "agentmail": ["Tools"], "codex": ["Tools"],
         })
         self.assertTrue(all(row["can_test"] for row in rows.values() if row["status"] == "connected"))

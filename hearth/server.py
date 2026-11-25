@@ -10,7 +10,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, urlsplit
 
-from . import recall, router, search
+from . import recall, router, search, voice
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -24,6 +24,7 @@ STATIC = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/avatar.js": ("avatar.js", "text/javascript; charset=utf-8"),
     "/avatar-state.js": ("avatar-state.js", "text/javascript; charset=utf-8"),
+    "/voice.js": ("voice.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
 SIDE_COMMAND = re.compile(r"/(?:side|btw)(?:\s+(.+))?", re.I | re.S)
@@ -196,6 +197,7 @@ class Application:
                     for thread in threads],
                 "messages": messages, "actions": list(state["actions"].values()),
                 "jobs": state["jobs"], "reminders": state["reminders"], "routing": state.get("routing", []),
+                "whisper_available": bool(self.memory_index.hf_entry(self.agent.config)),
                 "restore": self.restore,
                 "checkpoints": self.checkpoints.mode, **self.brain_status()}
 
@@ -426,6 +428,9 @@ class Handler(BaseHTTPRequestHandler):
         return body
 
     def do_POST(self):
+        if urlsplit(self.path).path in {"/api/voice/transcribe", "/api/voice/redact"}:
+            self.post_voice()
+            return
         routes = {"/api/chat", "/api/approve", "/api/undo",
                   "/api/connections/rescan", "/api/connections/test", "/api/connections/settings",
                   "/api/brain/test", "/api/brain/settings", "/api/brain/route", "/api/threads/create", "/api/threads/rename",
@@ -486,6 +491,43 @@ class Handler(BaseHTTPRequestHandler):
             self.stream_chat(stream)
         else:
             self.json(result, status)
+
+    def post_voice(self):
+        url = urlsplit(self.path)
+        try:
+            if self.headers.get("Sec-Fetch-Site") == "cross-site":
+                raise voice.VoiceError("Send this request from Hearth.", 403)
+            if url.path == "/api/voice/redact":
+                body = self.body()
+                text = voice.clean_transcript(require_text(body.get("text"), 4000))
+            else:
+                content_type = self.headers.get_content_type()
+                if content_type not in voice.AUDIO_TYPES:
+                    raise voice.VoiceError("Use a WebM, Ogg, MP4, or WAV audio recording.", 415)
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    length = 0
+                if length > voice.MAX_AUDIO:
+                    raise voice.VoiceError("The recording exceeds the 8 MiB limit.", 413)
+                if length <= 0:
+                    raise voice.VoiceError("No audio recording was received.")
+                connection = self.app.memory_index.hf_entry(self.app.agent.config)
+                language = parse_qs(url.query).get("language", ["auto"])[0]
+                self.connection.settimeout(15)
+                try:
+                    data = self.rfile.read(length)
+                except TimeoutError:
+                    raise voice.VoiceError("The audio upload timed out.", 408) from None
+                if len(data) != length:
+                    raise voice.VoiceError("The audio upload was interrupted.")
+                text = voice.transcribe(self.app.gateway, connection, data, content_type, language)
+        except voice.VoiceError as error:
+            self.json({"error": str(error)}, error.status)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+        else:
+            self.json({"text": text})
 
     def update_connections(self, body):
         if self.path == "/api/connections/rescan" and not body:
