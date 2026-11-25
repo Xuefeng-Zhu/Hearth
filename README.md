@@ -4,7 +4,7 @@ Hearth is a private personal assistant that lives on a Fly.io Sprite. It keeps i
 
 ## Run locally
 
-Use Python 3.10 or later on Linux or macOS. The server and browser app use the standard library and browser APIs. Use Node.js 22 or later for the avatar tests.
+Use Python 3.10 or later on Linux or macOS. The server uses the standard library, and the browser app serves its SDK locally. Use Node.js 22 or later for the avatar tests.
 
 ```sh
 python3 -m unittest discover -s tests -v
@@ -37,6 +37,18 @@ Use the mic button in Main or any side chat. Click it again to finish, or hold *
 In **Settings → Voice**, **Auto** selects Hugging Face Whisper when the connector is authorized and Browser otherwise. Whisper can detect the spoken language automatically. Browser uses its default speech language in Auto, or you can select a language such as English or 中文. The default limit is 60 seconds. The transcript goes into the composer for editing by default. Enable **Send automatically after transcription** to submit the result while preserving any existing draft. Voice settings are saved in this browser.
 
 Microphone access requires HTTPS or localhost and browser permission. Browser uses the browser’s speech service. Whisper sends audio through the Sprites gateway to Hugging Face. Hearth processes the upload in memory and runs both engines’ final transcripts through the same credential redactor used for typed prompts.
+
+### Voice calls
+
+Press **Call** in the header of Main or a side chat. A live call uses your microphone and plays the voice agent’s audio. The sheet shows a timer, live captions when Vocal Bridge publishes them, mute and end controls, and **Asked Hearth…** while Hearth handles a query. You can minimize the sheet and return to the same call. When the connector is missing, **Call** opens a labeled demo with scripted captions and controls.
+
+Each query from the voice agent runs in the chat where the call started, with Hearth’s routing, recall, tools, approvals, and checkpoint Undo. Timeline shows **Voice call** on the associated routing and action entries. When you end the call, Hearth adds a duration card and saves the redacted captions by default. **Settings → Voice → Voice calls** has Auto, English, and 中文, a 10-minute default limit, and a transcript toggle. With auto-save off, Hearth still keeps the duration card and any normal Hearth turns. The live agent also receives the language preference as a context hint. Its deployed voice configuration determines how it applies the hint.
+
+1. Create and deploy an agent at [Vocal Bridge](https://vocalbridgeai.com). Set **AI Agent Integration** to the **client data channel** so voice requests can reach Hearth.
+2. Create an agent-scoped API key. In the Fly dashboard, add **Vocal Bridge**, turn off **Allow all sprites**, and set **Name Prefix** to `hearth`. Enter the key in Fly’s connector form. [Fly dashboard connectors](https://fly.io/dashboard/xuefeng-zhu/sprites/connectors)
+3. Refresh **Connections** and check **Settings → Voice**. The Vocal Bridge card’s **Test** confirms this Sprite’s gateway access. Starting a call checks the deployed agent by minting its short-lived room credential.
+
+Hearth mints room credentials through the Fly gateway. The browser uses them for LiveKit WebRTC, and Hearth serves the pinned SDK locally from `web/vendor/vocalbridge.mjs`. The bundle contains `@vocalbridgeai/sdk@0.1.1` and `livekit-client@2.25.0`, bundled for browser ESM with esbuild 0.28.1. It loads on demand and requires no app build step or CDN. [Vocal Bridge developer docs](https://vocalbridgeai.com/docs/overview), [SDK integration guide](https://github.com/vocalbridgeai/sdk/blob/main/INTEGRATION.md)
 
 ## Demo
 
@@ -93,7 +105,7 @@ The generic gateway tool sends a provider-relative request through Sprites. GET 
 
 ## How it works
 
-- `hearth.server` serves the browser app and JSON API. Chat uses server-sent events for reply text and action cards. The agent uses tools for memory, search, email proposals, reminders, and checkpoints. Any provider authorized by discovery is available to the generic gateway tool.
+- `hearth.server` serves the browser app and JSON API. Chat uses server-sent events for reply text and action cards. The agent uses tools for memory, search, email proposals, reminders, and checkpoints. The generic gateway tool handles authorized providers. Vocal Bridge room credentials are available only through the call token route.
 - Memory lives in `USER.md`, `people/*.md`, `topics/*.md`, and `daily/YYYY-MM-DD.md`. Each transcript is a JSONL file under `live/threads/` in the data directory. The thread index sits beside them. The first write to Main migrates any existing chat history from `live/state.json`. Actions and reminders share the lock-protected state file. The web and scheduler run as separate Sprite services.
 - The offline mock uses the same tool interface as the model adapters. The header shows the active brain while Settings shows the saved preference.
 - Provider calls go through the Sprites gateway without an Authorization header. Hearth stores connector IDs and supported settings. Fly holds the credentials. The chosen search and recall providers run through that gateway. Pinecone stores vectors in a workspace-specific namespace. AgentMail sends only after approval. Without AgentMail, approval records a simulated send locally. [Provider setup details](STATUS.md)
