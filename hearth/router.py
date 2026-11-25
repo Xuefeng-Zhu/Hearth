@@ -40,6 +40,62 @@ def retired_model(model):
 
 
 SIDE_COMMAND = re.compile(r"^/(?:side|btw)(?:\s+|$)", re.I)
+WEB_URL = re.compile(
+    r"https?://[^\s<>\x60\"\]]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/[^\s<>\x60\"\]]*)?", re.I,
+)
+PAGE_REQUEST = re.compile(
+    r"\b(?:open|visit|browse|fetch|read|check|load|look at|inspect|summari[sz]e|screenshot|"
+    r"go to|look on|take a look at|what(?:’s|'s| is) on)\b", re.I,
+)
+PAGE_WORD = re.compile(r"\b(?:web ?page|website|landing page|status page|on the site|on their site)\b", re.I)
+LIVE_REQUEST = re.compile(
+    r"\b(?:live (?:status|page|availability|data|feed)|available right now|in stock right now|"
+    r"(?:currently|still) in stock|current availability|tickets? (?:still )?available|(?:website|site) (?:is )?(?:up|down)|"
+    r"what (?:does|is) .{0,100}(?:say|show) (?:now|today))\b", re.I,
+)
+BROWSER_SHOT = re.compile(r"\b(?:screenshots?|render(?:ed)?|watch live|scroll|javascript|click through)\b", re.I)
+BROWSER_NAVIGATION = re.compile(r"\b(?:scroll|wait for|click|follow the link)\b", re.I)
+WEB_MUTATION_INTENT = re.compile(
+    r"^\s*(?:(?:please|(?:can|could|would|will) you)\s+)*"
+    r"(?:submit|sign\s*in|log\s*in|buy|purchase|place (?:an?|the) order|book|post|publish|register|sign up|check ?out)\b"
+    r"|\b(?:then|and)\s+(?:submit|sign\s*in|log\s*in|buy|purchase|post|publish|register|sign up|check ?out)\b",
+    re.I,
+)
+BROWSER_SEARCH = re.compile(r"\b(?:browserbase(?: to)? search(?: for)?|search (?:the web )?(?:with|using) browserbase)\b", re.I)
+
+
+def browse_intent(prompt):
+    search = BROWSER_SEARCH.search(prompt)
+    if search:
+        query = (prompt[search.end():].strip(" :") or prompt[:search.start()].strip(" :"))[:200]
+        return "browse_search", {"query": query or prompt[:200]}
+    url = None
+    only_url = False
+    for match in WEB_URL.finditer(prompt):
+        candidate = match[0].rstrip(".,;!?")
+        while candidate.endswith(")") and candidate.count(")") > candidate.count("("):
+            candidate = candidate[:-1]
+        if not candidate.lower().startswith(("https://", "http://")):
+            if match.start() and prompt[match.start() - 1] in "@/":
+                continue
+            if "." in candidate and candidate.lower().endswith((".md", ".pdf", ".docx", ".xlsx", ".pptx", ".js", ".py")):
+                continue
+            candidate = "https://" + candidate
+        url = candidate
+        only_url = prompt.strip() == match[0]
+        break
+    page = PAGE_WORD.search(prompt)
+    live = LIVE_REQUEST.search(prompt)
+    if WEB_MUTATION_INTENT.search(prompt) and (url or page or live or re.search(r"\b(?:online|browser|form)\b", prompt, re.I)):
+        return "approval", {}
+    if url and (PAGE_REQUEST.search(prompt) or live or BROWSER_NAVIGATION.search(prompt) or only_url):
+        if BROWSER_NAVIGATION.search(prompt):
+            return "session_plan", {"url": url}
+        tool = "browse_session" if BROWSER_SHOT.search(prompt) or live else "browse_fetch"
+        return tool, {"url": url, **({"steps": []} if tool == "browse_session" else {})}
+    if live or (page and PAGE_REQUEST.search(prompt)):
+        return "find_page", {"query": prompt[:200]}
+    return None
 ACTION = re.compile(
     r"^\s*(?:search for|look up|check the weather)\b|"
     r"\b(?:remind\s+me|set\s+(?:an?\s+)?reminder|schedule\s+(?!a\s+plan)|"
@@ -90,7 +146,7 @@ def classify(prompt, *, side=False, file_request=False, image_attachment=False):
         side, prompt = True, prompt.strip()[command.end():]
     if image_attachment:
         return "vision"
-    if file_request or file_intent.intent(prompt) or ACTION.search(prompt):
+    if file_request or file_intent.intent(prompt) or browse_intent(prompt) or ACTION.search(prompt):
         return "tool"
     if CODE.search(prompt):
         return "code"

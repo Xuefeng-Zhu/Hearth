@@ -6,7 +6,7 @@ from urllib.parse import quote
 from .connectors import CORE_PROVIDERS, GATEWAY_SEGMENT, MODELS_PATHS, MODEL_PATHS, ConnectorError, valid_provider
 from .gateway_tools import redact_text
 from .storage import HearthError, ROOT, atomic_write, iso
-from . import box, pinecone, recall, router, search
+from . import box, browserbase, pinecone, recall, router, search
 
 CATALOG = {entry["slug"]: entry for entry in json.loads((ROOT / "config/catalog.json").read_text(encoding="utf-8"))}
 DASHBOARD = "https://fly.io/dashboard/xuefeng-zhu/sprites/connectors"
@@ -99,6 +99,8 @@ def catalog_entry(provider):
 
 
 def connector_uses(provider):
+    if provider == browserbase.PROVIDER:
+        return ["Web browsing"]
     if provider == "box":
         return ["Artifacts", "Tools"]
     if provider == "vocalbridge":
@@ -182,6 +184,7 @@ class Connections:
         config.setdefault("brain_pool", [])
         config["memory"] = recall.settings(config.get("memory", {}))
         config["search"] = search.settings(config.get("search", {}))
+        config["browsing"] = browserbase.settings(config.get("browsing", {}))
         config["artifacts"] = box.settings(artifact_preferences(config.get("artifacts", {})))
         config["box_folders"] = {}
         if not self.path.is_file():
@@ -248,7 +251,8 @@ class Connections:
                 config["brain_pool"] = validate_pool(rows)
             except HearthError:
                 pass
-        for key, validate in (("memory", recall.settings), ("search", search.settings), ("artifacts", box.settings)):
+        for key, validate in (("memory", recall.settings), ("search", search.settings), ("artifacts", box.settings),
+                              ("browsing", browserbase.settings)):
             if key in data:
                 try:
                     config[key] = validate(artifact_preferences(data[key]) if key == "artifacts" else data[key])
@@ -407,11 +411,14 @@ class Connections:
             else:
                 status, detail = "unknown", "Discovery has not completed."
             test_status, test_detail = self.checks.get(provider, (None, None))
+            if provider == browserbase.PROVIDER and test_status in {"passed", "denied", "not_connected"}:
+                status = {"passed": "connected", "denied": "unauthorized", "not_connected": "not_set_up"}[test_status]
+                detail = test_detail
             field = SETTINGS.get(provider)
             providers[provider] = {
                 **info, "status": status, "detail": detail, "test_status": test_status, "test_detail": test_detail,
                 "settings": {field: self.config[provider][field]} if field else {},
-                "can_test": provider in self.selected,
+                "can_test": provider in self.selected or provider == browserbase.PROVIDER,
                 "uses": connector_uses(provider),
                 "dashboard_url": DASHBOARD, "access_rule": ACCESS_RULE, "pinned": provider in CORE_PROVIDERS,
             }
@@ -473,6 +480,17 @@ class Connections:
         return True
 
     def test(self, provider):
+        if provider == browserbase.PROVIDER:
+            try:
+                browserbase.Browserbase(self.gateway).test()
+            except HearthError as error:
+                detail = str(error)
+                status = {browserbase.NOT_CONNECTED: "not_connected", browserbase.DENIED: "denied"}.get(detail, "failed")
+            else:
+                status, detail = "passed", "Browserbase answered the running sessions check."
+            self.checks[provider] = status, detail
+            self.check_times[provider] = iso()
+            return
         if not isinstance(provider, str) or provider not in self.selected:
             raise HearthError("Authorize this connector in Fly, then re-scan.")
         connection_id = self.selected[provider]

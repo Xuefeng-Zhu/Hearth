@@ -12,7 +12,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import artifacts, box, inbox, memory_edits, recall, reminders, router, scheduler, search, timeline, voice, voice_call
+from . import artifacts, box, browserbase, inbox, memory_edits, recall, reminders, router, scheduler, search, timeline, voice, voice_call
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -169,7 +169,8 @@ class Application:
             {"provider": provider, "name": catalog_entry(provider)["name"], "connected": provider in connected,
              "native_safe": provider in search.NATIVE_SAFE}
             for provider in search.PROVIDERS
-        ], "active": [entry["provider"] for entry in search.candidates(agent.config, agent.search_settings)]}
+        ], "active": [entry["provider"] for entry in search.candidates(agent.config, agent.search_settings)],
+            "browsing": agent.browsing}
 
     def reindex_running(self):
         return self.reindex is not None and self.reindex["status"] == "running"
@@ -339,8 +340,8 @@ class Application:
         self.call_check = (connection_id, {"at": iso(), "status": "passed", "kind": "token"})
         return reply
 
-    def enqueue(self, thread_id, prompt, *, source=None):
-        command = SIDE_COMMAND.fullmatch(prompt) if thread_id == MAIN and source is None else None
+    def enqueue(self, thread_id, prompt, *, source=None, approval=None):
+        command = SIDE_COMMAND.fullmatch(prompt) if thread_id == MAIN and source is None and not approval else None
         if command:
             prompt = require_text(command[1], 4_000)
         with self.storage.lock():
@@ -351,26 +352,33 @@ class Application:
         with self.turn_lock:
             pending = self.turns.get(thread_id)
             if pending is not None:
-                pending.append((prompt, events, source))
+                pending.append((prompt, events, source, approval))
             else:
-                self.turns[thread_id] = deque([(prompt, events, source)])
+                self.turns[thread_id] = deque([(prompt, events, source, approval)])
                 threading.Thread(target=self.run_turns, args=(thread_id,), daemon=True).start()
         return events
 
     def run_turns(self, thread_id):
         while True:
             with self.turn_lock:
-                prompt, events, source = self.turns[thread_id][0]
+                prompt, events, source, approval = self.turns[thread_id][0]
             agent = self.agent
 
             def event(name, data):
                 phase = {"started": "thinking", "tool_started": "working", "tool_finished": "thinking",
                          "token": "thinking" if source == voice_call.SOURCE else "speaking",
                          "reset": "thinking", "remembered": "remembering"}.get(name)
-                if phase:
+                if phase or name in {"browse_active", "browse_finished"}:
                     with self.turn_lock:
-                        self.turn_activity[thread_id] = {"pose": phase, "detail": data.get("title")}
-                if name == "done" and self.agent is agent:
+                        activity = self.turn_activity.get(thread_id, {})
+                        if name == "browse_active":
+                            activity = {**activity, "browse": data, "pose": "working"}
+                        elif name == "browse_finished":
+                            activity = {key: value for key, value in activity.items() if key != "browse"}
+                        else:
+                            activity = {**activity, "pose": phase, "detail": data.get("title")}
+                        self.turn_activity[thread_id] = activity
+                if name == "done" and "provider" in data and self.agent is agent:
                     self.brain = data["provider"]
                     self.brain_reply = (self.brain, data["model"])
                 if name == "error":
@@ -383,7 +391,12 @@ class Application:
                 events.put((name, data))
 
             try:
-                agent.chat(prompt, event, thread_id, source=source)
+                if approval:
+                    agent.run_browse_approval(approval, thread_id, event)
+                else:
+                    agent.chat(prompt, event, thread_id, source=source)
+            except HearthError as error:
+                event("error", {"message": str(error)})
             except Exception:
                 event("error", {"message": "Hearth could not finish this turn. Check Timeline for any completed actions."})
             finally:
@@ -526,6 +539,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Disposition", disposition)
         self.send_header("Content-Security-Policy",
                          "default-src 'self'; connect-src 'self' wss://*.livekit.cloud https://*.livekit.cloud; "
+                         "frame-src 'self' https://browserbase.com https://*.browserbase.com "
+                         "https://browserbase.live https://*.browserbase.live; "
                          "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors "
                          + ("'self'" if inline_pdf else "'none'")
                          + ("; style-src 'unsafe-inline'; script-src 'none'" if email_preview else ""))
@@ -581,6 +596,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.json(self.app.memory_info())
             elif url.path == "/api/search/settings":
                 self.json(self.app.search_info())
+            elif url.path.startswith("/api/browse/screenshots/"):
+                name = url.path.removeprefix("/api/browse/screenshots/")
+                try:
+                    domain = parse_qs(url.query).get("domain", ["fly.io"])[0][:253]
+                    body = (browserbase.demo_image(domain) if name == "demo.png"
+                            else browserbase.screenshot_path(self.app.storage, name).read_bytes())
+                except (FileNotFoundError, HearthError):
+                    self.json({"error": "Browser screenshot not found."}, 404)
+                else:
+                    self.response_headers(200, "image/png", len(body))
+                    self.wfile.write(body)
             elif url.path == "/api/reminders/settings":
                 self.json(self.app.reminders.info())
             elif url.path == "/api/reminders":
@@ -693,7 +719,7 @@ class Handler(BaseHTTPRequestHandler):
                   "/api/brain/test", "/api/brain/settings", "/api/brain/route", "/api/threads/create", "/api/threads/rename",
                   "/api/threads/delete", "/api/threads/share", "/api/memory/settings", "/api/memory/test",
                   "/api/memory/search", "/api/memory/reindex", "/api/memory/sync", "/api/memory/forget",
-                  "/api/search/settings", "/api/search/test"}
+                  "/api/search/settings", "/api/search/test", "/api/browse/settings", "/api/browse/approve"}
         if self.path not in routes:
             self.json({"error": "Page not found."}, 404)
             return
@@ -711,7 +737,7 @@ class Handler(BaseHTTPRequestHandler):
             except HearthError as error:
                 self.json({"error": str(error)}, 400)
             return
-        accepting_chat = self.path == "/api/chat" or self.path.startswith("/api/threads/")
+        accepting_chat = self.path in {"/api/chat", "/api/browse/approve"} or self.path.startswith("/api/threads/")
         if self.path in {"/api/connections/rescan", "/api/connections/test", "/api/memory/search"}:
             # Background discovery can overlap with a connector test or memory search.
             acquired = self.app.operation.acquire(timeout=5)
@@ -728,6 +754,14 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 if self.path == "/api/chat":
                     stream = self.app.enqueue(body.get("thread_id", MAIN), require_text(body.get("message"), 4_000))
+                elif self.path == "/api/browse/approve" and body.keys() == {"id", "thread_id"}:
+                    stream = self.app.enqueue(body["thread_id"], "", approval=require_text(body["id"], 40))
+                elif self.path == "/api/browse/settings":
+                    self.app.connections.save_preferences("browsing", browserbase.settings(body))
+                    self.app.reload_agent(reset_brain=False)
+                    result = self.app.agent.browsing
+                elif self.path == "/api/browse/approve":
+                    raise HearthError("Invalid browser approval.")
                 elif self.path.startswith("/api/threads/"):
                     result = self.app.update_thread(self.path.rsplit("/", 1)[-1], body)
                 elif self.path.startswith("/api/connections/"):
