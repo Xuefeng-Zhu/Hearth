@@ -1,5 +1,11 @@
 # Hearth status
 
+## Reminder delivery and Email Hearth
+
+- The private Sprite authorized AgentMail and provisioned a dedicated Hearth inbox. One live self-addressed flight confirmation was accepted by AgentMail and imported by the authenticated tick as a flight event proposal. The reminder recipient field was empty, so outbound reminder verification used the disconnected Outbox.
+- On the deployed Sprite, an in-app test was due at 11:45:57 UTC. Sprites reported the instance cold at 11:46:48 UTC. Running `scripts/wake.sh` recorded delivery at 11:47:03 UTC and marked it **Late by 1m**. The five-minute GitHub Actions template remains inactive.
+- All 81 Python tests, five Node tests, and JavaScript syntax checks passed. The suite covers signed links, tick authentication, quiet hours, retries, dedupe, external instruction handling, forwarding metadata, English and Chinese fixtures, ICS, and reply commands. Chromium checked local Reminders and Settings at 1440px and 390px, exercised the Outbox snooze and replay, and verified the live Inbox API through `sprite exec`. The flight proposal was accepted for the capture, then undone. [Reminders](/workspace/tmp/hearth-qa/hearth-reminders.png), [Settings](/workspace/tmp/hearth-qa/hearth-reminders-settings.png), [Outbox email](/workspace/tmp/hearth-qa/hearth-reminder-email.png), [Inbox](/workspace/tmp/hearth-qa/hearth-inbox.png)
+
 ## Pinecone memory
 
 - The Pinecone memory release is deployed on the private `hearth` Sprite. Health, the Memory settings endpoint, startup bootstrap, and the manual sync request were exercised through `sprite exec`.
@@ -56,9 +62,8 @@
 - The live Sprites Box connector returned HTTP 403 for the multipart new-file and new-version endpoints. It also rejected version history, file deletion, and Trash restore in endpoint probes. Hearth showed **Saved locally — Box upload unavailable** on all three demo files. The live run has a Box folder ID and local artifact IDs. Successful live upload, a Box file ID, and Box version 2 remain blocked by the gateway. [Box upload API](https://developer.box.com/reference/post-files-content), [Box version upload API](https://developer.box.com/reference/post-files-id-content), [Fly Box connector](https://fly.io/sprites/ecosystem/)
 
 - The Llama model included a stray `</function>` marker in one of two live greeting replies.
-- Tavily, Linkup, Kagi, Keenable, and Firecrawl were covered with mocked HTTP while disconnected. AgentMail remains simulated until connected, and the sample recipients use `example.invalid`. [Sprites gateway discovery](https://docs.fly.io/sprites/concepts/connectors#using-connectors-with-a-coding-agent)
+- Tavily, Linkup, Kagi, Keenable, and Firecrawl were covered with mocked HTTP while disconnected. Thanksgiving sample recipients use `example.invalid`. [Sprites gateway discovery](https://docs.fly.io/sprites/concepts/connectors#using-connectors-with-a-coding-agent)
 - Other chat providers and failover during a live provider outage are pending live verification. Offline tests exercise fallback and the Hugging Face JSON tool mode.
-- Reminders are delivered in Hearth's Timeline when the scheduler can run. An authenticated external timer is needed to wake a hibernating Sprite with the browser closed. See the wake command in [README.md](README.md).
 
 ## Add the four Fly connectors
 
@@ -69,7 +74,7 @@
    | **Meta (Muse Spark)** | Select a Meta Model API team with access to `muse-spark-1.3` and create a key under **API keys**. [Meta authentication](https://dev.meta.ai/docs/authentication) | Hearth discovers the connection and tries Muse Spark first for chat. |
    | **Pinecone** | Authorize index discovery, vector writes/queries, and inference. If gateway creation is unavailable, create `hearth-memory` in Pinecone as a serverless dense index with 384 dimensions and cosine similarity. Hearth uses Multilingual E5 Small through the Hugging Face connector for that index. [Vector index setup](https://docs.pinecone.io/guides/legacy/vectors-api/create-a-vector-index), [Integrated embedding API](https://docs.pinecone.io/reference/api/2025-10/control-plane/create_for_model) | Open **Settings → Memory** and select **Sync memories to Pinecone**. |
    | **Tavily (Community)** | Create a key under **API Keys** on the Tavily dashboard home page. [Tavily connector](https://fly.io/changelog/another-batch-of-sprites-connectors/) | Hearth finds the connection automatically. |
-   | **AgentMail** | Create or select a sending inbox and use a key with permission to read that inbox and send messages. [AgentMail permissions](https://docs.agentmail.to/permissions) | Enter the **Inbox ID**, usually the inbox address. |
+   | **AgentMail** | Create or select a sending inbox and use a key with permission to read that inbox and send messages. [AgentMail permissions](https://docs.agentmail.to/permissions) | Optionally set **Inbox ID**. Hearth can provision a dedicated inbox. Set a recipient in **Settings → Reminders** to enable email delivery. |
 
 2. Open the saved connector in Fly. In **Access Configuration**, turn off **Allow all sprites** and set **Name Prefix** to `hearth`. Check **Authorized Sprites** and save. If multiple Sprites share that prefix, add a unique label to the intended Sprite and require it under **Sprite Labels**. [Fly access configuration](https://docs.fly.io/sprites/concepts/connectors#configuring-access)
 3. Open **Connections** in Hearth, save any index or inbox setting, and click **Refresh**. The authorized connector appears under **Configured**. Click **Test** to run the read-only provider check or verify gateway authorization. Hearth writes discovered IDs to `~/hearth/config/connectors.local.json` after taking a checkpoint and updates the running agent.

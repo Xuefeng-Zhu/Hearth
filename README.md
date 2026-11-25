@@ -12,7 +12,7 @@ node --test tests/*.test.mjs
 python3 -m hearth.server
 ```
 
-Open `http://127.0.0.1:8080`. Run `python3 -m hearth.scheduler` in a second terminal to process reminders. Both processes use `.hearth/` by default. Set `HEARTH_DATA_DIR` to the same directory for both processes to run a separate workspace. The first startup copies the sample files from `memory/` to `live/memory/` within the data directory.
+Open `http://127.0.0.1:8080`. The web server starts the reminder worker. It uses `.hearth/` by default. Set `HEARTH_DATA_DIR` to run a separate workspace. The first startup copies the sample files from `memory/` to `live/memory/` within the data directory.
 
 ## Chat threads
 
@@ -62,6 +62,22 @@ If the gateway rejects uploads as unsupported, Hearth shows **Saved locally — 
 
 For the demo, open the seeded **Thanksgiving artifacts** side chat on the Sprite. With Mock selected, “Make Thanksgiving demo artifacts” creates a Thanksgiving plan, a shopping list CSV, and a seating chart in the current chat.
 
+## Reminders and email
+
+Open **Reminders** to schedule a reminder with a title, date, note, and **In app**, **Email**, or **Both**. In chat, try “Remind me by email to check the oven in 15 minutes.” With no channel in the request, Hearth uses **Settings → Reminders → Default channel**, initially **In app**. Email needs a recipient saved in those settings. Quiet hours default to 22:00–07:00 in America/Los_Angeles. Email waits until quiet hours end unless the reminder is urgent. The in-app channel fires independently.
+
+Hearth shows upcoming, delivered, and snoozed reminders with status and failure details. **Undo** cancels unsent reminders. Temporary AgentMail failures retry with backoff and the same delivery key. Each email has a text and HTML body, a link to the chat on the private Sprite, and **Done**, **Snooze 10 min**, and **Snooze 1 h** links. Open a link and confirm the change on Hearth. The links are signed, expire after seven days, and share one action per delivery. If you are on the sender allowlist, replying directly to a reminder with `done` or `snooze 30` also works when the sender is authenticated.
+
+For email, add **AgentMail** in Fly connectors with **Name Prefix** `hearth` and refresh Connections. Hearth reuses the configured **Inbox ID** or provisions a dedicated inbox on first use. Fly holds the provider credentials. In disconnected mode, Hearth records an email preview in **Reminders → Outbox**. In **Settings → Reminders**, use **Send test in app** or **Send test email** to verify the saved settings. [Fly AgentMail connector](https://fly.io/sprites/ecosystem/), [AgentMail send API](https://docs.agentmail.to/api-reference/inboxes/messages/send)
+
+### Forward anything to Hearth
+
+Copy your inbox address from **Connections → Email Hearth**, **Inbox**, or **Settings → Reminders**. Forward a booking, receipt, school email, fact, or list to this address. Hearth polls on wake and on scheduler ticks. The visible app asks for updates about once a minute, and **Check mail** refreshes the Inbox. Hearth records each mail once, even when it appears in overlapping polls.
+
+Inbox shows the sender, forwarded sender and date when available, a summary, and a proposal. **Accept** applies it, **Edit** lets you change its fields before accepting, and **Dismiss** archives the proposal in the processed section. Bookings become Timeline events with in-app reminders, receipts and facts become Memory notes, lists become local Artifacts, and other mail becomes a note. Calendar attachments yield events. Attachment metadata stays on the card, along with redacted text from CSV, TXT, ICS, and PDF when AgentMail provides an accessible text extraction. **Undo** is available on accepted items in Inbox and Timeline.
+
+Anyone can forward mail for review. Add the exact addresses you forward from under **Allowed senders**. Automatic acceptance also requires successful sender authentication and an enabled proposal type. Automatic actions are local; forwarded content cannot direct a tool or an outgoing email. Optional acknowledgments go to the authenticated forwarder after acceptance. Both automatic acceptance and acknowledgment start off. [AgentMail polling](https://docs.agentmail.to/api-reference/inboxes/messages/list), [AgentMail attachments](https://docs.agentmail.to/attachments)
+
 ## Timeline
 
 Open **Timeline** for a live history of chat turns, memory, approvals, reminders, connectors, model routing, voice, and checkpoints. Entries are grouped by day in your browser’s time zone. Today’s totals sit above the filters. Filter by activity type or thread, or search for a prompt, note, model, or provider. The activity type is saved in this browser. Expand a card for its redacted details, then open **Raw** for the saved fields. The time on each card has the exact timestamp in its tooltip.
@@ -79,7 +95,7 @@ The Harvest Hearth icon appears in Chat and the sidebar. The browser tab uses th
 3. Send `Wipe topics/thanksgiving.md`. Open **Memory** and select the Thanksgiving note to see that it is empty.
 4. In **Timeline**, find the **Memory updated** action and click **Undo**, then **Restore checkpoint**. When Hearth reconnects, the card is marked **Undone** and the note contains its original Markdown.
 
-Use `Remind me to check the oven in 15 seconds` for a quick reminder demo. Use `Schedule check the oven | 0 17 * * 4` for a weekly Thursday reminder at 17:00 UTC. Timeline shows upcoming and delivered reminders.
+Use `Remind me to check the oven in 15 seconds` for a quick reminder demo. Use `Schedule check the oven | 0 17 * * 4` for a weekly Thursday reminder at 17:00 UTC. Reminders and Timeline show upcoming occurrences and delivery by channel.
 
 Choose **Mock** under **Settings → Brain** before running the Thanksgiving demo to see the full avatar sequence. The listening and warning previews are labeled as part of the demo. The notes, draft, reminder, streamed reply, and memory citations use the normal Hearth workflow.
 
@@ -91,7 +107,7 @@ Choose **Add in Fly**, add the connector, turn off **Allow all sprites**, and se
 
 In Hearth, click **Refresh**. A newly authorized connector moves to **Configured** and is briefly highlighted there. Discovery also runs at server startup and when you open Hearth or Connections. **Found but not authorized** means the gateway denied or stopped listing a previously seen connection. **Not set up** means no connection is visible. With multiple authorized connections for a provider, Hearth keeps the previously selected connection while it remains available.
 
-Each configured card shows the access rule, the Hearth features that can use the connector, and the last check result. **Test** runs a read-only provider check when available and checks Sprites gateway authorization for other connectors. Save the **Index name** for Pinecone or **Inbox ID** for AgentMail on the same page. See [STATUS.md](STATUS.md) for settings for the four pinned connectors.
+Each configured card shows the access rule, the Hearth features that can use the connector, and the last check result. **Test** runs a read-only provider check when available and checks Sprites gateway authorization for other connectors. Save the **Index name** for Pinecone or an optional **Inbox ID** for AgentMail on the same page. See [STATUS.md](STATUS.md) for settings for the four pinned connectors.
 
 ### Choose the brain
 
@@ -132,7 +148,7 @@ The generic gateway tool sends a provider-relative request through Sprites. GET 
 - `hearth.server` serves the browser app and JSON API. Chat uses server-sent events for reply text and action cards. The agent uses tools for memory, search, email proposals, reminders, and checkpoints. The generic gateway tool handles authorized providers. Vocal Bridge room credentials are available only through the call token route.
 - Memory lives in `USER.md`, `people/*.md`, `topics/*.md`, and `daily/YYYY-MM-DD.md`. Each transcript is a JSONL file under `live/threads/` in the data directory. The thread index sits beside them. The first write to Main migrates any existing chat history from `live/state.json`. Actions and reminders share the lock-protected state file. The web and scheduler run as separate Sprite services.
 - The offline mock uses the same tool interface as the model adapters. The header shows the active brain while Settings shows the saved preference.
-- Provider calls go through the Sprites gateway without an Authorization header. Hearth stores connector IDs and supported settings. Fly holds the credentials. The chosen search and recall providers run through that gateway. Pinecone stores vectors in a profile namespace. AgentMail sends only after approval. Without AgentMail, approval records a simulated send locally. [Provider setup details](STATUS.md)
+- Provider calls go through the Sprites gateway without an Authorization header. Hearth stores connector IDs and supported settings. Fly holds the credentials. The chosen search and recall providers run through that gateway. Pinecone stores vectors in a profile namespace. Chat email drafts send after approval. Reminder emails send through AgentMail when their selected channel is due, using the saved recipient. [Provider setup details](STATUS.md)
 - Checkpoint Undo restores the entire Sprite filesystem, including later chat, memory, reminders, and deployed files. The local backend restores the `live/` workspace directory. Delivered email stays with the provider. Hearth reconciles the selected Pinecone namespace after a workspace restore.
 
 ## Deploy privately
@@ -145,15 +161,14 @@ sprite exec --http-post --no-stdin --no-port-forward -o xuefeng-zhu -s hearth --
 
 The deploy script installs a versioned release on `hearth` in `xuefeng-zhu`, registers or restarts the `web` and `scheduler` services, and checks port 8080. Hearth saves discovered IDs and provider settings to `~/hearth/config/connectors.local.json` and keeps workspace data under `~/hearth/data`. Open the Sprite from the Fly dashboard and sign in as an organization member.
 
-The scheduler records due reminders while the Sprite is awake and catches up on wake. If a recurring reminder missed multiple occurrences, it records one catch-up and resumes at the next future occurrence. A closed browser and hibernating Sprite need an authenticated external wake trigger for punctual delivery. Run this from an authenticated scheduler host if you want periodic wakes. [Fly Sprites lifecycle](https://fly.io/sprites/)
+### Wake the scheduler
+
+Hearth persists the next fire time, catches up on wake, and marks overdue deliveries in minutes. A recurring reminder that missed multiple occurrences records one catch-up and resumes at the next future occurrence. With the browser closed, an external timer must wake a hibernating Sprite. Five-minute polling can add up to a polling interval plus any delay on the scheduling host. For tighter timing, run the same command more frequently on an authenticated scheduler host. [Fly Sprites lifecycle](https://docs.sprites.dev/working-with-sprites/)
 
 ```sh
-sprite exec --http-post --no-stdin --no-port-forward -o xuefeng-zhu -s hearth -- sh -c '
-  cd "$HOME/hearth/current" &&
-  HEARTH_DATA_DIR="$HOME/hearth/data" python3 -c "
-from hearth.scheduler import run_due
-from hearth.storage import Storage
-run_due(Storage())
-"
-'
+scripts/wake.sh
 ```
+
+The script defaults to the authenticated `sprite` CLI and calls `POST /api/scheduler/tick` inside the Sprite. The endpoint requires `X-Hearth-Tick-Token` and returns `last_tick` and `next_due`, which also appear in **Settings → Reminders**. It also polls the Inbox. The Sprite generates the tick token and a separate reminder signing key under `~/hearth/data/` with owner-only permissions.
+
+For HTTP, supply `HEARTH_SPRITE_URL`, `HEARTH_TICK_TOKEN`, and `SPRITE_API_TOKEN` in the script's environment. The URL uses Sprite authentication and accepts an organization token. The Hearth token is in `~/hearth/data/scheduler-tick.token` inside the Sprite. Transfer it privately to your scheduler's secret store. `.github/workflows/wake.yml.example` is an inactive template. To opt in later, set the three repository secrets and rename the template to `wake.yml` on the default branch. Its schedule is every five minutes.
