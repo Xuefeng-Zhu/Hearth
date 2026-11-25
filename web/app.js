@@ -615,6 +615,20 @@ function renderChat(force = false) {
     turn.bubble = messageBubble("assistant", content, { message: turn.reply });
     for (const warning of turn.warnings) turn.bubble.notices.append(node("p", "model-warning", warning));
     for (const action of turn.actions.values()) turn.bubble.cards.append(actionCard(actions.get(action.id) || action));
+    if (turn.error) {
+      if (turn.text) turn.bubble.notices.append(node("p", "model-warning", turn.error));
+      const retry = button("Edit and retry", () => {
+        const prompt = turn.user?.content || turn.prompt;
+        if (!input.value) {
+          input.value = prompt;
+          resizeInput();
+        } else {
+          showNotice("Your draft is still in the composer. Clear it to restore the failed message.");
+        }
+        input.focus();
+      });
+      turn.bubble.cards.append(retry);
+    }
   }
   renderFace(local, messages, actions);
   paintAvatars();
@@ -630,8 +644,11 @@ async function refreshState() {
   byId("start-call").disabled = typeof state.voice_call_available !== "boolean";
   threadList = state.threads;
   if (state.thread_id !== currentThread) {
-    threadDrafts.delete(currentThread);
+    const deleted = currentThread;
     activateThread(state.thread_id);
+    threadDrafts.delete(deleted);
+    avatarStates.delete(deleted);
+    for (const turn of turns) if (turn.threadId === deleted) turns.delete(turn);
   }
   const saved = new Set(state.messages.map((message) => message.id));
   for (const turn of turns) if (saved.has(turn.reply?.id)) turns.delete(turn);
@@ -1844,7 +1861,11 @@ async function chat(prompt, { keepDraft = false } = {}) {
   } finally {
     turn.finished = true;
     if (turn.threadId === currentThread || !turn.threadId) renderChat(true);
-    else renderThreads();
+    else {
+      // The server saves completed replies before emitting done.
+      if (turn.reply) turns.delete(turn);
+      renderThreads();
+    }
     await refreshView().catch(() => {});
   }
 }
