@@ -15,7 +15,7 @@ Hearth's Fly.io Hacksgiving 2026 build runs as a private Sprite workspace. A fre
 
 - Box version uploads are supported. Until the gateway supports the Box versions GET, history uses locally recorded receipts.
 - Pinecone needs an index in the connected project. The dense setup uses `hearth-memory`, 384 dimensions, cosine similarity, and Hugging Face embeddings.
-- Browserbase is optional and unconfigured in the demo deployment.
+- Browserbase is connected through its Fly connection ID; a live read-only session was verified on Nov 25, 2026.
 - Periodic scheduler wake and anonymous Page publishing are opt-in deployment steps.
 
 [Setup](README.md) · [Connector status and setup](docs/connectors.md) · [QA and demo](QA-REPORT.md)

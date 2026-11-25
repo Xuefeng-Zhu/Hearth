@@ -56,7 +56,7 @@ Connectors are enabled per Sprite. A fresh clone has empty connection settings a
 | Exa | Web search and source links in chat | Supported. Choose Exa under **Settings → Search**. |
 | AgentMail | Approved chat email, reminder and task delivery, and forwarded-mail imports | Supported. Select or provision an inbox in **Connections**. |
 | Vocal Bridge | Live calls and chat queries from the voice agent | Supported. Requires a deployed voice agent and its connector. |
-| Browserbase | Search, fetch, and approval-gated browser sessions | Optional, not configured. |
+| Browserbase | Search, fetch, and approval-gated browser sessions | Connected. Live session verified Nov 25, 2026. |
 | Ollama Cloud | Alternative chat brain through the gateway | Optional. Select it in **Settings → Brain** after connecting. |
 
 [Set up connectors](docs/connectors.md)

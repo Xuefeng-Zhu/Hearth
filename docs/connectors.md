@@ -14,7 +14,7 @@ Fly attaches provider credentials when it forwards requests. Hearth stores conne
 | Exa | Add an Exa API key. | Choose **Exa** or **Auto** under **Settings → Search**, then use **Test search**. |
 | AgentMail | Add an AgentMail API key with inbox and mail access. | Save an existing inbox ID in **Connections** or use **Create inbox** from the Email Hearth panel when offered. Set a recipient in **Settings → Reminders** to enable reminder or task email. |
 | Vocal Bridge | Add a deployed voice agent's agent-scoped API key. | Refresh **Connections** and check access. Open **Call** in Chat to start a real session. [Voice agent configuration](voice.md#live-calls-with-vocal-bridge) |
-| Browserbase | Optionally add a project API key and grant the Sprite access. | Refresh **Connections**, then enable browsing under **Settings → Search**. Search and fetch read public pages. Live sessions and interactive steps go through approval policy. Browserbase is unconfigured in the demo deployment. |
+| Browserbase | Optionally add a project API key and grant the Sprite access. | Refresh **Connections**, then enable browsing under **Settings → Search**. Search and fetch read public pages. Live sessions and interactive steps go through approval policy. The demo deployment has Browserbase connected. |
 | Ollama Cloud | Optionally add an Ollama Cloud API key. | Select **Ollama Cloud** and a model under **Settings → Brain**, or add a model to the Smart routing pool. |
 
 [Connector and access-policy reference](https://fly.io/sprites/ecosystem/), [Ollama Cloud setup](https://docs.ollama.com/cloud)
