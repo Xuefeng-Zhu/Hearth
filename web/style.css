@@ -544,3 +544,8 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
   .call-sheet { width: 100%; max-width: 100%; max-height: calc(100dvh - 16px); margin: auto 0 0; border-radius: 18px 18px 0 0; }
   .call-sheet-body { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
 }
+@media (max-width: 420px) {
+  .thread-header:has(.thread-controls:not([hidden])) { flex-wrap: wrap; }
+  .thread-header .thread-heading { flex: 1 1 60px; }
+  .thread-header .thread-controls:not([hidden]) { order: 2; width: 100%; justify-content: flex-end; }
+}
