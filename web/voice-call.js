@@ -98,6 +98,20 @@ export function createVoiceCall({ api, getThread, isConfigured, prepare, makeMas
     };
     tick();
     call.timer = setInterval(tick, 250);
+    if (call.client) sendContext(call);
+  }
+
+  function sendContext(call) {
+    const language = call.preferences.language;
+    const participant = call.client.room.localParticipant;
+    if (language !== "auto" && participant.permissions?.canUpdateMetadata) {
+      participant.setAttributes({ "hearth.language": language }).catch(() => {});
+    }
+    call.client.sendAction("hearth_context", {
+      thread_title: call.thread.title, user_name: call.participantName, language,
+    }).catch(() => {
+      if (active(call)) setFeedback("The call connected, but Hearth could not send the chat context.");
+    });
   }
 
   async function saveReport(call) {
@@ -220,6 +234,7 @@ export function createVoiceCall({ api, getThread, isConfigured, prepare, makeMas
       ]);
       if (!active(call)) return;
       setLogLevel("silent");
+      call.participantName = status.participant_name || "User";
       const client = new VocalBridge({
         auth: { tokenProvider: async () => {
           try {
@@ -229,7 +244,7 @@ export function createVoiceCall({ api, getThread, isConfigured, prepare, makeMas
             throw error;
           }
         } },
-        participantName: status.participant_name,
+        participantName: call.participantName,
         maxReconnectAttempts: 0,
       });
       call.client = client;
@@ -267,15 +282,6 @@ export function createVoiceCall({ api, getThread, isConfigured, prepare, makeMas
       };
       room.on(RoomEvent.AudioPlaybackStatusChanged, playback);
       playback();
-      const language = call.preferences.language;
-      if (language !== "auto" && room.localParticipant.permissions?.canUpdateMetadata) {
-        room.localParticipant.setAttributes({ "hearth.language": language }).catch(() => {});
-      }
-      client.sendAction("hearth_context", {
-        thread_title: call.thread.title, user_name: status.participant_name || "User", language,
-      }).catch(() => {
-        if (active(call)) setFeedback("The call connected, but Hearth could not send the chat context.");
-      });
       if (client.state === "connected") goLive(call);
       else {
         clearTimeout(call.connectTimer);
