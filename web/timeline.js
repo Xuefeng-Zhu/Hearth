@@ -16,6 +16,7 @@ const kinds = {
   voice: ["Voice", "M9 6a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0zm-4 5a7 7 0 1 0 14 0M12 18v3m-3 0h6"],
   artifact: ["Artifact", "M5 3h9l5 5v13H5zM14 3v5h5M8 12h8m-8 4h8"],
   undo: ["Undo", "M9 5 4 10l5 5M4 10h10a5 5 0 0 1 0 10h-3"],
+  inbox: ["Inbox", "M3 5h18v14H3zm0 1 9 7 9-7"],
   email: ["Email", "M3 5h18v14H3zm0 1 9 7 9-7"],
   checkpoint: ["Checkpoint", "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 4v5l3 2"],
   thread: ["Side chat", "M4 4h16v12H9l-5 4zM8 8h8m-8 4h5"],
@@ -99,7 +100,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["artifact", "checkpoint", "email", "gateway", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "voice"]
+    action: ["artifact", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "voice"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -136,6 +137,13 @@ function detailFields(row, gatewayResponse) {
     ["Reminder", data.job?.message || data.message],
     ["Due", formatted(data.job?.next_at || data.scheduled_at)],
     ["Next due", formatted(data.next_due)],
+    ["Channel", { app: "In app", email: "Email", both: "Both" }[data.job?.channel]],
+    ["Delivery", data.delivery_summary || join(Object.entries(data.delivery || {}).map(([channel, delivery]) =>
+      `${channel === "app" ? "In app" : "Email"} · ${delivery.status}${delivery.reason ? ` · ${delivery.reason}` : ""}`))],
+    ["Late", data.late_minutes ? `Late by ${data.late_minutes}m` : ""],
+    ["Summary", data.summary],
+    ["Proposed action", data.proposal],
+    ["Event time", formatted(data.event_at)],
     ["Schedule", data.job?.cron && `${data.job.cron} UTC`],
     ["Recipients", data.email?.to.join(", ")],
     ["Subject", data.email?.subject],
@@ -265,9 +273,11 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
     const button = card.querySelector(".timeline-undo");
     button.setAttribute("aria-expanded", String(!target.hidden));
     if (!target.hidden && !target.firstElementChild) {
-      const itemChange = row.kind === "artifact" || action.memory_change;
+      const itemChange = ["artifact", "inbox", "reminder"].includes(row.kind) || action.memory_change;
       const message = row.redoable ? "Apply this memory change again?"
         : row.kind === "artifact" ? "Undo this artifact change?"
+          : row.kind === "inbox" ? "Undo the changes from this email?"
+          : row.kind === "reminder" ? "Cancel this reminder?"
           : action.memory_change ? "Undo this memory change?"
             : "Restore this checkpoint? Newer chats, notes, and reminders will roll back. Delivered email stays delivered.";
       target.append(element("p", "", message));

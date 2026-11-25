@@ -19,6 +19,8 @@
         <button type="button" class="nav-link" data-view="chat" aria-current="page"><span class="nav-icon" aria-hidden="true">▤</span> Chat</button>
         <button type="button" class="nav-link" data-view="memory"><span class="nav-icon" aria-hidden="true">▱</span> Memory</button>
         <button type="button" class="nav-link" data-view="artifacts"><span class="nav-icon" aria-hidden="true">▧</span> Artifacts</button>
+        <button type="button" class="nav-link" data-view="reminders"><span class="nav-icon" aria-hidden="true">◴</span> Reminders</button>
+        <button type="button" class="nav-link" data-view="inbox"><span class="nav-icon" aria-hidden="true">✉</span> Inbox</button>
         <button type="button" class="nav-link" data-view="timeline"><span class="nav-icon" aria-hidden="true">◷</span> Timeline</button>
         <button type="button" class="nav-link" data-view="connections"><span class="nav-icon" aria-hidden="true">⌘</span> Connections</button>
         <button type="button" class="nav-link" data-view="settings"><span class="nav-icon" aria-hidden="true">⚙</span> Settings</button>
@@ -178,6 +180,34 @@
           </div>
         </div>
       </section>
+      <section class="view panel" id="reminders-view" aria-labelledby="view-title" hidden>
+        <div class="section-intro delivery-intro">
+          <div><h2>Reminders</h2><p>See what’s coming up and what reached each channel.</p></div>
+          <button type="button" id="open-reminder-settings">Reminder settings</button>
+        </div>
+        <details class="card reminder-create" id="reminder-create">
+          <summary>New reminder</summary>
+          <form class="delivery-form" id="reminder-create-form">
+            <label class="delivery-full">Title<input name="message" required maxlength="800"></label>
+            <label>When<input name="at" type="datetime-local" required></label>
+            <label>Channel<select name="channel"><option value="">Settings default</option><option value="app">In app</option><option value="email">Email</option><option value="both">Both</option></select></label>
+            <label class="delivery-full">Note<textarea name="note" rows="2" maxlength="4000"></textarea></label>
+            <label class="check-label delivery-full"><input name="urgent" type="checkbox"> Urgent · send during quiet hours</label>
+            <div><button class="primary-setting" type="submit">Schedule reminder</button></div>
+          </form>
+        </details>
+        <p id="reminders-feedback" class="meta" role="status"></p>
+        <div id="reminders-content"></div>
+      </section>
+      <section class="view panel" id="inbox-view" aria-labelledby="view-title" hidden>
+        <div class="section-intro delivery-intro">
+          <div><h2>Email Inbox</h2><p>Review what Hearth found in your forwarded mail.</p></div>
+          <button type="button" id="inbox-poll">Check mail</button>
+        </div>
+        <div id="inbox-address" class="card email-hearth-card"></div>
+        <p id="inbox-feedback" class="meta" role="status"></p>
+        <div id="inbox-content"></div>
+      </section>
       <section class="view panel" id="timeline-view" aria-labelledby="view-title" hidden>
         <div class="section-intro timeline-intro">
           <h2>Workspace activity</h2>
@@ -211,6 +241,7 @@
           <div><h2>Fly connector catalog</h2><p class="empty" id="connection-notice" role="status">Checking connections…</p></div>
           <button type="button" class="rescan" id="rescan-connections">Refresh</button>
         </div>
+        <section id="email-hearth-connection" class="card email-hearth-card" aria-label="Email Hearth"></section>
         <div class="connection-tabs" id="connection-tabs" role="tablist" aria-label="Connector configuration">
           <button type="button" id="configured-tab" data-connection-tab="configured" role="tab" aria-controls="configured-panel" aria-selected="false" tabindex="-1">
             Configured <span class="connection-badge" hidden></span>
@@ -248,7 +279,53 @@
           <button type="button" data-settings="search">Search</button>
           <button type="button" data-settings="appearance">Appearance</button>
           <button type="button" data-settings="voice">Voice</button>
+          <button type="button" data-settings="reminders">Reminders</button>
         </nav>
+        <div id="settings-reminders" hidden>
+          <div class="section-intro"><h2>Reminders</h2><p>Choose where reminders arrive and how Hearth handles incoming email.</p></div>
+          <div class="settings-layout reminder-settings-layout">
+            <form id="reminder-settings-form" class="card brain-form">
+              <fieldset class="preference-fields delivery-form">
+                <legend>Delivery</legend>
+                <label>Default channel<select name="channel"><option value="app">In app</option><option value="email">Email</option><option value="both">Both</option></select></label>
+                <label>Recipient email<input name="recipient" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com"></label>
+                <label>Quiet hours start<input name="quiet_start" type="time" required></label>
+                <label>Quiet hours end<input name="quiet_end" type="time" required></label>
+                <label class="delivery-full">Time zone<input name="timezone" required maxlength="100"></label>
+                <p class="meta delivery-full">Email waits until quiet hours end. Urgent reminders can arrive at any time.</p>
+              </fieldset>
+              <fieldset class="preference-fields delivery-form">
+                <legend>Forwarded mail</legend>
+                <label class="delivery-full">Allowed senders<textarea name="allowed_senders" rows="3" maxlength="12000" placeholder="One email address per line"></textarea></label>
+                <p class="meta delivery-full">Items from other senders wait for your review.</p>
+                <div class="delivery-full"><span class="delivery-label">Auto-accept from allowed senders</span>
+                  <div class="delivery-options" id="inbox-auto-kinds"></div>
+                </div>
+                <label class="check-label delivery-full"><input name="acknowledge" type="checkbox"> Acknowledge accepted mail from allowed senders</label>
+              </fieldset>
+              <button type="submit" class="primary-setting">Save settings</button>
+              <p id="reminder-settings-feedback" class="meta" role="status"></p>
+            </form>
+            <div class="settings-stack">
+              <section id="reminder-email-connection" class="card email-hearth-card" aria-label="Email Hearth"></section>
+              <section class="card email-hearth-card" aria-labelledby="reminder-test-title">
+                <h3 id="reminder-test-title">Test channels</h3>
+                <div class="delivery-actions">
+                  <button type="button" data-reminder-test="app">Send test in app</button>
+                  <button type="button" data-reminder-test="email">Send test email</button>
+                </div>
+                <p id="reminder-test-feedback" class="meta" role="status"></p>
+              </section>
+              <section class="card email-hearth-card" aria-labelledby="reminder-wake-title">
+                <h3 id="reminder-wake-title">Scheduler wake status</h3>
+                <dl class="delivery-details">
+                  <div><dt>Last tick</dt><dd id="reminder-last-tick">—</dd></div>
+                  <div><dt>Next due</dt><dd id="reminder-next-due">—</dd></div>
+                </dl>
+              </section>
+            </div>
+          </div>
+        </div>
         <div id="settings-artifacts" hidden>
           <div class="section-intro"><h2>Artifacts</h2><p>Choose where Hearth saves your files and the default format.</p></div>
           <form id="artifact-settings-form" class="card brain-form">

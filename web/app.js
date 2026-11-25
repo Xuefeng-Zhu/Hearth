@@ -4,6 +4,7 @@ import { createVoiceInput } from "./voice.js";
 import { callDuration, captionLine, createVoiceCall } from "./voice-call.js";
 import { createTimeline } from "./timeline.js";
 import { createArtifacts } from "./artifacts.js";
+import { channelChip, createReminders } from "./reminders.js";
 
 const byId = (id) => document.getElementById(id);
 const nav = [...document.querySelectorAll("[data-view]")];
@@ -31,7 +32,8 @@ const threadDrafts = new Map();
 const turns = new Set();
 const mainThread = { id: "main", title: "Main", busy: false };
 let threadList = [mainThread];
-let currentThread = sessionStorage.getItem("hearth-thread") || mainThread.id;
+const requestedThread = new URLSearchParams(location.search).get("thread");
+let currentThread = requestedThread || sessionStorage.getItem("hearth-thread") || mainThread.id;
 let selectionVersion = 0;
 let stateRequest = 0;
 let threadSignature;
@@ -66,6 +68,11 @@ const artifactLibrary = createArtifacts({
   refreshChat: async () => { if (view === "chat") await refreshView(); },
   saveActivity: (thread, active) => avatarSignal(thread, active
     ? { type: "tool_started", title: "Saving to Box" } : { type: "done" }),
+});
+const delivery = createReminders({
+  api, openView, openSettings, currentView: () => view, currentSettings: () => settingsSection,
+  startSending: () => avatarSignal(currentThread, { type: "tool_started", title: "Sending reminder" }),
+  stopSending: () => avatarSignal(currentThread, { type: "tool_finished" }),
 });
 const memoryNames = { auto: "Auto", pinecone: "Pinecone", local: "Local", keyword: "Local", huggingface: "Local · Hugging Face embeddings" };
 const folderNames = { root: "Root · USER.md", people: "people/", topics: "topics/", daily: "daily/" };
@@ -143,6 +150,7 @@ function avatarSignal(threadId, event) {
 function threadPose(thread, now) {
   const callPose = voiceCall.poseFor(thread.id);
   if (callPose) return callPose;
+  if (state?.reminder_sending?.includes(thread.id)) return { pose: "working", detail: "Sending reminder" };
   const pose = avatarPose(avatarState(thread.id, now), now, isWorking(thread));
   const local = [...turns].some((turn) => turn.threadId === thread.id && turn.user && !turn.finished);
   if (pose.pose === "thinking" && !local && thread.activity) return thread.activity;
@@ -472,7 +480,18 @@ function actionCard(action) {
     if (action.status === "pending") card.append(button("Approve", () => approve(action)));
   }
   if (action.paths) card.append(node("p", "", action.paths.join(", ")));
-  if (action.job) card.append(node("p", "", action.job.message), node("p", "meta", date(action.job.next_at)));
+  if (action.job) {
+    const controls = node("div", "delivery-actions");
+    const chip = button("", () => openView("reminders"));
+    chip.setAttribute("aria-label", "Open Reminders");
+    chip.append(channelChip(action.job.channel));
+    controls.append(chip);
+    if (action.job.cancelable ?? (action.job.status === "scheduled" && !action.undone)) {
+      controls.append(button("Undo", () => undo(action)));
+    }
+    card.append(node("p", "", action.job.message), node("p", "meta", date(action.job.next_at)), controls);
+    if (action.undone) card.append(node("p", "meta", "Canceled"));
+  }
   if (action.detail) card.append(node("p", "", action.detail));
   if (action.checkpoint) {
     card.append(node("p", "meta", `Checkpoint ${action.checkpoint.id}`));
@@ -618,6 +637,7 @@ async function refreshState() {
   for (const turn of turns) if (saved.has(turn.reply?.id)) turns.delete(turn);
   byId("environment-label").textContent = state.checkpoints === "sprite" ? "Private Sprite" : "Local workspace";
   renderBrain(state);
+  paintAvatars();
   if (view === "settings" && settingsSection === "voice") showVoiceEngine();
   return true;
 }
@@ -1509,6 +1529,7 @@ async function openSettings(section) {
   if (section === "brain") return openBrainSettings();
   if (section === "appearance") return;
   if (section === "artifacts") return artifactLibrary.settings();
+  if (section === "reminders") return delivery.settings();
   if (section === "voice") {
     syncVoiceSettings();
     return voiceCall.syncSettings();
@@ -1592,6 +1613,8 @@ async function changePreferences(feature, operation) {
 async function refreshView() {
   if (view === "timeline") return timeline.show();
   if (view === "artifacts") return artifactLibrary.show();
+  if (view === "reminders") return delivery.reminders();
+  if (view === "inbox") return delivery.inbox();
   if (!await refreshState()) return;
   if (view === "chat") renderChat();
   else if (view === "memory") await renderMemory();
@@ -1621,11 +1644,17 @@ async function openView(nextView, updateHistory = true) {
   paintAvatars();
   if (view === "connections") {
     renderConnections();
+    const mailCard = delivery.connections();
     await updateConnections("rescan");
+    await mailCard;
+    delivery.poll();
   } else if (view === "settings") {
     await openSettings(settingsSection);
   } else if (view === "artifacts") {
     await artifactLibrary.show();
+  } else if (view === "reminders" || view === "inbox") {
+    await refreshView();
+    if (view === "inbox") delivery.poll();
   } else if (!busy) {
     try {
       await refreshView();
@@ -1848,6 +1877,20 @@ async function approve(action) {
 }
 
 async function undo(action, { confirmed = false, timelineTitle, redo = false } = {}) {
+  if (action.job || action.inbox_id) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api(action.inbox_id ? "/api/inbox/undo" : "/api/undo", { id: action.inbox_id || action.id });
+      await refreshView();
+      showNotice(action.inbox_id ? "Email acceptance undone." : "Reminder canceled.");
+    } catch (error) {
+      showNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+    return;
+  }
   if (action.memory_change) {
     if (busy || (!confirmed && !window.confirm("Undo this memory change?"))) return;
     setBusy(true);
@@ -2139,13 +2182,14 @@ document.addEventListener("visibilitychange", () => {
     voice.cancel();
     if (view === "timeline") timeline.hide();
   }
-  if (!document.hidden && (view === "timeline" || (view === "chat" && !busy))) {
+  if (!document.hidden) delivery.poll();
+  if (!document.hidden && (["timeline", "reminders", "inbox"].includes(view) || (view === "chat" && !busy))) {
     refreshView().catch((error) => showNotice(error.message));
   }
 });
 let polling = false;
 setInterval(async () => {
-  if (view !== "chat" || busy || threadBusy || document.hidden || polling) return;
+  if (!["chat", "reminders"].includes(view) || busy || threadBusy || document.hidden || polling) return;
   polling = true;
   try {
     await refreshView();
@@ -2155,7 +2199,9 @@ setInterval(async () => {
     polling = false;
   }
 }, 3_000);
+setInterval(() => { if (!document.hidden) delivery.poll(); }, 60_000);
 applyAppearance();
 openView("chat", false);
+if (!document.hidden) delivery.poll();
 if (isConnectionsRoute()) syncConnectionRoute();
 else updateConnections("rescan");

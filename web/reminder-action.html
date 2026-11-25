@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hearth reminder action</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/reminder-action.js"></script>
+</head>
+<body class="reminder-action-page">
+  <main class="card email-hearth-card">
+    <img src="/icons/icon.svg" width="45" height="45" alt="">
+    <h1>Hearth reminder</h1>
+    <p id="action-title"></p>
+    <p id="action-message" role="status">Checking this reminder link…</p>
+    <div class="delivery-actions">
+      <button type="button" id="action-confirm" class="primary-setting" hidden>Confirm</button>
+      <a href="/">Open Hearth</a>
+    </div>
+  </main>
+</body>
+</html>
