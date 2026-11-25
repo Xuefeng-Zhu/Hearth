@@ -20,6 +20,9 @@ when it was only proposed. Propose an email only when the user asked to contact 
 The user approves sends in the UI. Schedules are in-app reminders in UTC. For undo, offer the Undo
 card and explain that it rolls the filesystem back. Be concise and transparent about tool errors."""
 BRAIN_TEST_PROMPT = "Reply with exactly: Hearth is ready."
+THANKSGIVING_DEMO = "Plan Thanksgiving dinner"
+DEMO_GUEST_NOTES = ("people/maya.md", "people/daniel.md")
+DEMO_ADDRESS = re.compile(r"(?im)^Demo email: *([a-z0-9._+-]+@example\.invalid) *$")
 READ_ONLY_TOOLS = {"memory_read", "memory_search", "web_search"}
 EMAIL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 
@@ -235,6 +238,15 @@ class Agent:
         clock = datetime.now(timezone.utc)
         messages = [{"role": "system", "content": f"{SYSTEM}\nCurrent UTC time: {iso(clock)}."}]
         messages.extend({"role": message["role"], "content": message["content"]} for message in history)
+        demo_addresses = None
+        if prompt.casefold() == THANKSGIVING_DEMO.casefold():
+            demo_addresses = self.demo_addresses()
+            addresses = ", ".join(demo_addresses) or "None found. Skip the draft and explain what is missing."
+            messages[-1]["content"] = (
+                f"{THANKSGIVING_DEMO} using my sample notes. Read topics/thanksgiving.md and the guests’ notes, "
+                "draft an invitation for my approval only to the sample addresses below, and set an in-app "
+                f"reminder for two minutes from now to confirm the headcount and allergies.\nSample addresses: {addresses}"
+            )
         definitions = {name: definition for name, definition in TOOL_DEFINITIONS.items()
                        if name != "web_search" or self.tools.configured("tavily")}
         if self.gateway_connections:
@@ -258,7 +270,7 @@ class Agent:
             try:
                 model = with_model(self.tools.gateway, model)
                 if recovery is None:
-                    self.run_model(model, messages.copy(), tools, event, clock, notices)
+                    self.run_model(model, messages.copy(), tools, event, clock, notices, demo_addresses)
                 else:
                     self.resume_reply(model, messages, recovery, event, notices)
                 return
@@ -302,7 +314,13 @@ class Agent:
         self.record_message("assistant", redact_text(reply["content"]), action_ids=action_ids, notices=notices)
         event("done", {"provider": model["provider"]})
 
-    def run_model(self, model, messages, tools, event, clock, notices):
+    def demo_addresses(self):
+        with self.storage.lock():
+            files = set(self.storage.files())
+            return sorted({address for path in DEMO_GUEST_NOTES if path in files
+                           for address in DEMO_ADDRESS.findall(self.storage.read(path))})
+
+    def run_model(self, model, messages, tools, event, clock, notices, demo_addresses):
         action_ids = []
         touched_state = False
         for _ in range(9):
@@ -329,6 +347,8 @@ class Agent:
                 try:
                     arguments = json.loads(function["arguments"])
                     name = function["name"]
+                    if name == "send_email" and demo_addresses is not None and isinstance(arguments, dict):
+                        arguments["to"] = demo_addresses
                     touched_state |= name not in READ_ONLY_TOOLS and not (
                         name == "gateway_request" and isinstance(arguments, dict) and arguments.get("method") == "GET"
                     )
