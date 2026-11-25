@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thanksgiving dinner</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --canvas:#f6efe2; --paper:#fffaf1; --ink:#2f211a; --muted:#625146;
+      --line:#cbb7a3; --accent:#813528; --hero:#772e24; --hero-text:#fff6e8; --hero-line:#efac87;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --canvas:#201816; --paper:#2b211d; --ink:#fff1de; --muted:#e2c9b7;
+        --line:#795b4e; --accent:#ffba95; --hero:#3b201b; --hero-text:#fff1de; --hero-line:#efa989;
+      }
+    }
+    * { box-sizing:border-box }
+    body { background:var(--canvas); color:var(--ink); font:1rem/1.6 system-ui,sans-serif }
+    main { max-width:72rem; margin:auto; padding:1rem }
+    header { background:var(--hero); color:var(--hero-text); padding:clamp(1.5rem,5vw,4.5rem) }
+    header p { max-width:36ch; font-size:1.05rem; margin:1rem 0 0; color:var(--hero-text) }
+    h1,h2,h3 { font-family:Georgia,"Noto Serif",serif; line-height:1.08; font-weight:normal }
+    h1 { font-size:clamp(2.8rem,8.5vw,6.5rem); letter-spacing:-.055em; margin:0; max-width:12ch }
+    h1::before { content:""; display:block; width:2.75rem; border-top:1px solid var(--hero-line); margin-bottom:1.1rem }
+    h2 { margin:0 0 1.2rem; font-size:clamp(1.8rem,4vw,2.65rem); letter-spacing:-.03em }
+    h3 { font-size:1.2rem; margin:0 0 .2rem }
+    .plan { display:grid; gap:1rem; margin-top:1rem }
+    section { background:var(--paper); border:1px solid var(--line); padding:clamp(1.1rem,3vw,2.25rem) }
+    ul { list-style:none; padding:0; margin:0 }
+    li + li { border-top:1px solid var(--line); margin-top:.7rem; padding-top:.7rem }
+    li p { color:var(--muted); font-size:.94rem; margin:0 }
+    aside p { margin:0; color:var(--muted) }
+    aside p + p { margin-top:1.2rem; padding-top:1.2rem; border-top:1px solid var(--line) }
+    strong { color:var(--accent) }
+    @media (min-width:44rem) {
+      main { padding:clamp(1.5rem,4vw,3rem) }
+      .plan { grid-template-columns:1.6fr 1fr }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Thanksgiving dinner</h1>
+      <p>A Thanksgiving table for Maya and Daniel, with a vegetarian main for Maya.</p>
+    </header>
+    <div class="plan">
+      <section>
+        <h2>On the menu</h2>
+        <ul>
+          <li><h3>Roast turkey</h3></li>
+          <li><h3>Mushroom and lentil pie</h3><p>Vegetarian main</p></li>
+          <li><h3>Green beans</h3></li>
+          <li><h3>Pumpkin pie</h3></li>
+        </ul>
+      </section>
+      <section>
+        <h2>Before dinner</h2>
+        <aside>
+          <p><strong>Confirm the headcount</strong> before shopping.</p>
+          <p>Check for allergies and keep the vegetarian main on the menu.</p>
+        </aside>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
