@@ -489,8 +489,18 @@ function messageToolbar(message, content, prompt) {
 }
 
 byId("close-message-menu").addEventListener("click", () => menu.close());
-menu.addEventListener("click", (event) => { if (event.target === menu) menu.close(); });
+let pressedBackdrop = false;
+menu.addEventListener("pointerdown", (event) => {
+  const { left, right, top, bottom } = menu.getBoundingClientRect();
+  pressedBackdrop = event.target === menu && (event.clientX < left || event.clientX > right ||
+    event.clientY < top || event.clientY > bottom);
+});
+menu.addEventListener("click", (event) => {
+  if (pressedBackdrop && event.target === menu) menu.close();
+  pressedBackdrop = false;
+});
 menu.addEventListener("close", () => {
+  pressedBackdrop = false;
   if (menuTrigger?.isConnected) menuTrigger.focus({ preventScroll: true });
   menuTrigger = undefined;
 });

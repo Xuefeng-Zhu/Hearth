@@ -130,6 +130,16 @@ def test_actions(page, mobile, output, label):
     menu = page.get_by_role("dialog", name="Message actions")
     expect(menu.get_by_role("button", name="Share to Main")).to_be_visible()
     menu.get_by_role("button", name="Close message actions").click()
+    if mobile:
+        touch = page.context.new_cdp_session(page)
+        bounds = user.bounding_box()
+        point = {"x": bounds["x"] + bounds["width"] / 2, "y": bounds["y"] + bounds["height"] / 2}
+        touch.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [point]})
+        expect(menu).to_be_visible(timeout=1500)
+        touch.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        touch.detach()
+        expect(menu.get_by_role("button", name="Share to Main")).to_be_visible()
+        menu.get_by_role("button", name="Close message actions").click()
     expect(page.locator(".header").get_by_role("button", name="Call Hearth")).to_be_visible()
     assert not page.locator("#composer #start-call").count()
     reply.scroll_into_view_if_needed()
