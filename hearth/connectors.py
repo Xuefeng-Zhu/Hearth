@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from urllib.error import URLError
@@ -92,7 +93,7 @@ class Gateway:
 
 
 def read_config(path=None):
-    local = ROOT / "config/connectors.local.json"
+    local = Path(os.environ.get("HEARTH_CONNECTOR_CONFIG", ROOT / "config/connectors.local.json"))
     file = Path(path) if path else local if local.is_file() else ROOT / "config/connectors.json"
     return json.loads(file.read_text(encoding="utf-8"))
 
