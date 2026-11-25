@@ -341,12 +341,12 @@
             <form class="card brain-form preference-form" id="memory-settings-form">
               <fieldset class="preference-fields" id="memory-fields" disabled>
                 <div>
-                  <label for="memory-backend">Recall backend</label>
+                  <label for="memory-backend">Recall store</label>
                   <select id="memory-backend" aria-describedby="memory-backend-detail"></select>
                   <p class="meta" id="memory-backend-detail"></p>
                 </div>
                 <div>
-                  <label for="memory-model">Hugging Face embedding model</label>
+                  <label for="memory-model">Local embedding model</label>
                   <select id="memory-model"></select>
                 </div>
                 <div class="field-pair">
@@ -374,11 +374,14 @@
             </form>
             <div class="settings-stack">
               <section class="card brain-form utility-card" aria-labelledby="memory-index-title">
-                <h3 id="memory-index-title">Memory index</h3>
+                <h3 id="memory-index-title">Pinecone index</h3>
+                <dl id="pinecone-index-details" class="memory-index-details"></dl>
                 <p class="meta" id="memory-index-status" role="status">Checking index…</p>
                 <progress id="memory-index-progress" aria-label="Memory index progress" hidden></progress>
-                <button id="memory-reindex" type="button" disabled>Reindex now</button>
-                <p class="meta">Rebuilds the saved scope after a checkpoint.</p>
+                <div class="memory-index-actions">
+                  <button class="primary-setting" id="memory-sync" type="button" disabled>Sync memories to Pinecone</button>
+                  <button id="memory-reindex" type="button" disabled>Rebuild index</button>
+                </div>
               </section>
               <section class="card brain-form utility-card" aria-labelledby="memory-test-title">
                 <h3 id="memory-test-title">Test recall</h3>
@@ -387,6 +390,10 @@
                   <input type="search" id="memory-test-query" placeholder="Who can’t eat nuts?" maxlength="1000" required>
                   <button type="submit" disabled>Test</button>
                 </form>
+                <div class="field-pair memory-test-filters">
+                  <div><label for="memory-test-kind">Kind</label><select id="memory-test-kind"></select></div>
+                  <div><label for="memory-test-thread">Thread</label><select id="memory-test-thread"></select></div>
+                </div>
                 <div class="query-results" id="memory-test-results" aria-live="polite"></div>
               </section>
             </div>

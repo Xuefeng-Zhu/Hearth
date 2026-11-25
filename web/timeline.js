@@ -265,16 +265,21 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
     const button = card.querySelector(".timeline-undo");
     button.setAttribute("aria-expanded", String(!target.hidden));
     if (!target.hidden && !target.firstElementChild) {
-      const artifact = row.kind === "artifact";
-      target.append(element("p", "", artifact ? "Undo this artifact change?"
-        : "Restore this checkpoint? Newer chats, notes, and reminders will roll back. Delivered email stays delivered."));
+      const itemChange = row.kind === "artifact" || action.memory_change;
+      const message = row.redoable ? "Apply this memory change again?"
+        : row.kind === "artifact" ? "Undo this artifact change?"
+          : action.memory_change ? "Undo this memory change?"
+            : "Restore this checkpoint? Newer chats, notes, and reminders will roll back. Delivered email stays delivered.";
+      target.append(element("p", "", message));
       const cancel = control("Cancel", () => {
         confirmation = undefined;
         setConfirmation(card, row, action);
         button.focus();
       });
-      const restore = control(artifact ? "Undo change" : "Restore checkpoint",
-        () => undo(action, { confirmed: true, timelineTitle: row.title }), "timeline-restore");
+      const label = row.redoable ? "Redo change" : itemChange ? "Undo change" : "Restore checkpoint";
+      const restore = control(label, () => undo(action, {
+        confirmed: true, timelineTitle: row.title, redo: !!row.redoable,
+      }), "timeline-restore");
       restore.dataset.focus = "restore";
       target.append(cancel, restore);
     }
@@ -345,13 +350,13 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
     });
 
     const action = row.kind === "artifact" ? { ...row.data, id: row.action_id } : row.data;
-    if (row.undoable && !row.undone) {
+    if ((row.undoable && !row.undone) || row.redoable) {
       card.classList.add("has-undo");
       const confirm = element("div", "timeline-confirm");
       confirm.id = "confirm-" + row.action_id;
       confirm.hidden = true;
       details.id = "activity-" + row.action_id;
-      const button = control("Undo", () => {
+      const button = control(row.redoable ? "Redo" : "Undo", () => {
         const old = confirmation;
         confirmation = confirmation === row.id ? undefined : row.id;
         if (old && old !== row.id) {

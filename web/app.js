@@ -67,7 +67,7 @@ const artifactLibrary = createArtifacts({
   saveActivity: (thread, active) => avatarSignal(thread, active
     ? { type: "tool_started", title: "Saving to Box" } : { type: "done" }),
 });
-const memoryNames = { auto: "Auto", keyword: "Keyword", huggingface: "Hugging Face embeddings", pinecone: "Pinecone" };
+const memoryNames = { auto: "Auto", pinecone: "Pinecone", local: "Local", keyword: "Local", huggingface: "Local · Hugging Face embeddings" };
 const folderNames = { root: "Root · USER.md", people: "people/", topics: "topics/", daily: "daily/" };
 const brainProvider = byId("brain-provider");
 const brainModel = byId("brain-model");
@@ -395,11 +395,17 @@ function messageBubble(role, content, { message, status } = {}) {
   if (message?.source === "voice-call" && role === "assistant") body.append(node("p", "meta", "Voice call"));
   if (message?.remembered?.length) {
     const sources = node("details", "remembered");
-    const summary = node("summary", "", `Remembered · ${message.remembered.length}`);
+    const best = message.remembered[0];
+    const via = memoryNames[best.backend];
+    const detail = via ? ` · via ${via}${Number.isFinite(best.score) ? ` · ${best.score.toFixed(3)}` : ""}` : "";
+    const summary = node("summary", "", `Remembered · ${message.remembered.length}${detail}`);
     const sourceThread = currentThread;
     summary.addEventListener("click", () => avatarSignal(sourceThread, { type: "remembered" }));
     sources.append(summary);
-    sources.append(...message.remembered.map((hit) => button(memoryLabel(hit), () => openMemorySource(hit))));
+    sources.append(...message.remembered.map((hit) => {
+      const caption = Number.isFinite(hit.score) ? ` · ${hit.score.toFixed(3)}` : "";
+      return button(memoryLabel(hit) + caption, () => openMemorySource(hit));
+    }));
     body.append(sources);
   }
   if (message?.id && currentThread !== mainThread.id) {
@@ -625,7 +631,8 @@ function renderBrain({ model, model_id: id }) {
 }
 
 function memoryLabel(hit) {
-  return `${hit.thread_id ? hit.heading : hit.path} · line ${hit.line}`;
+  if (hit.artifact_id) return hit.heading || "Artifact";
+  return `${hit.message_id ? hit.heading : hit.path} · line ${hit.line}`;
 }
 
 async function selectFile(path, hit) {
@@ -638,13 +645,13 @@ async function selectFile(path, hit) {
   const forget = byId("forget-file");
   forget.hidden = true;
   try {
-    const file = hit?.thread_id
+    const file = hit?.message_id
       ? await api(`/api/memory/chat?thread=${encodeURIComponent(hit.thread_id)}&message=${encodeURIComponent(hit.message_id)}`)
       : await api(`/api/memory?path=${encodeURIComponent(path)}`);
     if (request !== fileRequest) return;
-    byId("file-name").textContent = hit?.thread_id ? memoryLabel(file) : file.path;
+    byId("file-name").textContent = hit?.message_id ? memoryLabel(file) : file.path;
     const preview = byId("file-content");
-    if (hit?.thread_id || !hit || !file.content) {
+    if (hit?.message_id || !hit || !file.content) {
       preview.textContent = file.excerpt || file.content || "This note is empty.";
     } else {
       preview.replaceChildren(...file.content.split(/\r?\n/).map((line, index) => {
@@ -653,7 +660,7 @@ async function selectFile(path, hit) {
       }));
       preview.querySelector(".is-highlighted")?.scrollIntoView({ block: "nearest" });
     }
-    forget.textContent = hit?.thread_id ? "Forget message" : "Forget note";
+    forget.textContent = hit?.message_id ? "Forget message" : "Forget note";
     forget.hidden = false;
   } catch (error) {
     if (request !== fileRequest) return;
@@ -666,7 +673,7 @@ async function renderMemory() {
   const { files } = await api("/api/memory");
   const list = byId("files");
   list.replaceChildren(...files.map((path) => button(path, () => selectFile(path))));
-  const path = files.includes(selectedFile) || selectedSource?.thread_id ? selectedFile
+  const path = files.includes(selectedFile) || selectedSource?.message_id ? selectedFile
     : files.includes("USER.md") ? "USER.md" : files[0];
   if (path) {
     await selectFile(path, selectedSource?.path === path ? selectedSource : undefined);
@@ -679,19 +686,23 @@ async function renderMemory() {
 
 async function openMemorySource(hit) {
   showNotice();
+  if (hit.artifact_id) {
+    await openView("artifacts");
+    return artifactLibrary.open(hit.artifact_id);
+  }
   selectedFile = hit.path;
   selectedSource = hit;
   await openView("memory");
 }
 
 async function forgetMemory(hit, excerpt = false) {
-  const question = hit.thread_id ? "Forget this message from recall?" : excerpt
+  const question = hit.message_id ? "Forget this message from recall?" : excerpt
     ? `Remove this excerpt from ${hit.path}?` : `Delete the note ${hit.path}?`;
   if (busy || !window.confirm(`${question} Hearth will save a checkpoint first.`)) return;
   setBusy(true);
   try {
     const body = { path: hit.path };
-    if (hit.thread_id) body.message_id = hit.message_id;
+    if (hit.message_id) body.message_id = hit.message_id;
     else if (excerpt) body.item_id = hit.id;
     await api("/api/memory/forget", body);
     selectedSource = undefined;
@@ -715,10 +726,12 @@ function renderRecall(container, result, allowForget = false) {
     const article = node("article", "result");
     const open = button(memoryLabel(hit), () => openMemorySource(hit));
     open.className = "result-title";
-    const score = hit.similarity === null ? `Keyword ${hit.keyword.toFixed(3)}`
-      : `Score ${hit.score.toFixed(3)} · Similarity ${hit.similarity.toFixed(3)} · Keyword ${hit.keyword.toFixed(3)}`;
+    const score = hit.backend === "pinecone"
+      ? `Score ${hit.score.toFixed(3)} · ${result.reranked ? "Reranked" : "Cosine similarity"}`
+      : hit.similarity === null ? `Keyword ${hit.keyword.toFixed(3)}`
+        : `Score ${hit.score.toFixed(3)} · Similarity ${hit.similarity.toFixed(3)} · Keyword ${hit.keyword.toFixed(3)}`;
     article.append(open, node("p", "meta", score), node("p", "", hit.excerpt));
-    if (allowForget) {
+    if (allowForget && !hit.artifact_id) {
       const remove = button("Forget", () => forgetMemory(hit, true));
       remove.className = "forget-excerpt";
       remove.setAttribute("aria-label", `Forget ${memoryLabel(hit)}`);
@@ -1333,11 +1346,15 @@ function settingOptions(select, options, selected) {
 
 function renderMemoryPreferences(info) {
   const choice = info.selection;
-  settingOptions(byId("memory-backend"), Object.entries(memoryNames).map(([value, name]) => {
-    const disconnected = value !== "auto" && !info.available[value];
-    return [value, disconnected ? `${name} · Connect in Connections` : name, disconnected];
-  }), choice.backend);
+  const stores = choice.backend === "huggingface" ? ["auto", "pinecone", "local", "huggingface"]
+    : ["auto", "pinecone", "local"];
+  settingOptions(byId("memory-backend"), stores.map((value) => [value, memoryNames[value]]),
+    choice.backend === "keyword" ? "local" : choice.backend);
   settingOptions(byId("memory-model"), Object.entries(info.models), choice.model);
+  settingOptions(byId("memory-test-kind"), [["", "All kinds"], ...info.kinds.map((kind) =>
+    [kind, kind[0].toUpperCase() + kind.slice(1)])], byId("memory-test-kind").value);
+  settingOptions(byId("memory-test-thread"), [["", "All threads"], ...(state?.threads || []).map((thread) =>
+    [thread.id, thread.title])], byId("memory-test-thread").value);
   byId("memory-top-k").value = choice.top_k;
   byId("memory-similarity").value = choice.min_similarity;
   byId("memory-chat-history").checked = choice.include_chat;
@@ -1358,7 +1375,7 @@ function renderMemoryPreferences(info) {
     }
     return row;
   }));
-  updateReindex(info.reindex);
+  updateMemoryJobs(info);
 }
 
 function renderSearchPreferences(info) {
@@ -1388,14 +1405,15 @@ function updatePreferenceControls(feature) {
   if (feature === "memory") {
     const backend = byId("memory-backend").value;
     byId("memory-backend-detail").textContent = {
-      auto: "Pinecone → Hugging Face → Keyword",
-      keyword: "Matches words locally and works offline.",
-      huggingface: "Embeds queries and in-scope text via the Sprite gateway.",
-      pinecone: "Uses Pinecone inference first, with Hugging Face embeddings if compatible.",
+      auto: "Try Pinecone first. Use Local if it’s unavailable or slow.",
+      local: "Search the workspace’s notes and saved artifacts offline.",
+      huggingface: "Rank local excerpts with Hugging Face embeddings.",
+      pinecone: "Search the Pinecone index with Local fallback.",
     }[backend];
-    byId("memory-model").disabled = backend === "keyword";
-    byId("memory-similarity").disabled = backend === "keyword";
-    byId("memory-reindex").disabled = !!pending || !!indexing;
+    byId("memory-model").disabled = backend !== "huggingface";
+    byId("memory-similarity").disabled = backend === "local";
+    byId("memory-sync").disabled = !!pending || !!preferences.memory.syncing || !info.available.pinecone;
+    byId("memory-reindex").disabled = !!pending || !!indexing || !!preferences.memory.syncing;
   } else {
     const provider = byId("search-provider").value;
     const connected = info.providers.filter((entry) => entry.connected);
@@ -1408,39 +1426,59 @@ function updatePreferenceControls(feature) {
   }
 }
 
-function updateReindex(job) {
+function updateMemoryJobs({ pinecone, sync, reindex }) {
   clearTimeout(reindexPoll);
   const status = byId("memory-index-status");
   const progress = byId("memory-index-progress");
+  const job = pinecone.connected ? sync : reindex;
+  preferences.memory.syncing = sync?.status === "running";
+  preferences.memory.indexing = reindex?.status === "running";
   const running = job?.status === "running";
-  preferences.memory.indexing = running;
+  const details = byId("pinecone-index-details");
+  const mode = pinecone.integrated && !pinecone.vector_transport ? "integrated" : "dense";
+  const synced = pinecone.last_sync ? new Date(pinecone.last_sync).toLocaleString() : "Pending";
+  details.replaceChildren(...[
+    ["Index", pinecone.name],
+    ["Namespace", pinecone.namespace],
+    ["Model", pinecone.embedding_model ? `${pinecone.embedding_model} · ${mode}` : undefined],
+    ["Dimension", pinecone.dimension],
+    ["Records", pinecone.record_count?.toLocaleString()],
+    ["Last sync", synced],
+  ].flatMap(([label, value]) => [node("dt", "", label), node("dd", "", value ?? "—")]));
+
   progress.hidden = !running;
-  if (job?.unique) {
-    progress.max = job.unique;
-    progress.value = job.embedded + job.reused;
+  if (running && (job.work || job.unique)) {
+    progress.max = job.work || job.unique;
+    progress.value = job.work ? job.upserted + job.deleted : job.embedded + job.reused;
   } else {
     progress.removeAttribute("value");
   }
-  if (!job) status.textContent = "New and edited text is indexed as Hearth recalls it.";
-  else if (running) {
+  if (running) {
     status.textContent = job.phase === "checkpoint" ? "Saving checkpoint…"
-      : job.unique ? `Indexing · ${job.embedded + job.reused} of ${job.unique} distinct excerpts` : "Scanning excerpts…";
-  } else if (job.status === "failed") status.textContent = job.error;
-  else {
-    status.textContent = `${memoryNames[job.backend]} · ${job.total} excerpts · ${job.embedded} embedded · ${job.reused} reused · ${job.latency_ms.toLocaleString()} ms`;
-    if (job.warnings?.length) status.textContent += ` ${job.warnings.join(" ")}`;
+      : job.phase === "connecting" ? "Checking the Pinecone connection…"
+        : job.work ? `Syncing · ${job.upserted + job.deleted} of ${job.work} changes` : "Checking saved excerpts…";
+  } else if (job?.status === "failed") {
+    status.textContent = job.error;
+  } else if (job && pinecone.connected) {
+    status.textContent = `${job.upserted} upserted · ${job.deleted} deleted · ${job.unchanged} unchanged`;
+  } else if (job) {
+    status.textContent = `Local index · ${job.total} excerpts · ${job.embedded} embedded`;
+  } else {
+    status.textContent = pinecone.connected ? "Ready to sync memories." : "Connect Pinecone in Connections.";
   }
+
   updatePreferenceControls("memory");
   if (running && view === "settings" && settingsSection === "memory") {
     reindexPoll = setTimeout(async () => {
       try {
-        updateReindex((await api("/api/memory/reindex")).reindex);
+        updateMemoryJobs(await api("/api/memory/reindex"));
       } catch (error) {
         status.textContent = error.message;
         preferences.memory.indexing = false;
+        preferences.memory.syncing = false;
         updatePreferenceControls("memory");
       }
-    }, 650);
+    }, 500);
   }
 }
 
@@ -1509,8 +1547,16 @@ async function changePreferences(feature, operation) {
   const state = preferences[feature];
   const form = byId(`${feature}-settings-form`);
   if (!state.info || state.pending || state.indexing || busy) return;
-  if (operation !== "reindex" && !form.reportValidity()) return;
+  const indexAction = operation === "reindex" || operation === "sync";
+  if (!indexAction && !form.reportValidity()) return;
   const selection = readPreferences(feature);
+  const filters = {};
+  if (feature === "memory" && operation === "test") {
+    const kind = byId("memory-test-kind").value;
+    const thread = byId("memory-test-thread").value;
+    if (kind) filters.kind = kind;
+    if (thread) filters.thread_id = thread;
+  }
   const feedback = byId(`${feature}-feedback`);
   const results = byId(`${feature}-test-results`);
   const query = operation === "test" ? byId(`${feature}-test-query`).value.trim() : "";
@@ -1521,10 +1567,10 @@ async function changePreferences(feature, operation) {
   if (operation === "test") results.replaceChildren(node("p", "meta", "Testing…"));
   if (operation === "settings") feedback.textContent = "Saving settings…";
   try {
-    const result = await api(`/api/${feature}/${operation}`, operation === "test" ? { selection, query }
-      : operation === "reindex" ? {} : selection);
-    if (operation === "reindex") {
-      updateReindex(result);
+    const result = await api(`/api/${feature}/${operation}`, operation === "test" ? { selection, query, ...filters }
+      : indexAction ? {} : selection);
+    if (indexAction) {
+      updateMemoryJobs(await api("/api/memory/reindex"));
     } else if (operation === "test") {
       if (feature === "memory") renderRecall(results, result);
       else renderSearchTest(results, result);
@@ -1705,6 +1751,9 @@ function readChatEvent(turn, name, payload) {
     if (turn.bubble && !turn.text) updateText(turn.bubble.text, turnProgress(turn));
     avatarSignal(turn.threadId, { type: name, title: payload.title });
     return;
+  } else if (name === "remembered") {
+    avatarSignal(turn.threadId, { type: "remembered" });
+    return;
   } else if (name === "tool_warning" || name === "demo_warning") {
     avatarSignal(turn.threadId, { type: "warning", detail: name === "demo_warning" ? "Mock demo" : "" });
     return;
@@ -1798,7 +1847,21 @@ async function approve(action) {
   }
 }
 
-async function undo(action, { confirmed = false, timelineTitle } = {}) {
+async function undo(action, { confirmed = false, timelineTitle, redo = false } = {}) {
+  if (action.memory_change) {
+    if (busy || (!confirmed && !window.confirm("Undo this memory change?"))) return;
+    setBusy(true);
+    try {
+      await api(redo ? "/api/redo" : "/api/undo", { id: action.id });
+      await refreshView();
+      showNotice(redo ? "Memory change redone." : "Memory change undone.");
+    } catch (error) {
+      showNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+    return;
+  }
   if (action.artifact_id) {
     if (busy) return;
     setBusy(true);
@@ -2044,7 +2107,13 @@ for (const feature of ["memory", "search"]) {
     changePreferences(feature, "test");
   });
 }
-byId("memory-reindex").addEventListener("click", () => changePreferences("memory", "reindex"));
+byId("memory-sync").addEventListener("click", () => changePreferences("memory", "sync"));
+byId("memory-reindex").addEventListener("click", () => {
+  const connected = preferences.memory.info?.available.pinecone;
+  const question = connected ? "Rebuild the Pinecone index for this profile from saved memories?"
+    : "Rebuild the local index from saved memories?";
+  if (window.confirm(question)) changePreferences("memory", "reindex");
+});
 input.addEventListener("input", () => {
   resizeInput();
   followComposer();

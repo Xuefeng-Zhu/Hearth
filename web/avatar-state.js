@@ -78,8 +78,8 @@ export function avatarPose(state, now, busy = false) {
   if (state.phase === "speaking") {
     return { pose: "speaking", mouth: now < state.mouthUntil ? state.mouth : 0 };
   }
-  if (state.phase === "thinking") return { pose: "thinking" };
   if (now < state.remembered) return { pose: "remembering" };
+  if (state.phase === "thinking") return { pose: "thinking" };
   if (now < state.happy) return { pose: "happy" };
   if (busy) return { pose: "thinking" };
   if (now < state.sleepUntil) return { pose: "sleeping", detail: "Reminder scheduled" };

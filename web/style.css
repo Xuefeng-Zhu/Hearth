@@ -968,3 +968,17 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 @media (prefers-reduced-motion: reduce) {
   .artifact-card { transition: none; }
 }
+
+.memory-index-details {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: .35rem 1rem;
+  margin: 0;
+  font-size: .875rem;
+}
+
+.memory-index-details dt { color: var(--muted); }
+.memory-index-details dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.memory-index-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.memory-test-filters { width: 100%; }
+.memory-test-filters select { width: 100%; }
