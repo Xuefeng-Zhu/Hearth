@@ -13,6 +13,16 @@ python3 -m hearth.server
 
 Open `http://127.0.0.1:8080`. Run `python3 -m hearth.scheduler` in a second terminal to process reminders. Both processes use `.hearth/` by default. Set `HEARTH_DATA_DIR` to the same directory for both processes to run a separate workspace. The first startup copies the sample files from `memory/` to `live/memory/` within the data directory.
 
+## Chat threads
+
+**Main** is the pinned conversation. Click **New side chat** or send `/side <message>` or `/btw <message>` from Main to start a separate thread. The first message supplies its title. Use **Rename** or **Delete** in the thread header. On mobile, choose a thread from the dropdown.
+
+Each thread streams independently. A dot marks a thread with work in progress. You can switch threads and send immediately, or send a follow-up in a busy thread. Follow-ups run in order after the current reply. Pending turns are held in memory until they start, so a server restart clears the queue.
+
+All threads share Hearth's Markdown memory, reminders, and approval queue. Timeline and approval cards show the source thread. Side chats can read recent Main excerpts. Main sees each side chat's title and short summary. **Share to Main** copies a short quote from a side-chat message into Main. It leaves the original in place and starts no model turn.
+
+Deleting a side chat requires confirmation and saves a checkpoint first. Timeline offers **Undo** on the deletion entry. The restore rolls back the entire workspace to the checkpoint. Shared actions and approvals stay in Timeline after a thread is deleted.
+
 ## Demo
 
 1. Click **Plan Thanksgiving dinner**. Hearth streams a plan based on the sample notes, drafts an invitation, and sets an in-app reminder for two minutes later.
@@ -49,7 +59,7 @@ The generic gateway tool sends a provider-relative request through Sprites. GET 
 ## How it works
 
 - `hearth.server` serves the browser app and JSON API. Chat uses server-sent events for reply text and action cards. The agent uses tools for memory, search, email proposals, reminders, and checkpoints. Any provider authorized by discovery is available to the generic gateway tool.
-- Memory lives in `USER.md`, `people/*.md`, `topics/*.md`, and `daily/YYYY-MM-DD.md`. Chat, actions, and reminders share a lock-protected JSON state file. The web and scheduler run as separate Sprite services.
+- Memory lives in `USER.md`, `people/*.md`, `topics/*.md`, and `daily/YYYY-MM-DD.md`. Each transcript is a JSONL file under `live/threads/` in the data directory. The thread index sits beside them. The first write to Main migrates any existing chat history from `live/state.json`. Actions and reminders share the lock-protected state file. The web and scheduler run as separate Sprite services.
 - The offline mock uses the same tool interface as the model adapters. The header shows the active brain while Settings shows the saved preference.
 - Provider calls go through the Sprites gateway without an Authorization header. Hearth stores connector IDs and supported settings. Fly holds the credentials. Tavily supplies web search. Pinecone embeds and indexes note excerpts using a namespace tied to the current memory revision. Local keyword recall works offline and when Pinecone is unavailable. AgentMail sends only after approval. Without AgentMail, approval records a simulated send locally. [Provider setup details](STATUS.md)
 - Undo restores the entire Sprite filesystem, including later chat, memory, reminders, and deployed files. The local backend restores the application data directory. Delivered email and remote Pinecone data stay with their providers.
