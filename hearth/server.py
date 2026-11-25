@@ -59,6 +59,12 @@ class Application:
             else:
                 if self.checkpoints.mode == "local":
                     self.restore = None
+                    return
+        if self.restore["status"] == "restoring":
+            # A successful native restore restarts the server and discards this thread.
+            time.sleep(90)
+            with self.operation:
+                self.restore = {"action_id": action["id"], "status": "failed"}
 
 
 class HTTPServer(ThreadingHTTPServer):

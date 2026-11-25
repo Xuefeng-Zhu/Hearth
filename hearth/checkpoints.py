@@ -66,19 +66,20 @@ class SpriteCheckpoints:
 
     def create(self, comment):
         output = self.command("create", "--comment", comment)
-        match = re.search(r"\bv\d+(?:[.\-]\d+)*\b", output)
+        match = re.search(r"\b(?:ID:\s+|Checkpoint\s+)(v\d+(?:[.\-]\d+)*)\b", output)
         if not match:
             raise HearthError("Sprite did not return a checkpoint ID.")
-        return {"id": match[0], "comment": comment, "created_at": iso()}
+        return {"id": match[1], "comment": comment, "created_at": iso()}
 
     def list(self):
-        items = []
-        for line in self.command("list").splitlines():
-            match = re.match(r"\s*(?:[-*]\s*)?(v\d+(?:[.\-]\d+)*)(?![\w.])\s*[:\s]*(.*)", line)
-            if match:
-                checkpoint_id, detail = match.groups()
-                items.append({"id": checkpoint_id, "comment": detail, "created_at": ""})
-        return items
+        try:
+            entries = json.loads(self.command("list")) or []
+            return [{"id": item["id"], "comment": item.get("comment") or
+                     ("Automatic Sprite checkpoint" if item.get("is_auto") else "Sprite checkpoint"),
+                     "created_at": item.get("create_time") or ""}
+                    for item in entries if SPRITE_ID.fullmatch(item["id"])]
+        except (KeyError, TypeError, ValueError):
+            raise HearthError("Sprite returned an unreadable checkpoint list.") from None
 
     def restore(self, checkpoint_id):
         if not SPRITE_ID.fullmatch(checkpoint_id):

@@ -4,5 +4,5 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 # Only ship runtime sources and the tracked, credential-free connector defaults.
 remote_script=$(< scripts/install-sprite.sh)
-tar --exclude='__pycache__' -czf - hearth web memory config/connectors.json scripts/run-service.sh |
+tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --exclude='__pycache__' -czf - hearth web memory config/connectors.json scripts/run-service.sh |
   sprite exec --http-post --no-port-forward --stdin -o xuefeng-zhu -s hearth -- bash -c "$remote_script"

@@ -303,7 +303,7 @@ async function undo(action) {
     } catch (error) {
       if (error.name === "Error") throw error;
     }
-    const deadline = Date.now() + 100_000;
+    const deadline = Date.now() + 115_000;
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 850));
       try {

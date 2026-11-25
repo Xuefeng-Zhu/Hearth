@@ -54,7 +54,7 @@ def mock_completion(messages, emit, clock):
     prior = [json.loads(message["content"]) for message in messages[since_user:] if message["role"] == "tool"]
     last = prior[-1] if prior else {}
     lower = prompt.lower()
-    wipe = any(word in lower for word in ("wipe", "clear", "blank", "erase"))
+    wipe = re.match(r"^(?:please\s+)?(?:wipe|clear|blank|erase)\b", lower)
     note = re.search(r"(?:USER|(?:people|topics)/[\w-]+|daily/\d{4}-\d{2}-\d{2})\.md", prompt)
     if last.get("error"):
         answer = last["error"]
@@ -77,12 +77,13 @@ def mock_completion(messages, emit, clock):
         answer = answer or "Tavily returned no results."
     elif "thanksgiving" in lower and not lower.startswith(("read ", "remember ", "search ")):
         if not prior:
-            return tool_call("memory_search", {"query": "Thanksgiving"})
+            return tool_call("memory_read", {"path": "topics/thanksgiving.md"})
         if len(prior) == 1:
             return tool_call("memory_search", {"query": "Maya Daniel"})
         if len(prior) == 2:
             # Sample actors use reserved domains so the offline demo cannot email real guests.
-            guests = sorted(set(re.findall(EMAIL, " ".join(hit["excerpt"] for hit in last["results"]))))
+            guests = sorted(set(re.findall(EMAIL, " ".join(hit["excerpt"] for hit in last["results"]
+                                                          if hit["path"].startswith("people/")))))
             if not guests:
                 answer = "I found the Thanksgiving plan but need the guests' email addresses before I can draft invitations."
             else:
@@ -92,9 +93,11 @@ def mock_completion(messages, emit, clock):
             return tool_call("schedule", {"message": "Confirm the Thanksgiving headcount and check for food allergies.",
                                          "at": iso(clock + timedelta(minutes=2))})
         else:
-            answer = ("Maya is vegetarian and usually brings dessert. Daniel likes roast turkey and can help set the table.\n\n"
-                      "Menu idea: roast turkey, mushroom and lentil pie, green beans, and pumpkin pie. "
-                      "I'll leave the invitations for your review. A reminder to confirm the headcount and allergies is set for two minutes from now.")
+            family = [re.split(r"\bDemo email:", hit["excerpt"], maxsplit=1)[0].strip().lstrip("# ")
+                      for hit in prior[1]["results"] if hit["path"].startswith("people/")]
+            menu = next((line for line in prior[0]["content"].splitlines() if line.startswith("Menu idea:")), "")
+            summary = "I'll leave the invitations for your review. A reminder is set for two minutes from now."
+            answer = "\n\n".join(part for part in (*family, menu, summary) if part)
     elif lower.startswith(("remind me", "schedule ")):
         if not prior:
             match = re.search(r"\bin (\d+) (minute|second|hour)s?\b", lower)
