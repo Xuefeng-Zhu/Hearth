@@ -81,6 +81,7 @@
             <h3 id="avatar-name">Ember</h3>
             <p class="face-status" id="face-status" aria-hidden="true"></p>
             <div class="face-caption" id="face-captions" role="region" aria-label="Reply captions" tabindex="0" hidden></div>
+            <div id="face-browse" class="cards"></div>
             <details id="face-actions" hidden>
               <summary>Turn actions</summary>
               <div class="cards"></div>
@@ -522,6 +523,12 @@
               <p class="meta" id="search-feedback" role="status"></p>
             </form>
             <div class="settings-stack">
+              <section class="card brain-form utility-card" aria-labelledby="browsing-settings-title">
+                <h3 id="browsing-settings-title">Browserbase</h3>
+                <label class="check-label"><input id="allow-browsing" type="checkbox" disabled> Allow web browsing</label>
+                <p class="meta">Use Browserbase to open live pages and capture screenshots.</p>
+                <p class="meta" id="browsing-feedback" role="status"></p>
+              </section>
               <section class="card brain-form utility-card" aria-labelledby="search-test-title">
                 <h3 id="search-test-title">Test search</h3>
                 <form id="search-test-form" class="query-form">

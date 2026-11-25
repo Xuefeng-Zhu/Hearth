@@ -288,7 +288,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
   const settingsStatus = get("artifact-settings-status");
   const pending = new Set();
   let layout = localStorage.getItem("hearth-artifact-layout") === "list" ? "list" : "grid";
-  let snapshot, selected, request, detailRequest, opener, confirming = false;
+  let snapshot, selected, request, detailRequest, opener, liveBrowse, confirming = false;
 
   function connection(info) {
     const { connected, box_error: error, settings } = info;
@@ -473,6 +473,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
   }
 
   async function open(id, trigger) {
+    liveBrowse = undefined;
     if (!drawer.open) {
       opener = trigger || document.activeElement;
       drawer.showModal();
@@ -495,6 +496,49 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     } catch (error) {
       if (detailRequest === token && drawer.open) detailStatus.textContent = error.message;
     }
+  }
+
+  function openBrowse({ id, domain, live_url: liveUrl, mock, name }, trigger) {
+    detailRequest = selected = undefined;
+    liveBrowse = name ? undefined : id;
+    opener = trigger;
+    get("artifact-drawer-title").textContent = name ? "Browser screenshot" : "Live browser";
+    get("artifact-filename").textContent = domain;
+    get("artifact-detail-meta").replaceChildren();
+    const actions = get("artifact-actions");
+    actions.replaceChildren();
+    detailStatus.textContent = mock ? "Mock browser preview" : "";
+    if (name || mock) {
+      const src = name ? `/api/browse/screenshots/${name}`
+        : `/api/browse/screenshots/demo.png?domain=${encodeURIComponent(domain)}`;
+      const image = element("img", "browse-preview");
+      image.src = src;
+      image.alt = `Screenshot of ${domain}`;
+      detailBody.replaceChildren(image);
+      if (name) {
+        const download = element("a", "artifact-control", "Download PNG");
+        download.href = src;
+        download.download = "browser-screenshot.png";
+        actions.append(download);
+      }
+    } else {
+      const frame = element("iframe", "artifact-pdf browse-live-frame");
+      frame.title = `Live view of ${domain}`;
+      frame.setAttribute("sandbox", "allow-same-origin allow-scripts");
+      frame.referrerPolicy = "no-referrer";
+      frame.tabIndex = -1;
+      frame.src = liveUrl;
+      detailBody.replaceChildren(frame);
+    }
+    if (!drawer.open) drawer.showModal();
+    get("artifact-close").focus();
+  }
+
+  function endBrowse(id) {
+    if (!id || liveBrowse !== id) return;
+    liveBrowse = undefined;
+    detailBody.replaceChildren();
+    detailStatus.textContent = "This browser session has ended.";
   }
 
   async function mutate(operation, item, fields) {
@@ -607,7 +651,8 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     const replacement = [...document.querySelectorAll("button[data-artifact-id]")]
       .find((button) => button.dataset.artifactId === selected && button.getClientRects().length);
     const target = opener?.isConnected ? opener : replacement || (get("artifacts-view").hidden ? get("message") : search);
-    selected = detailRequest = undefined;
+    selected = detailRequest = liveBrowse = undefined;
+    detailBody.replaceChildren();
     opener = undefined;
     target.focus();
   });
@@ -623,5 +668,5 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     });
   }
 
-  return { show, settings, chatActions, open };
+  return { show, settings, chatActions, open, openBrowse, endBrowse };
 }

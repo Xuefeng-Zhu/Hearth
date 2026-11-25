@@ -12,6 +12,7 @@ const kinds = {
   reminder: ["Reminder", "M18 8a6 6 0 0 0-12 0c0 6-2 7-2 8h16c0-1-2-2-2-8M10 20h4"],
   gateway: ["Connector", "m8 12 4-4m0 8 4-4M9 15l-2 2a3 3 0 0 1-4-4l4-4a3 3 0 0 1 4 0m2 6a3 3 0 0 0 4 0l4-4a3 3 0 0 0-4-4l-2 2"],
   search: ["Web search", "M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0zm-2 4 6 6"],
+  browse: ["Web browsing", "M3 5h18v14H3zM3 9h18m-15-2h1m2 0h1"],
   routing: ["Model routing", "M5 6h4m-2-2 2 2-2 2m8-2h4m-2-2 2 2-2 2M5 18h4l6-12m-2 12h6m-2-2 2 2-2 2"],
   brain: ["Model fallback", "M5 6h4m-2-2 2 2-2 2m8-2h4m-2-2 2 2-2 2M5 18h4l6-12m-2 12h6m-2-2 2 2-2 2"],
   voice: ["Voice", "M9 6a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0zm-4 5a7 7 0 1 0 14 0M12 18v3m-3 0h6"],
@@ -101,7 +102,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["artifact", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "voice"]
+    action: ["artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "voice"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -127,6 +128,10 @@ function detailFields(row, gatewayResponse) {
   const responseStatus = gatewayResponse?.status || data.http_status;
   const lines = [
     ["Request", data.prompt || data.query],
+    ["Page URL", data.url],
+    ["Session ID", data.session_id],
+    ["Browse time", Number.isInteger(data.duration_ms) ? `${(data.duration_ms / 1000).toFixed(2)} s` : ""],
+    ["Mode", row.kind === "browse" && data.mock && "Mock"],
     ["Reply", data.reply],
     ["Routing", data.reason || data.routing?.reason],
     ["Model order", join(data.order?.map(routedModel))],

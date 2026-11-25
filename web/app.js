@@ -204,9 +204,9 @@ function updateFaceCaption(text) {
   captions.scrollTop = captions.scrollHeight;
 }
 
-function renderFace(local, messages, actions) {
+function renderFace(local, messages, actions, remoteBrowse) {
   if (avatarMode !== "face") return;
-  const active = local.find((turn) => turn.user && !turn.reply && !turn.finished);
+  const active = local.find((turn) => (turn.user || turn.approval) && !turn.reply && !turn.finished);
   const latest = [...local].reverse().find((turn) => turn.reply || turn.error);
   const saved = messages.findLast((message) => message.role === "assistant");
   const reply = latest?.reply || saved;
@@ -215,10 +215,14 @@ function renderFace(local, messages, actions) {
     : (reply?.action_ids || []).map((id) => actions.get(id) || latest?.actions.get(id)).filter(Boolean);
   const details = byId("face-actions");
   const linked = !active && (reply?.artifacts || state?.message_artifacts?.[reply?.id] || []);
-  details.hidden = !items.length && !linked?.length;
+  const screenshots = !active && (reply?.browse_images || []);
+  const browse = active?.browse || remoteBrowse;
+  byId("face-browse").replaceChildren(...(browse ? [browseCard(browse)] : []));
+  details.hidden = !items.length && !linked?.length && !screenshots?.length;
   if (details.hidden) details.open = false;
   details.querySelector(".cards").replaceChildren(...items.map((action) => actionCard(actions.get(action.id) || action)));
   if (linked?.length) details.querySelector(".cards").append(artifactLibrary.chatActions(linked));
+  if (screenshots?.length) details.querySelector(".cards").append(...screenshots.map(browseScreenshot));
 }
 
 function applyAppearance() {
@@ -556,6 +560,7 @@ function messageBubble(role, content, { message, status, prompt, working } = {})
   if (role === "assistant" && message?.id) {
     const linked = message.artifacts || state?.message_artifacts?.[message.id] || [];
     if (linked.length) body.append(artifactLibrary.chatActions(linked));
+    if (message.browse_images?.length) body.append(...message.browse_images.map(browseScreenshot));
   }
   if (message?.id) body.append(messageMenu(item, message, role, content, prompt));
   item.append(body);
@@ -569,6 +574,32 @@ function threadSource(item, fallback = "Main") {
 function timelineSource(item) {
   const name = threadSource(item);
   return item.source === "voice-call" ? `${name} · Voice call` : name;
+}
+
+function browseScreenshot(image) {
+  const open = button("", (event) => artifactLibrary.openBrowse(image, event.currentTarget));
+  open.className = "browse-screenshot";
+  open.setAttribute("aria-haspopup", "dialog");
+  const thumbnail = node("img");
+  thumbnail.src = `/api/browse/screenshots/${image.name}`;
+  thumbnail.alt = "";
+  thumbnail.loading = "lazy";
+  open.append(thumbnail, node("span", "", `${image.mock ? "Mock screenshot" : "Browser screenshot"} · ${image.domain}`));
+  return open;
+}
+
+function browseCard(browse) {
+  const card = node("section", "card browse-card");
+  const status = node("div", "browse-progress");
+  status.setAttribute("role", "status");
+  status.append(node("span", "browse-indicator"), node("strong", "", `Browsing ${browse.domain}…`));
+  card.append(status);
+  if (browse.live_url || browse.mock) {
+    const watch = button("Watch live", (event) => artifactLibrary.openBrowse(browse, event.currentTarget));
+    watch.setAttribute("aria-haspopup", "dialog");
+    card.append(watch);
+  }
+  return card;
 }
 
 function actionCard(action) {
@@ -608,6 +639,26 @@ function actionCard(action) {
   if (action.kind === "remember") {
     card.append(node("p", "", action.fact));
     if (action.status === "pending") card.append(button("Approve", () => approve(action)));
+  }
+  if (action.kind === "browse") {
+    card.append(node("p", "", action.url));
+    const steps = node("ol", "browse-steps");
+    for (const step of action.steps) {
+      const label = { navigate: "Open", scroll: "Scroll", wait_for: "Wait for", click: "Click", fill: "Enter text in" };
+      const value = step.action === "fill" ? ` · “${step.text}”` : "";
+      steps.append(node("li", "", `${label[step.action]} ${step.target}${value}`));
+    }
+    card.append(steps);
+    if (action.mock) card.append(node("p", "meta", "Mock browser action"));
+    if (action.status === "pending") {
+      const approveBrowse = button("Approve browser action", () => chat("", { approval: action, keepDraft: true }));
+      approveBrowse.disabled = [...turns].some((turn) => turn.approval?.id === action.id && !turn.finished);
+      card.append(approveBrowse);
+    } else if (action.status === "complete") {
+      card.append(node("p", "meta", "Completed"));
+    } else if (action.status === "failed") {
+      card.append(node("p", "meta", "Steps did not run"));
+    }
   }
   if (action.paths) card.append(node("p", "", action.paths.join(", ")));
   if (action.job) {
@@ -715,9 +766,10 @@ function renderChat(force = false) {
   const actions = new Map((state?.actions || []).map((action) => [action.id, action]));
   const messages = state?.thread_id === currentThread ? state.messages : [];
   const local = [...turns].filter((turn) => turn.threadId === currentThread);
+  const remoteBrowse = threadList.find((thread) => thread.id === currentThread)?.activity?.browse;
   const signature = JSON.stringify([currentThread, messages, threadList.map((thread) => thread.title),
     avatarLook, avatarColor, busy,
-    state?.message_artifacts,
+    state?.message_artifacts, remoteBrowse, local.map(({ approval, finished }) => [approval?.id, finished]),
     messages.flatMap((message) => (message.action_ids || []).map((id) => actions.get(id)))]);
   if (!force && signature === chatSignature) return;
   chatSignature = signature;
@@ -732,7 +784,7 @@ function renderChat(force = false) {
     const message = stored.id ? stored : { ...stored, id: `${currentThread}:${index + 1}` };
     const cards = [...new Set(message.action_ids || [])].map((id) => actions.get(id)).filter(Boolean);
     const rowSignature = JSON.stringify([currentThread, message, cards, cards.map((action) => threadSource(action)),
-      cards.length ? busy : false,
+      cards.length ? [busy, local.map(({ approval, finished }) => [approval?.id, finished])] : false,
       state?.message_artifacts?.[message.id], avatarLook, avatarColor]);
     let row = chatRows.get(message.id);
     if (row?.signature !== rowSignature) {
@@ -753,19 +805,21 @@ function renderChat(force = false) {
   }
   for (const turn of local) {
     turn.bubble = undefined;
-    if (!saved.has(turn.user?.id)) {
+    if (!turn.approval && !saved.has(turn.user?.id)) {
       rows.push(messageBubble("user", turn.user?.content || turn.prompt, {
         message: turn.user, status: turn.user ? undefined : "Queued",
       }).item);
     }
-    if (saved.has(turn.reply?.id) || (!turn.user && !turn.error)) continue;
-    const content = turn.reply ? turn.reply.content : turn.text || turn.error || turnProgress(turn);
+    if (saved.has(turn.reply?.id) || (!turn.user && !turn.approval && !turn.error)) continue;
+    const content = turn.reply ? turn.reply.content : turn.text || turn.error || (turn.browse ? "" : turnProgress(turn));
     turn.bubble = messageBubble("assistant", content, {
-      message: turn.reply, prompt: turn.prompt, working: !turn.reply && !turn.error && !turn.text,
+      message: turn.reply, prompt: turn.prompt, working: !turn.reply && !turn.error && !turn.text && !turn.browse,
     });
+    turn.bubble.text.hidden = !content && !!turn.browse;
     rows.push(turn.bubble.item);
     for (const warning of turn.warnings) turn.bubble.notices.append(node("p", "model-warning", warning));
     for (const action of turn.actions.values()) turn.bubble.cards.append(actionCard(actions.get(action.id) || action));
+    if (turn.browse) turn.bubble.cards.append(browseCard(turn.browse));
     if (turn.error) {
       if (turn.text) turn.bubble.notices.append(node("p", "model-warning", turn.error));
       const retry = button("Edit and retry", () => {
@@ -781,10 +835,16 @@ function renderChat(force = false) {
       turn.bubble.cards.append(retry);
     }
   }
+  if (remoteBrowse && !local.length) {
+    const activity = messageBubble("assistant", "");
+    activity.text.hidden = true;
+    activity.cards.append(browseCard(remoteBrowse));
+    rows.push(activity.item);
+  }
   reconcileChildren(transcript, rows);
   checkCollapsedReplies();
   chatRows = nextRows;
-  renderFace(local, messages, actions);
+  renderFace(local, messages, actions, remoteBrowse);
   paintAvatars();
   if (follow) scrollDown();
 }
@@ -802,6 +862,12 @@ async function refreshState() {
   state = next;
   stateTag = response.headers.get("ETag");
   byId("start-call").disabled = typeof state.voice_call_available !== "boolean";
+  for (const thread of threadList) {
+    const browse = thread.activity?.browse;
+    if (browse && state.threads.find((item) => item.id === thread.id)?.activity?.browse?.id !== browse.id) {
+      artifactLibrary.endBrowse(browse.id);
+    }
+  }
   threadList = state.threads;
   renderThreads();
   if (state.thread_id !== currentThread) {
@@ -1580,6 +1646,9 @@ function renderMemoryPreferences(info) {
 
 function renderSearchPreferences(info) {
   const choice = info.selection;
+  const browsing = byId("allow-browsing");
+  browsing.checked = info.browsing.allowed;
+  browsing.disabled = false;
   const options = info.providers.map((entry) => [entry.provider, entry.connected ? entry.name
     : `${entry.name} · Connect in Connections`, !entry.connected]);
   settingOptions(byId("search-provider"), [["auto", "Auto"], ["off", "Off"], ...options], choice.provider);
@@ -1595,6 +1664,25 @@ function renderSearchPreferences(info) {
     return row;
   }));
 }
+
+byId("allow-browsing").addEventListener("change", async (event) => {
+  const input = event.currentTarget;
+  const feedback = byId("browsing-feedback");
+  const allowed = input.checked;
+  input.disabled = true;
+  feedback.textContent = "Saving…";
+  try {
+    const result = await api("/api/browse/settings", { allowed });
+    if (preferences.search.info) preferences.search.info.browsing = result;
+    input.checked = result.allowed;
+    feedback.textContent = result.allowed ? "Web browsing is on." : "Web browsing is off.";
+  } catch (error) {
+    input.checked = !allowed;
+    feedback.textContent = error.message;
+  } finally {
+    input.disabled = false;
+  }
+});
 
 function updatePreferenceControls(feature) {
   const { info, pending, indexing } = preferences[feature];
@@ -1972,6 +2060,15 @@ function readChatEvent(turn, name, payload) {
     avatarSignal(turn.threadId, { type: "done", remembered: !!turn.reply.remembered?.length });
   } else if (name === "error") {
     throw new Error(payload.message);
+  } else if (name === "browse_active") {
+    turn.browse = payload;
+    avatarSignal(turn.threadId, { type: "tool_started", title: `Browsing ${payload.domain}` });
+  } else if (name === "browse_finished") {
+    turn.browse = undefined;
+    artifactLibrary.endBrowse(payload.id);
+    avatarSignal(turn.threadId, { type: "tool_finished" });
+  } else if (name === "browse_approved") {
+    turn.activity = "Starting approved browser action";
   } else if (name === "tool_started" || name === "tool_finished" || name === "demo_listening") {
     turn.activity = payload.title;
     if (turn.bubble && !turn.text) updateText(turn.bubble.text, turnProgress(turn));
@@ -1988,14 +2085,14 @@ function readChatEvent(turn, name, payload) {
   else renderThreads();
 }
 
-async function chat(prompt, { keepDraft = false } = {}) {
+async function chat(prompt, { keepDraft = false, approval } = {}) {
   prompt = prompt.trim();
-  if (!prompt || busy) return;
+  if ((!prompt && !approval) || busy || (approval && [...turns].some((turn) => turn.approval?.id === approval.id && !turn.finished))) return;
   voice.cancel();
-  const source = currentThread;
+  const source = approval?.thread_id || currentThread;
   const command = source === mainThread.id && /^\/(side|btw)(?:\s|$)/i.test(prompt);
   const turn = { threadId: command ? undefined : source, selection: selectionVersion, command,
-    prompt, text: "", warnings: [], actions: new Map() };
+    prompt, approval, text: "", warnings: [], actions: new Map() };
   for (const previous of turns) if (previous.threadId === source && previous.error) turns.delete(previous);
   turns.add(turn);
   showNotice();
@@ -2005,9 +2102,9 @@ async function chat(prompt, { keepDraft = false } = {}) {
   scrollDown();
   try {
     await connectionRequest;
-    const response = await fetch("/api/chat", {
+    const response = await fetch(approval ? "/api/browse/approve" : "/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: prompt, thread_id: source }),
+      body: JSON.stringify(approval ? { id: approval.id, thread_id: source } : { message: prompt, thread_id: source }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
@@ -2039,6 +2136,8 @@ async function chat(prompt, { keepDraft = false } = {}) {
     }
     if ((turn.threadId || source) === currentThread) showNotice(error.message);
   } finally {
+    artifactLibrary.endBrowse(turn.browse?.id);
+    turn.browse = undefined;
     turn.finished = true;
     if (turn.threadId === currentThread || !turn.threadId) renderChat(true);
     else {

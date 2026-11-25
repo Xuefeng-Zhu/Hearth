@@ -84,6 +84,21 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .card .thread-source { color: var(--accent); font-size: 12px; }
 .cards { display: grid; gap: 9px; margin-top: 10px; }
 .cards:empty { display: none; }
+.card.browse-card { display: flex; align-items: center; justify-content: space-between; gap: 8px 14px; flex-wrap: wrap; }
+.browse-progress { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.browse-indicator { flex: 0 0 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.card.browse-card button { margin: 0; }
+.browse-screenshot {
+  display: grid; gap: 8px; width: min(100%, 480px); margin-top: 12px; padding: 6px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--field-surface); color: var(--ink);
+  text-align: left; cursor: pointer;
+}
+.browse-screenshot:hover { border-color: var(--accent); }
+.browse-screenshot span { padding: 0 4px 3px; font-size: 13px; overflow-wrap: anywhere; }
+.browse-screenshot img, .browse-preview { display: block; width: 100%; height: auto; border-radius: 5px; }
+.browse-screenshot img { max-height: 240px; object-fit: contain; background: var(--field-surface); }
+.browse-live-frame { pointer-events: none; }
+.browse-steps { padding-inline-start: 1.4em; overflow-wrap: anywhere; }
 .card { background: var(--paper); border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; min-width: 0; }
 .card-header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .card h3, .card h4 { margin: 0; font-size: 15px; }
@@ -143,7 +158,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .connection-card .connection-uses { margin: 0 0 12px; color: var(--selection-text); font-size: 13px; }
 .connection-uses strong { margin-right: 4px; }
 .connection-card .connection-test { margin: 8px 0; font-size: 13px; color: var(--connection-ok-text); }
-.connection-card .connection-test.failed, .connection-card .connection-test.denied { color: var(--warning-text); }
+.connection-card .connection-test:is(.failed, .denied, .not_connected) { color: var(--warning-text); }
 .connection-status { padding: 4px 8px; border-radius: 6px; background: var(--connection-status-bg); color: var(--status-text); font-size: 12px; font-weight: 650; }
 .connection-status.ok { background: var(--connection-ok-bg); color: var(--connection-ok-text); }
 .connection-status.error, .connection-status.unauthorized { background: var(--warning-bg); color: var(--warning-text); }
@@ -392,6 +407,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 #face-actions { width: min(610px, 100%); font-size: 13px; margin-top: 8px; color: var(--accent); }
 #face-actions summary { cursor: pointer; }
 #face-actions .cards { text-align: left; max-height: 24dvh; overflow: auto; }
+#face-browse { width: min(390px, 100%); color: var(--ink); }
 .face-view .composer { margin-top: 5px; }
 body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 44px; left: 50%; transform: translateX(-50%); }
 .appearance-card { padding: clamp(14px, 3vw, 24px); }
@@ -635,7 +651,7 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 .timeline-entry[data-kind="chat"] { --kind-bg: var(--timeline-chat-bg); --kind-ink: var(--timeline-chat-text); }
 .timeline-entry:is([data-kind="memory"], [data-kind="recall"], [data-kind="remember"]) { --kind-bg: var(--timeline-memory-bg); --kind-ink: var(--timeline-memory-text); }
 .timeline-entry:is([data-kind="reminder"], [data-kind="email"]) { --kind-bg: var(--timeline-reminder-bg); --kind-ink: var(--timeline-reminder-text); }
-.timeline-entry:is([data-kind="gateway"], [data-kind="search"]) { --kind-bg: var(--timeline-connector-bg); --kind-ink: var(--timeline-connector-text); }
+.timeline-entry:is([data-kind="gateway"], [data-kind="search"], [data-kind="browse"]) { --kind-bg: var(--timeline-connector-bg); --kind-ink: var(--timeline-connector-text); }
 .timeline-entry.is-error { --kind-bg: var(--timeline-error-bg); --kind-ink: var(--timeline-error-text); }
 .timeline-entry.is-undone { background: var(--timeline-undone-bg); --kind-bg: var(--timeline-undone-icon); --kind-ink: var(--timeline-undone-text); }
 .timeline-entry.is-undone .timeline-title { text-decoration: line-through; color: var(--muted); }
