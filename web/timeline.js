@@ -1,3 +1,5 @@
+import { icon } from "./icons.js";
+import { localDay, previousDay, setTimeZone, timeFormatter } from "./time.js";
 import { mascot, setPose } from "./avatar.js";
 import { reconcileChildren } from "./dom.js";
 
@@ -6,23 +8,12 @@ const categories = {
   all: "All", chat: "Chats", memory: "Memory", action: "Actions", connector: "Connectors", error: "Errors",
 };
 const kinds = {
-  chat: ["Chat turn", "M4 4h16v12H9l-5 4zM8 8h8m-8 4h5"],
-  recall: ["Memory recalled", "M3 5c3-1 6 0 9 2 3-2 6-3 9-2v14c-3-1-6 0-9 2-3-2-6-3-9-2zM12 7v14"],
-  memory: ["Memory", "M5 3h11l3 3v15H5zM9 3v6h6V3M8 21v-7h8v7"],
-  reminder: ["Reminder", "M18 8a6 6 0 0 0-12 0c0 6-2 7-2 8h16c0-1-2-2-2-8M10 20h4"],
-  gateway: ["Connector", "m8 12 4-4m0 8 4-4M9 15l-2 2a3 3 0 0 1-4-4l4-4a3 3 0 0 1 4 0m2 6a3 3 0 0 0 4 0l4-4a3 3 0 0 0-4-4l-2 2"],
-  search: ["Web search", "M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0zm-2 4 6 6"],
-  browse: ["Web browsing", "M3 5h18v14H3zM3 9h18m-15-2h1m2 0h1"],
-  routing: ["Model routing", "M5 6h4m-2-2 2 2-2 2m8-2h4m-2-2 2 2-2 2M5 18h4l6-12m-2 12h6m-2-2 2 2-2 2"],
-  brain: ["Model fallback", "M5 6h4m-2-2 2 2-2 2m8-2h4m-2-2 2 2-2 2M5 18h4l6-12m-2 12h6m-2-2 2 2-2 2"],
-  voice: ["Voice", "M9 6a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0zm-4 5a7 7 0 1 0 14 0M12 18v3m-3 0h6"],
-  artifact: ["Artifact", "M5 3h9l5 5v13H5zM14 3v5h5M8 12h8m-8 4h8"],
-  undo: ["Undo", "M9 5 4 10l5 5M4 10h10a5 5 0 0 1 0 10h-3"],
-  inbox: ["Inbox", "M3 5h18v14H3zm0 1 9 7 9-7"],
-  email: ["Email", "M3 5h18v14H3zm0 1 9 7 9-7"],
-  checkpoint: ["Checkpoint", "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 4v5l3 2"],
-  thread: ["Side chat", "M4 4h16v12H9l-5 4zM8 8h8m-8 4h5"],
-  tool: ["Tool", "M14 4a5 5 0 0 0-6 6L3 15a3 3 0 0 0 4 4l5-5a5 5 0 0 0 6-6l-3 3-3-3z"],
+  chat: ["Chat turn", "message"], recall: ["Memory recalled", "book"], memory: ["Memory", "book"],
+  reminder: ["Reminder", "bell"], gateway: ["Connector", "plug"], search: ["Web search", "search"],
+  browse: ["Web browsing", "monitor"], routing: ["Model routing", "route"], brain: ["Model fallback", "route"],
+  voice: ["Voice", "mic"], artifact: ["Artifact", "file-text"], upload: ["Attachment", "paperclip"],
+  undo: ["Undo", "retry"], inbox: ["Inbox", "inbox"], email: ["Email", "mail"],
+  checkpoint: ["Checkpoint", "history"], thread: ["Side chat", "message"], tool: ["Tool", "wrench"],
 };
 kinds.remember = kinds.memory;
 
@@ -33,9 +24,9 @@ const statusNames = {
 const undoKey = "hearth-timeline-undo";
 const filterKey = "hearth-timeline-filter";
 const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: "always", style: "short" });
-const exactFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "full", timeStyle: "long" });
-const dayFormat = new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" });
-const shortFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const exactFormat = timeFormatter({ dateStyle: "full", timeStyle: "long" });
+const dayFormat = timeFormatter({ month: "long", day: "numeric", year: "numeric" });
+const shortFormat = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
 const stamp = (value) => Date.parse(value) || 0;
 
 function element(tag, className, text) {
@@ -52,30 +43,15 @@ function control(label, handler, className) {
   return button;
 }
 
-function icon(kind) {
-  const namespace = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(namespace, "svg");
-  const line = document.createElementNS(namespace, "path");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("aria-hidden", "true");
-  line.setAttribute("d", (kinds[kind] || kinds.tool)[1]);
-  svg.append(line);
-  return svg;
-}
-
 function dayKey(value) {
-  if (!value) return "";
-  const day = new Date(value);
-  return [day.getFullYear(), day.getMonth(), day.getDate()].join("-");
+  return value ? localDay(value) : "";
 }
 
 function dayLabel(value, now) {
   const key = dayKey(value);
   if (!key) return "Date unavailable";
   if (key === dayKey(now)) return "Today";
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  return key === dayKey(yesterday) ? "Yesterday" : dayFormat.format(value);
+  return key === previousDay(now) ? "Yesterday" : dayFormat.format(value);
 }
 
 function relativeTime(value, now) {
@@ -102,7 +78,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "voice"]
+    action: ["artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -315,7 +291,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
     const mark = element("span", "timeline-kind");
     const kindLabel = (kinds[kind] || kinds.tool)[0];
     mark.title = kindLabel;
-    mark.append(icon(kind), element("span", "visually-hidden", kindLabel));
+    mark.append(icon((kinds[kind] || kinds.tool)[1], 19), element("span", "visually-hidden", kindLabel));
     const copy = element("span", "timeline-card-copy");
     const title = element("span", "timeline-title", row.title);
     title.title = row.title;
@@ -374,7 +350,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
         setConfirmation(card, row, action);
         if (!confirm.hidden) confirm.querySelector("button").focus();
       }, "timeline-undo");
-      button.prepend(icon("undo"));
+      button.prepend(icon("retry", 13));
       button.dataset.focus = "undo";
       button.setAttribute("aria-controls", confirm.id);
       card.append(details, button, confirm);
@@ -470,8 +446,9 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
       .sort((a, b) => stamp(b.undone_at || b.at) - stamp(a.undone_at || a.at))[0];
     if (previousUndo) {
       const timestamp = previousUndo.undone_at || previousUndo.at;
-      if (last.firstElementChild?.dateTime !== timestamp) {
-        last.replaceChildren(timeLabel(timestamp));
+      const label = timeLabel(timestamp);
+      if (last.firstElementChild?.dateTime !== timestamp || last.firstElementChild?.title !== label.title) {
+        last.replaceChildren(label);
         last.title = previousUndo.title;
       }
     } else {
@@ -534,6 +511,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy }) {
     try {
       const data = await api("/api/timeline", undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(9000)]));
       if (current !== revision) return;
+      if (data.timezone && setTimeZone(data.timezone)) cards.clear();
       const next = new Map(data.entries.map((row) => [row.id,
         [row.at, row.data?.status, !!row.data?.reply].join("|")]));
       highlight = firstSnapshot ? new Set() : new Set([...next].filter(([id, state]) =>

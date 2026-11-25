@@ -1,15 +1,19 @@
+import { fileGlyph, uploadURL } from "./attachments.js";
+import { icon, iconButton } from "./icons.js";
+import { setTimeZone, timeFormatter } from "./time.js";
+
 const get = (id) => document.getElementById(id);
 const kinds = {
-  plan: ["Plan", "◫"], list: ["List", "☷"], note: ["Note", "▤"],
-  transcript: ["Transcript", "◉"], export: ["Export", "⇩"],
+  plan: ["Plan", "file-text"], list: ["List", "list"], note: ["Note", "file-text"],
+  transcript: ["Transcript", "mic"], export: ["Export", "download"],
 };
 const fileTypes = {
-  docx: ["DOCX", "▤"], pdf: ["PDF", "▧"], xlsx: ["XLSX", "▦"], pptx: ["PPTX", "▣"],
+  docx: ["DOCX", "file-text"], pdf: ["PDF", "files"], xlsx: ["XLSX", "sheet"], pptx: ["PPTX", "slides"],
 };
 const legacyTypes = { md: "MD", txt: "TXT", csv: "CSV", json: "JSON" };
 const sizeFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 const statuses = { synced: "Synced to Box", saving: "Saving…", local: "Local only", error: "Sync error" };
-const updated = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const updated = timeFormatter({ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 function element(tag, className, text) {
   const item = document.createElement(tag);
@@ -166,15 +170,16 @@ export function markdown(text, className = "artifact-markdown") {
 }
 
 function fileURL(item, inline = false) {
+  if (item.download_url) return inline ? item.inline_url : item.download_url;
   return `/api/artifacts/file?id=${encodeURIComponent(item.id)}${inline ? "&inline=1" : ""}`;
 }
 
 function fileIcon(item) {
   const type = fileTypes[item.format];
-  const icon = element("span", `artifact-kind-icon ${type ? `is-${item.format}` : ""}`,
-    type?.[1] || kinds[item.kind]?.[1] || "▧");
-  icon.setAttribute("aria-hidden", "true");
-  return icon;
+  const glyph = element("span", `artifact-kind-icon ${type ? `is-${item.format}` : ""}`);
+  glyph.setAttribute("aria-hidden", "true");
+  glyph.append(icon(item.mime ? fileGlyph(item) : type?.[1] || kinds[item.kind]?.[1] || "file", 21));
+  return glyph;
 }
 
 function fileSize(size) {
@@ -184,9 +189,13 @@ function fileSize(size) {
   return `${sizeFormat.format(size / (1024 * 1024))} MiB`;
 }
 
-function fileLink(item, box = false) {
-  const link = element("a", box ? "artifact-control artifact-box-link" : "artifact-control",
-    box ? "Open in Box ↗" : "Download");
+function fileLink(item, box = false, compact = false) {
+  const label = box ? "Open in Box" : "Download";
+  const link = element("a", compact ? "icon-button" : box ? "artifact-control artifact-box-link" : "artifact-control");
+  link.title = label;
+  link.setAttribute("aria-label", label);
+  if (!compact) link.append(label, " ");
+  link.append(icon(box ? "external" : "download", compact ? 18 : 15));
   if (box) {
     link.href = item.box_url;
     link.target = "_blank";
@@ -221,6 +230,19 @@ function bullets(lines) {
 }
 
 function preview(artifact) {
+  if (artifact.image_url) {
+    const image = element("img", "attachment-preview");
+    image.alt = artifact.filename;
+    image.src = artifact.image_url;
+    return image;
+  }
+  if (artifact.audio_url) {
+    const audio = element("audio", "attachment-audio");
+    audio.src = artifact.audio_url;
+    audio.controls = true;
+    audio.preload = "metadata";
+    return audio;
+  }
   if (artifact.inline_pdf) {
     const frame = element("iframe", "artifact-pdf");
     frame.title = `${artifact.title} PDF preview`;
@@ -230,7 +252,11 @@ function preview(artifact) {
   const data = artifact.preview;
   if (artifact.format === "xlsx" && data) {
     const sheet = element("div", "artifact-sheet");
-    sheet.append(element("h4", "", data.sheet), tablePreview(data.rows));
+    const grid = tablePreview(data.rows);
+    grid.tabIndex = 0;
+    grid.setAttribute("role", "region");
+    grid.setAttribute("aria-label", data.sheet + " spreadsheet");
+    sheet.append(element("h4", "", data.sheet), grid);
     if (data.truncated) sheet.append(element("p", "meta", "Preview shows up to 200 rows and 50 columns."));
     return sheet;
   }
@@ -317,7 +343,8 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
   }
 
   function threadLink(item) {
-    const link = element("a", "artifact-thread", `↗ ${item.thread_title || "Source chat"}`);
+    const link = element("a", "artifact-thread");
+    link.append(icon("external", 14), " ", item.thread_title || "Source chat");
     link.href = "#chat";
     link.addEventListener("click", (event) => {
       event.preventDefault();
@@ -395,6 +422,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     get("artifact-refresh").disabled = true;
     request = api("/api/artifacts").then((data) => {
       snapshot = data;
+      if (snapshot.timezone) setTimeZone(snapshot.timezone);
       render();
     }).catch((error) => {
       get("artifact-count").textContent = error.message;
@@ -406,6 +434,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
   }
 
   function renderDetail(item) {
+    if (item.timezone) setTimeZone(item.timezone);
     get("artifact-drawer-title").textContent = item.title;
     get("artifact-filename").textContent = [item.filename, fileSize(item.size)]
       .filter(Boolean).join(" · ");
@@ -496,6 +525,88 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     } catch (error) {
       if (detailRequest === token && drawer.open) detailStatus.textContent = error.message;
     }
+  }
+
+  function saveAttachment(item, compact = false, onSaved) {
+    if (item.box_url) return fileLink(item, true, compact);
+    const label = "Save to Box";
+    const save = compact ? iconButton("box", label, send) : control(label, send);
+    async function send(event) {
+      const target = event.currentTarget;
+      target.disabled = true;
+      try {
+        const result = await api("/api/uploads/box", { id: item.id, thread_id: item.thread_id });
+        target.replaceWith(fileLink(result, true, compact));
+        onSaved?.(result);
+        refreshChat().catch(() => {});
+        if (!drawer.open) showNotice("Attachment saved to Box.");
+      } catch (error) {
+        if (drawer.open) detailStatus.textContent = error.message;
+        else showNotice(error.message);
+      } finally {
+        target.disabled = false;
+      }
+    }
+    return save;
+  }
+
+  async function openAttachment(item, trigger) {
+    liveBrowse = undefined;
+    if (!drawer.open) {
+      opener = trigger || document.activeElement;
+      drawer.showModal();
+      get("artifact-close").focus();
+    }
+    const token = Symbol();
+    detailRequest = token;
+    selected = item.id;
+    get("artifact-drawer-title").textContent = item.filename;
+    get("artifact-filename").textContent = fileSize(item.size);
+    get("artifact-detail-meta").replaceChildren(fileIcon(item), badge(item.format.toUpperCase()));
+    const actions = get("artifact-actions");
+    actions.replaceChildren();
+    detailBody.replaceChildren();
+    detailStatus.textContent = "Loading attachment…";
+    try {
+      const attachment = await api(uploadURL(item, "/detail"));
+      if (detailRequest !== token || !drawer.open) return;
+      actions.append(fileLink(attachment), saveAttachment(attachment, false, () => {
+        if (detailRequest === token) detailStatus.textContent = "Attachment saved to Box.";
+      }));
+      detailStatus.textContent = attachment.warnings?.join(" ") || "";
+      const paper = element("section", "artifact-paper");
+      paper.append(element("h3", "artifact-section-label", "Preview"), preview(attachment));
+      detailBody.append(paper);
+    } catch (error) {
+      if (detailRequest === token && drawer.open) detailStatus.textContent = error.message;
+    }
+  }
+
+  function attachmentCards(items) {
+    const list = element("div", "attachment-cards");
+    for (const item of items) {
+      const image = item.mime.startsWith("image/");
+      const card = element("article", `attachment-card${image ? " attachment-image-card" : ""}`);
+      const openFile = control("", (event) => openAttachment(item, event.currentTarget), "attachment-open");
+      openFile.setAttribute("aria-haspopup", "dialog");
+      openFile.setAttribute("aria-label", `Open ${item.filename}`);
+      openFile.dataset.artifactId = item.id;
+      if (image) {
+        const thumbnail = element("img", "attachment-thumbnail");
+        thumbnail.alt = "";
+        thumbnail.loading = "lazy";
+        thumbnail.src = uploadURL(item, "/file", { thumbnail: "1" });
+        openFile.append(thumbnail);
+      } else openFile.append(fileIcon(item));
+      const name = element("span", "attachment-name");
+      name.append(element("strong", "", item.filename), element("small", "", fileSize(item.size)));
+      openFile.append(name);
+      const actions = element("div", "attachment-card-actions");
+      actions.append(saveAttachment(item, true));
+      card.append(openFile, actions);
+      list.append(card);
+    }
+    return list;
   }
 
   function openBrowse({ id, domain, live_url: liveUrl, mock, name }, trigger) {
@@ -590,10 +701,10 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       const name = element("div", "chat-file-name");
       name.append(element("h3", "", artifact.title), element("p", "meta",
         [fileTypes[artifact.format][0], fileSize(artifact.size)].filter(Boolean).join(" · ")));
-      const openFile = control("Open", (event) => open(artifact.id, event.currentTarget));
+      const openFile = iconButton("external", "Open", (event) => open(artifact.id, event.currentTarget));
       openFile.dataset.artifactId = artifact.id;
       openFile.setAttribute("aria-haspopup", "dialog");
-      const save = artifact.box_url ? fileLink(artifact, true) : control("Save to Box", async (event) => {
+      const save = artifact.box_url ? fileLink(artifact, true, true) : iconButton("box", "Save to Box", async (event) => {
         const target = event.currentTarget;
         target.disabled = true;
         try {
@@ -668,5 +779,5 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     });
   }
 
-  return { show, settings, chatActions, open, openBrowse, endBrowse };
+  return { show, settings, chatActions, attachmentCards, open, openAttachment, openBrowse, endBrowse };
 }

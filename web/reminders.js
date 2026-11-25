@@ -1,7 +1,9 @@
+import { icon } from "./icons.js";
+import { localInputTime, localTimeToISO, setTimeZone, timeFormatter } from "./time.js";
 import { reconcileChildren } from "./dom.js";
 
 const channels = { app: "In app", email: "Email", both: "Both" };
-const icons = { app: "◴", email: "✉", both: "◴ + ✉" };
+const icons = { app: ["bell"], email: ["mail"], both: ["bell", "mail"] };
 const statuses = { queued: "Queued", sent: "Sent", failed: "Failed", canceled: "Canceled" };
 const kinds = {
   reminder: "Reminder", event: "Event or booking", receipt: "Receipt or order",
@@ -11,7 +13,7 @@ const inboxStatuses = {
   review: "Needs review", accepted: "Accepted", dismissed: "Dismissed", undone: "Undone",
 };
 const get = (id) => document.getElementById(id);
-const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const fmt = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
 const formatDate = (at) => at && Number.isFinite(Date.parse(at)) ? fmt.format(new Date(at)) : "—";
 
 function el(tag, className, text) {
@@ -36,9 +38,7 @@ function link(text, href) {
 
 export function channelChip(channel = "app", status) {
   const chip = el("span", `delivery-chip${status ? ` delivery-${status}` : ""}`);
-  const icon = el("span", "delivery-icon", icons[channel]);
-  icon.setAttribute("aria-hidden", "true");
-  chip.append(icon, document.createTextNode(channels[channel] + (status ? ` · ${statuses[status]}` : "")));
+  chip.append(...icons[channel].map((name) => icon(name, 14)), document.createTextNode(channels[channel] + (status ? ` · ${statuses[status]}` : "")));
   return chip;
 }
 
@@ -53,8 +53,7 @@ function heading(container, title, count) {
 
 function localInput(at) {
   if (!at || !Number.isFinite(Date.parse(at))) return "";
-  const date = new Date(at);
-  return new Date(date.valueOf() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  return localInputTime(at);
 }
 
 function field(label, control) {
@@ -129,6 +128,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
   }
 
   function loadForm(info) {
+    setTimeZone(info.settings.timezone);
     for (const [key, value] of Object.entries(info.settings)) {
       if (key === "auto_accept") continue;
       const control = form.elements[key];
@@ -214,7 +214,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
     const submit = reminderForm.querySelector("button[type=submit]");
     submit.disabled = true;
     try {
-      data.at = new Date(data.at).toISOString();
+      data.at = localTimeToISO(data.at);
       await api("/api/reminders/create", data);
       reminderForm.reset();
       get("reminder-create").open = false;
@@ -277,6 +277,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
     const target = get("reminders-content");
     try {
       const result = await api("/api/reminders");
+      if (result.timezone) setTimeZone(result.timezone);
       const signature = JSON.stringify(result);
       if (signature === reminderSignature) return;
       reminderSignature = signature;
@@ -365,10 +366,15 @@ export function createReminders({ api, openView, openSettings, startSending, sto
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       save.disabled = true;
-      const editedAt = date.value === localInput(proposal.at) ? proposal.at
-        : date.value ? new Date(date.value).toISOString() : null;
-      await changeCard(card, "edit", { title: title.value, kind: kind.value, at: editedAt, summary: summary.value });
-      save.disabled = false;
+      try {
+        const editedAt = date.value === localInput(proposal.at) ? proposal.at
+          : date.value ? localTimeToISO(date.value) : null;
+        await changeCard(card, "edit", { title: title.value, kind: kind.value, at: editedAt, summary: summary.value });
+      } catch (error) {
+        get("inbox-feedback").textContent = error.message;
+      } finally {
+        save.disabled = false;
+      }
     });
     target.hidden = true;
     article.append(form);
@@ -421,6 +427,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
     try {
       const result = await api("/api/inbox");
       if (request !== inboxRequest || currentView() !== "inbox") return;
+      if (result.settings?.timezone) setTimeZone(result.settings.timezone);
       const connection = JSON.stringify([result.connected, result.inbox_address, result.inbox_error, result.connection_message]);
       if (connection !== inboxConnection) {
         inboxConnection = connection;
@@ -430,7 +437,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
       const review = [];
       const processed = [];
       for (const card of result.cards) {
-        const signature = JSON.stringify(card);
+        const signature = JSON.stringify([card, result.settings?.timezone]);
         let row = inboxRows.get(card.id);
         if (!row || (row.signature !== signature && !editing.has(card.id))) {
           row = { signature, element: inboxCard(card), status: card.status };

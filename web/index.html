@@ -21,24 +21,29 @@
     <aside class="sidebar">
       <div class="brand"><img class="brand-mark" src="/icons/icon.svg" width="35" height="35" alt=""><span>Hearth</span></div>
       <nav aria-label="Workspace">
-        <button type="button" class="nav-link" data-view="chat" aria-current="page"><span class="nav-icon" aria-hidden="true">▤</span> Chat</button>
-        <button type="button" class="nav-link" data-view="memory"><span class="nav-icon" aria-hidden="true">▱</span> Memory</button>
-        <button type="button" class="nav-link" data-view="artifacts"><span class="nav-icon" aria-hidden="true">▧</span> Artifacts</button>
-        <button type="button" class="nav-link" data-view="reminders"><span class="nav-icon" aria-hidden="true">◴</span> Reminders</button>
-        <button type="button" class="nav-link" data-view="inbox"><span class="nav-icon" aria-hidden="true">✉</span> Inbox</button>
-        <button type="button" class="nav-link" data-view="timeline"><span class="nav-icon" aria-hidden="true">◷</span> Timeline</button>
-        <button type="button" class="nav-link" data-view="connections"><span class="nav-icon" aria-hidden="true">⌘</span> Connections</button>
-        <button type="button" class="nav-link" data-view="settings"><span class="nav-icon" aria-hidden="true">⚙</span> Settings</button>
+        <button type="button" class="nav-link" data-view="chat" aria-current="page"><span data-icon="message"></span> Chat</button>
+        <button type="button" class="nav-link" data-view="timeline"><span data-icon="clock"></span> Timeline</button>
+        <button type="button" class="nav-link" data-view="artifacts"><span data-icon="files"></span> Artifacts</button>
+        <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>
+        <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
+        <button type="button" class="nav-link" data-view="connections"><span data-icon="plug"></span> Connections</button>
+        <button type="button" class="nav-link" data-view="memory"><span data-icon="book"></span> Memory</button>
+      </nav>
+      <nav class="workspace-settings" aria-label="Preferences">
+        <button type="button" class="nav-link" data-view="settings"><span data-icon="settings"></span> Settings</button>
       </nav>
     </aside>
     <main>
       <header class="header">
-        <button type="button" class="mobile-only menu-toggle" id="open-menu" aria-label="Open menu" aria-haspopup="dialog" aria-controls="workspace-drawer" aria-expanded="false">☰</button>
+        <button type="button" class="mobile-only menu-toggle" id="open-menu" aria-label="Open menu" aria-haspopup="dialog" aria-controls="workspace-drawer" aria-expanded="false" title="Open menu"><span data-icon="menu" data-icon-size="23"></span></button>
         <h1 id="view-title">Chat</h1>
         <div class="header-status">
           <button type="button" class="call-button" id="return-to-call" aria-haspopup="dialog" hidden>Return to call</button>
           <span class="environment" id="model-status">Brain · Checking…</span>
-          <span class="environment" id="environment"><span class="dot"></span><span id="environment-label">Connecting</span></span>
+          <span class="environment" id="environment"><span class="dot" aria-hidden="true"></span><span id="environment-label">Connecting</span></span>
+          <button type="button" class="icon-button" id="start-call" aria-label="Call Hearth" title="Call Hearth" aria-haspopup="dialog" disabled>
+            <span data-icon="phone"></span><span class="call-status-dot dot" aria-hidden="true"></span>
+          </button>
         </div>
       </header>
       <p class="notice" id="notice" role="status" hidden></p>
@@ -48,7 +53,7 @@
             <h2>Threads</h2>
             <label class="visually-hidden" for="thread-select">Chat thread</label>
             <select id="thread-select" class="thread-select"><option value="main">Main</option></select>
-            <button type="button" id="new-thread" class="new-thread"><span aria-hidden="true">+</span> <span id="new-thread-label">New side chat</span></button>
+            <button type="button" id="new-thread" class="new-thread"><span data-icon="plus" data-icon-size="18"></span> <span id="new-thread-label">New side chat</span></button>
           </div>
           <div id="threads" class="threads" aria-label="Thread list"></div>
         </aside>
@@ -71,10 +76,6 @@
               <option value="beside">Beside chat</option>
               <option value="face">Full screen</option>
             </select>
-            <button type="button" class="call-button" id="start-call" aria-label="Call" title="Call Hearth" aria-haspopup="dialog" disabled>
-              <svg class="call-icon" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3H4a1 1 0 0 0-1 1c0 9.4 7.6 17 17 17a1 1 0 0 0 1-1v-3l-5-2-1.5 2a14 14 0 0 1-7.5-7.5L9 8 7 3Z"/></svg>
-              <span class="call-label">Call</span>
-            </button>
           </header>
           <section class="face-stage" id="face-stage" aria-label="Face to face" hidden>
             <div class="face-portrait" id="avatar-portrait"></div>
@@ -93,9 +94,9 @@
               <h2>What’s on your mind?</h2>
               <p>Make a plan, recall a detail, or set a reminder.</p>
               <div class="prompts">
-                <button type="button" data-prompt="Plan Thanksgiving dinner"><span aria-hidden="true">✧</span> Plan Thanksgiving dinner</button>
-                <button type="button" data-prompt="Read USER.md"><span aria-hidden="true">▱</span> Read my profile</button>
-                <button type="button" data-prompt="Checkpoint"><span aria-hidden="true">◷</span> Save a checkpoint</button>
+                <button type="button" data-prompt="Plan Thanksgiving dinner"><span data-icon="sparkle"></span> Plan Thanksgiving dinner</button>
+                <button type="button" data-prompt="Read USER.md"><span data-icon="book"></span> Read my profile</button>
+                <button type="button" data-prompt="Checkpoint"><span data-icon="history"></span> Save a checkpoint</button>
               </div>
             </section>
             <section class="welcome" id="side-welcome" hidden>
@@ -116,15 +117,17 @@
               <button type="button" class="mobile-only voice-cancel" id="voice-cancel">Cancel</button>
               <p id="voice-interim" hidden></p>
             </div>
+            <div id="composer-attachments" class="composer-attachments" hidden></div>
+            <p id="attachment-status" class="attachment-status" role="status" hidden></p>
+            <input id="attachment-files" type="file" multiple hidden>
+            <button type="button" id="attach" aria-label="Attach files" title="Attach files"><span data-icon="paperclip"></span></button>
             <label class="visually-hidden" for="message">Message Hearth</label>
-            <textarea id="message" maxlength="4000" rows="1" placeholder="Message Hearth…" required></textarea>
+            <textarea id="message" maxlength="4000" rows="1" placeholder="Message Hearth…"></textarea>
             <button type="button" id="mic" aria-label="Start voice input" aria-pressed="false" title="Start voice input. Hold Space in an empty composer to talk.">
-              <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
-                <g class="mic-on"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11.5v.5a6.5 6.5 0 0 0 13 0v-.5M12 18.5V21m-3 0h6"/></g>
-                <rect class="mic-stop" x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>
-              </svg>
+              <span class="mic-on"><span data-icon="mic"></span></span>
+              <span class="mic-stop"><span data-icon="stop"></span></span>
             </button>
-            <button type="submit" id="send" aria-label="Send message">↑</button>
+            <button type="submit" id="send" aria-label="Send message"><span data-icon="send"></span></button>
           </form>
         </div>
       </section>
@@ -153,7 +156,7 @@
             <div><h2>Saved work</h2><p>Files created by Hearth and files in your Box folder.</p></div>
             <div class="artifact-box-control">
               <span id="artifact-box-status" class="artifact-box-status" role="status">Checking Box…</span>
-              <button type="button" class="artifact-icon-button" id="artifact-refresh" aria-label="Refresh artifacts" title="Refresh artifacts">↻</button>
+              <button type="button" class="artifact-icon-button" id="artifact-refresh" aria-label="Refresh artifacts" title="Refresh artifacts"><span data-icon="refresh"></span></button>
             </div>
           </div>
           <div id="artifact-connection" class="artifact-connection" hidden>
@@ -161,7 +164,7 @@
             <a href="#connections" id="artifact-connect">Open Connections</a>
           </div>
           <div class="artifact-toolbar">
-            <label class="artifact-search"><span aria-hidden="true">⌕</span>
+            <label class="artifact-search"><span data-icon="search"></span>
               <span class="visually-hidden">Search artifacts</span>
               <input id="artifact-search" type="search" maxlength="160" placeholder="Search artifacts…">
             </label>
@@ -178,14 +181,14 @@
               <select id="artifact-sort"><option value="recent">Most recent</option><option value="name">Name A–Z</option></select>
             </label>
             <div class="artifact-layout-toggle" role="group" aria-label="Artifact layout">
-              <button type="button" id="artifact-grid" aria-label="Grid view" title="Grid view" aria-pressed="true">⊞</button>
-              <button type="button" id="artifact-list" aria-label="List view" title="List view" aria-pressed="false">☰</button>
+              <button type="button" id="artifact-grid" aria-label="Grid view" title="Grid view" aria-pressed="true"><span data-icon="grid"></span></button>
+              <button type="button" id="artifact-list" aria-label="List view" title="List view" aria-pressed="false"><span data-icon="list"></span></button>
             </div>
           </div>
           <p class="artifact-count" id="artifact-count" role="status">Loading artifacts…</p>
           <div class="artifact-collection" id="artifact-collection"></div>
           <div id="artifact-empty" class="artifact-empty" hidden>
-            <span class="artifact-kind-icon" aria-hidden="true">▧</span>
+            <span class="artifact-kind-icon" aria-hidden="true"><span data-icon="files"></span></span>
             <h3 id="artifact-empty-title">No artifacts yet</h3>
             <p id="artifact-empty-hint">Ask Hearth to create a Word document, PDF, spreadsheet, or slide deck.</p>
           </div>
@@ -641,22 +644,32 @@
         <h2 id="workspace-title">Hearth</h2>
         <p id="mobile-brain-status"><span class="dot" aria-hidden="true"></span><span id="mobile-brain-label">Checking brain…</span></p>
       </div>
-      <form method="dialog"><button type="submit" aria-label="Close menu" autofocus>×</button></form>
+      <form method="dialog"><button type="submit" aria-label="Close menu" autofocus><span data-icon="x"></span></button></form>
     </header>
-    <nav aria-label="Workspace">
-        <button type="button" class="nav-link" data-view="chat" aria-current="page"><span class="nav-icon" aria-hidden="true">▤</span> Chat</button>
-        <button type="button" class="nav-link" data-view="timeline"><span class="nav-icon" aria-hidden="true">◷</span> Timeline</button>
-        <button type="button" class="nav-link" data-view="artifacts"><span class="nav-icon" aria-hidden="true">▧</span> Artifacts</button>
-        <button type="button" class="nav-link" data-view="reminders"><span class="nav-icon" aria-hidden="true">◴</span> Reminders</button>
-        <button type="button" class="nav-link" data-view="inbox"><span class="nav-icon" aria-hidden="true">✉</span> Inbox</button>
-        <button type="button" class="nav-link" data-view="connections"><span class="nav-icon" aria-hidden="true">⌘</span> Connections</button>
-        <button type="button" class="nav-link" data-view="settings"><span class="nav-icon" aria-hidden="true">⚙</span> Settings</button>
-        <button type="button" class="nav-link" data-view="memory"><span class="nav-icon" aria-hidden="true">▱</span> Memory</button>
+    <div class="workspace-drawer-body">
+      <nav aria-label="Workspace">
+        <button type="button" class="nav-link" data-view="chat" aria-current="page"><span data-icon="message"></span> Chat</button>
+        <button type="button" class="nav-link" data-view="timeline"><span data-icon="clock"></span> Timeline</button>
+        <button type="button" class="nav-link" data-view="artifacts"><span data-icon="files"></span> Artifacts</button>
+        <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>
+        <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
+        <button type="button" class="nav-link" data-view="connections"><span data-icon="plug"></span> Connections</button>
+        <button type="button" class="nav-link" data-view="memory"><span data-icon="book"></span> Memory</button>
+      </nav>
+      <p class="notice" id="drawer-notice" role="status" hidden></p>
+      <div id="mobile-thread-panel"></div>
+      <div id="mobile-thread-controls"></div>
+      <div id="mobile-avatar-options"><span aria-hidden="true">Ember view</span></div>
+    </div>
+    <nav class="workspace-settings" aria-label="Preferences">
+      <button type="button" class="nav-link" data-view="settings"><span data-icon="settings"></span> Settings</button>
     </nav>
-    <p class="notice" id="drawer-notice" role="status" hidden></p>
-    <div id="mobile-thread-panel"></div>
-    <div id="mobile-thread-controls"></div>
-    <div id="mobile-avatar-options"><span aria-hidden="true">Ember view</span></div>
+  </dialog>
+  <div id="chat-toast" class="chat-toast" role="status" hidden></div>
+  <dialog id="message-menu" class="message-menu" aria-labelledby="message-menu-title">
+    <h2 id="message-menu-title">Message actions</h2>
+    <div id="message-menu-actions" class="message-menu-actions"></div>
+    <button type="button" id="close-message-menu" class="icon-button" aria-label="Close message actions" title="Close message actions"><span data-icon="x"></span></button>
   </dialog>
   <dialog id="call-sheet" class="call-sheet" aria-labelledby="call-title">
     <div class="call-sheet-body">
@@ -693,7 +706,7 @@
     <div class="artifact-drawer-shell">
       <header class="artifact-drawer-header">
         <div id="artifact-detail-meta" class="artifact-badges"></div>
-        <button type="button" class="artifact-icon-button" id="artifact-close" aria-label="Close artifact" title="Close artifact">×</button>
+        <button type="button" class="artifact-icon-button" id="artifact-close" aria-label="Close artifact" title="Close artifact"><span data-icon="x"></span></button>
         <h2 id="artifact-drawer-title">Artifact</h2>
         <p class="artifact-detail-filename" id="artifact-filename"></p>
         <div class="artifact-detail-actions" id="artifact-actions"></div>

@@ -183,7 +183,7 @@ async function drawerChecks(page) {
   assert.equal(await toggle.getAttribute("aria-expanded"), "true");
   assert.ok(await drawer.locator("[aria-current=page]").isVisible());
   await page.keyboard.press("Shift+Tab");
-  assert.equal(await page.evaluate(() => document.activeElement.id), "avatar-view");
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.view), "settings");
   await page.keyboard.press("Tab");
   assert.equal(await page.evaluate(() => document.activeElement.getAttribute("aria-label")), "Close menu");
   await page.keyboard.press("Escape");
@@ -230,12 +230,14 @@ async function screens(scheme, width, height) {
   await check("Chat");
   await shot("chat");
   await page.locator(".remembered summary").click();
-  await page.locator(".message.assistant .message-menu summary").click();
-  assert.ok(await page.getByText("DeepSeek-V4.1-Flash · fast", { exact: true }).isVisible());
+  assert.ok(await page.locator(".message-route").getByText("DeepSeek-V4.1-Flash", { exact: true }).isVisible());
+  await page.locator(".message.assistant").first().press("Enter");
+  await page.getByRole("dialog", { name: "Message actions" }).waitFor();
+  await check("Chat message menu");
+  await page.keyboard.press("Escape");
   await page.locator("#message").focus();
   await check("Chat expanded actions, memory, and focus");
   await page.locator(".remembered summary").click();
-  await page.locator(".message.assistant .message-menu summary").click();
   await page.getByRole("button", { name: "Save to Box", exact: true }).first().click();
   await page.locator("#notice").waitFor();
   await check("Chat notice");

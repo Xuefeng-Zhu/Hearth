@@ -7,6 +7,11 @@ import { createArtifacts, markdown } from "./artifacts.js";
 import { channelChip, createReminders } from "./reminders.js";
 import { reconcileChildren } from "./dom.js";
 import { setupMobile } from "./mobile.js";
+import { createAttachments } from "./attachments.js";
+import { icon, iconButton, mountIcons } from "./icons.js";
+import { setTimeZone, timeFormatter } from "./time.js";
+
+mountIcons();
 
 const byId = (id) => document.getElementById(id);
 const nav = [...document.querySelectorAll("[data-view]")];
@@ -18,7 +23,8 @@ const chatScroll = byId("chat-scroll");
 const mobile = setupMobile({ nearBottom, scrollDown });
 const settingsTabs = [...document.querySelectorAll("[data-settings]")];
 const settingsDisclosures = new Map();
-const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const dateFormat = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
+const messageTime = timeFormatter({ hour: "numeric", minute: "2-digit" });
 const modelNames = {
   mock: "Mock", meta: "Muse Spark", openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Claude",
   gemini: "Gemini", ollama: "Ollama Cloud", huggingface: "Hugging Face", digitalocean: "DigitalOcean Inference",
@@ -69,6 +75,16 @@ let settingsSection = "brain";
 let expandedSetting;
 let reindexPoll;
 const preferences = { memory: {}, search: {} };
+let uploading = false;
+const attachmentDraft = createAttachments({
+  thread: () => currentThread, isChat: () => view === "chat", isBusy: () => busy,
+  onChange(pending) {
+    const follow = nearBottom();
+    uploading = pending;
+    send.disabled = busy || pending;
+    if (follow) scrollDown();
+  },
+});
 const timeline = createTimeline({ api, approve, undo, gatewayResults, isBusy: () => busy });
 const artifactLibrary = createArtifacts({
   api, showNotice, openThread: openArtifactThread,
@@ -374,12 +390,13 @@ async function readResponse(response) {
 }
 
 function date(value) {
-  return value ? dateFormat.format(new Date(value)) : "";
+  return value && Number.isFinite(Date.parse(value)) ? dateFormat.format(new Date(value)) : "";
 }
 
 function setBusy(value) {
   busy = value;
-  send.disabled = value;
+  send.disabled = value || uploading;
+  byId("attach").disabled = value;
   for (const item of document.querySelectorAll(".cards button, [data-prompt]")) {
     item.disabled = value;
   }
@@ -402,65 +419,119 @@ function shortModel({ name, model, provider }) {
 
 const messageVotes = new Map();
 
-function messageMenu(item, message, role, content, prompt) {
-  const menu = node("details", "message-menu");
-  const summary = node("summary", "", "⋯");
-  summary.setAttribute("aria-label", "Message options");
-  menu.append(summary);
-  const panel = node("div", "message-menu-content");
-  const footer = node("p", "message-route");
+const menu = byId("message-menu");
+const toast = byId("chat-toast");
+let toastTimer;
+let menuTrigger;
+function showToast(message) {
+  clearTimeout(toastTimer);
+  toast.textContent = message;
+  toast.hidden = false;
+  toastTimer = setTimeout(() => { toast.hidden = true; }, 1700);
+}
+
+async function copyMessage(content) {
+  if (menu.open) menu.close();
+  try {
+    await navigator.clipboard.writeText(content);
+    showToast("Copied");
+  } catch {
+    showNotice("Couldn’t copy this message.");
+  }
+}
+
+function restorePrompt(prompt) {
+  if (input.value || attachmentDraft.hasDraft()) {
+    showNotice("Clear the composer to restore this prompt.");
+    return;
+  }
+  input.value = prompt.text;
+  attachmentDraft.restore(currentThread, prompt.attachments);
+  resizeInput();
+  input.focus();
+}
+
+function messageToolbar(message, content, prompt) {
+  const toolbar = node("div", "message-toolbar");
+  const actions = node("div", "message-inline-actions");
+  if (content) actions.append(iconButton("copy", "Copy", () => copyMessage(content)));
+  if (prompt?.text || prompt?.attachments.length) {
+    actions.append(iconButton("retry", "Retry", () => restorePrompt(prompt)));
+  }
+  for (const [key, label] of [["up", "Helpful"], ["down", "Unhelpful"]]) {
+    const vote = iconButton(`thumbs-${key}`, label, () => {
+      if (messageVotes.get(message.id) === key) messageVotes.delete(message.id);
+      else messageVotes.set(message.id, key);
+      for (const choice of actions.querySelectorAll("[data-vote]")) {
+        choice.setAttribute("aria-pressed", String(messageVotes.get(message.id) === choice.dataset.vote));
+      }
+    });
+    vote.dataset.vote = key;
+    vote.setAttribute("aria-pressed", String(messageVotes.get(message.id) === key));
+    actions.append(vote);
+  }
+  const footer = node("div", "message-route");
   if (message.at) {
-    const stamp = node("time", "", date(message.at));
+    const stamp = node("time", "", messageTime.format(new Date(message.at)));
     stamp.dateTime = message.at;
+    stamp.title = date(message.at);
     footer.append(stamp);
   }
   if (message.routing) {
     const route = message.routing;
-    const speed = route.model?.includes("Flash") && ["quick", "side"].includes(route.class) ? " · fast" : "";
-    footer.append(node("span", "", shortModel(route) + speed));
+    const model = shortModel(route);
+    const label = node("span", "", model);
+    label.title = route.model || model;
+    footer.append(label);
   }
-  if (footer.childNodes.length) panel.append(footer);
-  const actions = node("div", "message-menu-actions");
-  if (content) actions.append(button("Copy", async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      menu.open = false;
-      showNotice("Message copied.");
-    } catch {
-      showNotice("Couldn’t copy this message.");
+  toolbar.append(actions, footer);
+  return toolbar;
+}
+
+byId("close-message-menu").addEventListener("click", () => menu.close());
+menu.addEventListener("click", (event) => { if (event.target === menu) menu.close(); });
+menu.addEventListener("close", () => {
+  if (menuTrigger?.isConnected) menuTrigger.focus({ preventScroll: true });
+  menuTrigger = undefined;
+});
+
+function bindMessageMenu(item, message, content) {
+  const threadId = currentThread;
+  item.tabIndex = 0;
+  item.setAttribute("aria-haspopup", "dialog");
+  item.setAttribute("aria-keyshortcuts", "Enter Space Shift+F10");
+  function open() {
+    if (menu.open || !item.isConnected) return;
+    const actions = byId("message-menu-actions");
+    actions.replaceChildren();
+    const action = (glyph, label, handler) => {
+      const choice = button("", handler);
+      choice.append(icon(glyph, 18), label);
+      actions.append(choice);
+    };
+    if (content) action("copy", "Copy", () => copyMessage(content));
+    if (threadId !== mainThread.id) action("share", "Share to Main", () => {
+      menu.close();
+      changeThread("share", { thread_id: threadId, message_id: message.id });
+    });
+    if (message.at) {
+      const stamp = node("time", "", date(message.at));
+      stamp.dateTime = message.at;
+      actions.append(stamp);
     }
-  }));
-  if (role === "assistant") {
-    if (prompt) actions.append(button("Retry", () => {
-      if (input.value) return showNotice("Clear the composer to restore this prompt.");
-      input.value = prompt;
-      resizeInput();
-      menu.open = false;
-      input.focus();
-    }));
-    for (const [key, label] of [["up", "Helpful"], ["down", "Unhelpful"]]) {
-      const vote = button(label, () => {
-        if (messageVotes.get(message.id) === key) messageVotes.delete(message.id);
-        else messageVotes.set(message.id, key);
-        for (const choice of actions.querySelectorAll("[data-vote]")) {
-          choice.setAttribute("aria-pressed", String(messageVotes.get(message.id) === choice.dataset.vote));
-        }
-      });
-      vote.dataset.vote = key;
-      vote.setAttribute("aria-pressed", String(messageVotes.get(message.id) === key));
-      actions.append(vote);
-    }
+    menuTrigger = item;
+    menu.showModal();
+    (actions.querySelector("button") || byId("close-message-menu")).focus();
   }
-  panel.append(actions);
-  menu.append(panel);
+
   let timer, origin, held;
   const cancel = () => clearTimeout(timer);
-  const interactive = (event) => event.target.closest("a, button, details, input, pre");
+  const interactive = (event) => event.target.closest("a, button, details, input, pre, .message-toolbar");
   item.addEventListener("pointerdown", (event) => {
     if (event.pointerType === "mouse" || interactive(event)) return;
     origin = { x: event.clientX, y: event.clientY };
     held = false;
-    timer = setTimeout(() => { held = true; menu.open = true; }, 480);
+    timer = setTimeout(() => { held = true; open(); }, 480);
   });
   item.addEventListener("pointermove", (event) => {
     if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 10) cancel();
@@ -468,15 +539,21 @@ function messageMenu(item, message, role, content, prompt) {
   item.addEventListener("pointerup", cancel);
   item.addEventListener("pointercancel", cancel);
   item.addEventListener("contextmenu", (event) => {
-    if (held && !interactive(event)) event.preventDefault();
+    if (interactive(event) || !getSelection()?.isCollapsed) return;
+    event.preventDefault();
+    cancel();
+    open();
   });
   item.addEventListener("click", (event) => {
-    if (!held && event.pointerType === "touch" && !interactive(event) && getSelection()?.isCollapsed) {
-      menu.open = !menu.open;
-    }
+    if (!held && event.pointerType === "touch" && !interactive(event) && getSelection()?.isCollapsed) open();
     held = false;
   });
-  return menu;
+  item.addEventListener("keydown", (event) => {
+    if (event.target !== item || !["Enter", " ", "ContextMenu"].includes(event.key) &&
+        !(event.key === "F10" && event.shiftKey)) return;
+    event.preventDefault();
+    open();
+  });
 }
 
 function checkCollapsedReplies() {
@@ -491,7 +568,7 @@ function checkCollapsedReplies() {
 }
 window.addEventListener("resize", checkCollapsedReplies);
 
-function messageBubble(role, content, { message, status, prompt, working } = {}) {
+function messageBubble(role, content, { message, status, prompt, working, attachments = [] } = {}) {
   const item = node("article", `message ${role}`);
   let avatar;
   if (role === "assistant") {
@@ -513,6 +590,7 @@ function messageBubble(role, content, { message, status, prompt, working } = {})
     body.append(dots);
     text.setAttribute("role", "status");
   }
+  text.hidden = !content;
   body.append(notices, text);
   if (role === "assistant" && message?.id && content) {
     const toggle = button("Show more", () => {
@@ -550,11 +628,22 @@ function messageBubble(role, content, { message, status, prompt, working } = {})
     }));
     body.append(sources);
   }
-  if (message?.id && currentThread !== mainThread.id) {
-    const threadId = currentThread;
-    const share = button("Share to Main", () => changeThread("share", { thread_id: threadId, message_id: message.id }));
-    share.className = "share-message";
-    body.append(share);
+  if (attachments.length) body.append(artifactLibrary.attachmentCards(attachments));
+  if (message?.attachment_citations?.length) {
+    const sources = node("div", "attachment-sources");
+    sources.setAttribute("aria-label", "Attachment sources");
+    sources.append(node("span", "", "Sources"));
+    for (const id of message.attachment_citations) {
+      const file = state?.message_uploads?.[id] || [...turns].flatMap((turn) => turn.attachments || [])
+        .find((item) => item.id === id);
+      if (!file) continue;
+      const source = button("", (event) => artifactLibrary.openAttachment(file, event.currentTarget));
+      source.setAttribute("aria-haspopup", "dialog");
+      source.title = file.filename;
+      source.append(icon("paperclip", 14), node("span", "", file.filename));
+      sources.append(source);
+    }
+    if (sources.childElementCount > 1) body.append(sources);
   }
   if (message?.id) item.dataset.messageId = message.id;
   if (role === "assistant" && message?.id) {
@@ -562,8 +651,11 @@ function messageBubble(role, content, { message, status, prompt, working } = {})
     if (linked.length) body.append(artifactLibrary.chatActions(linked));
     if (message.browse_images?.length) body.append(...message.browse_images.map(browseScreenshot));
   }
-  if (message?.id) body.append(messageMenu(item, message, role, content, prompt));
   item.append(body);
+  if (message?.id) {
+    bindMessageMenu(item, message, content);
+    if (role === "assistant") item.append(messageToolbar(message, content, prompt));
+  }
   return { item, avatar, cards, notices, text };
 }
 
@@ -722,7 +814,7 @@ function renderThreads() {
   }));
   if (focused) [...list.children].find((item) => item.dataset.thread === focused)?.focus();
   const select = byId("thread-select");
-  select.replaceChildren(...entries.map((thread) => new Option(`${thread.busy ? "● " : ""}${thread.title}`, thread.id)));
+  select.replaceChildren(...entries.map((thread) => new Option(thread.busy ? `${thread.title} · Replying` : thread.title, thread.id)));
   select.value = currentThread;
   byId("thread-title").textContent = active?.title || (currentThread === mainThread.id ? "Main" : "Side chat");
   byId("thread-activity").hidden = avatarMode !== "off" || !active?.busy;
@@ -769,7 +861,7 @@ function renderChat(force = false) {
   const remoteBrowse = threadList.find((thread) => thread.id === currentThread)?.activity?.browse;
   const signature = JSON.stringify([currentThread, messages, threadList.map((thread) => thread.title),
     avatarLook, avatarColor, busy,
-    state?.message_artifacts, remoteBrowse, local.map(({ approval, finished }) => [approval?.id, finished]),
+    state?.message_artifacts, state?.message_uploads, state?.timezone, remoteBrowse, local.map(({ approval, finished }) => [approval?.id, finished]),
     messages.flatMap((message) => (message.action_ids || []).map((id) => actions.get(id)))]);
   if (!force && signature === chatSignature) return;
   chatSignature = signature;
@@ -782,17 +874,18 @@ function renderChat(force = false) {
   let previousPrompt;
   for (const [index, stored] of messages.entries()) {
     const message = stored.id ? stored : { ...stored, id: `${currentThread}:${index + 1}` };
+    const attachments = (message.attachment_ids || []).map((id) => state?.message_uploads?.[id]).filter(Boolean);
     const cards = [...new Set(message.action_ids || [])].map((id) => actions.get(id)).filter(Boolean);
     const rowSignature = JSON.stringify([currentThread, message, cards, cards.map((action) => threadSource(action)),
       cards.length ? [busy, local.map(({ approval, finished }) => [approval?.id, finished])] : false,
-      state?.message_artifacts?.[message.id], avatarLook, avatarColor]);
+      state?.message_artifacts?.[message.id], attachments, state?.timezone, avatarLook, avatarColor]);
     let row = chatRows.get(message.id);
     if (row?.signature !== rowSignature) {
       let item;
       if (message.role === "call") {
         item = callCard(message);
       } else {
-        const bubble = messageBubble(message.role, message.content, { message, prompt: previousPrompt });
+        const bubble = messageBubble(message.role, message.content, { message, prompt: previousPrompt, attachments });
         for (const notice of message.notices || []) bubble.notices.append(node("p", "model-warning", notice));
         for (const action of cards) bubble.cards.append(actionCard(action));
         item = bubble.item;
@@ -801,19 +894,19 @@ function renderChat(force = false) {
     }
     nextRows.set(message.id, row);
     rows.push(row.item);
-    if (message.role === "user") previousPrompt = message.content;
+    if (message.role === "user") previousPrompt = { text: message.content, attachments };
   }
   for (const turn of local) {
     turn.bubble = undefined;
     if (!turn.approval && !saved.has(turn.user?.id)) {
       rows.push(messageBubble("user", turn.user?.content || turn.prompt, {
-        message: turn.user, status: turn.user ? undefined : "Queued",
+        message: turn.user, status: turn.user ? undefined : "Queued", attachments: turn.attachments,
       }).item);
     }
     if (saved.has(turn.reply?.id) || (!turn.user && !turn.approval && !turn.error)) continue;
     const content = turn.reply ? turn.reply.content : turn.text || turn.error || (turn.browse ? "" : turnProgress(turn));
     turn.bubble = messageBubble("assistant", content, {
-      message: turn.reply, prompt: turn.prompt, working: !turn.reply && !turn.error && !turn.text && !turn.browse,
+      message: turn.reply, prompt: { text: turn.prompt, attachments: turn.attachments }, working: !turn.reply && !turn.error && !turn.text && !turn.browse,
     });
     turn.bubble.text.hidden = !content && !!turn.browse;
     rows.push(turn.bubble.item);
@@ -822,16 +915,8 @@ function renderChat(force = false) {
     if (turn.browse) turn.bubble.cards.append(browseCard(turn.browse));
     if (turn.error) {
       if (turn.text) turn.bubble.notices.append(node("p", "model-warning", turn.error));
-      const retry = button("Edit and retry", () => {
-        const prompt = turn.user?.content || turn.prompt;
-        if (!input.value) {
-          input.value = prompt;
-          resizeInput();
-        } else {
-          showNotice("Your draft is still in the composer. Clear it to restore the failed message.");
-        }
-        input.focus();
-      });
+      const retry = iconButton("retry", "Edit and retry", () =>
+        restorePrompt({ text: turn.user?.content || turn.prompt, attachments: turn.attachments }));
       turn.bubble.cards.append(retry);
     }
   }
@@ -860,6 +945,7 @@ async function refreshState() {
   const next = await readResponse(response);
   if (request !== stateRequest || thread !== currentThread) return false;
   state = next;
+  setTimeZone(state.timezone);
   stateTag = response.headers.get("ETag");
   byId("start-call").disabled = typeof state.voice_call_available !== "boolean";
   for (const thread of threadList) {
@@ -874,12 +960,15 @@ async function refreshState() {
     const deleted = currentThread;
     activateThread(state.thread_id);
     threadDrafts.delete(deleted);
+    attachmentDraft.discard(deleted);
     avatarStates.delete(deleted);
     for (const turn of turns) if (turn.threadId === deleted) turns.delete(turn);
   }
   const saved = new Set(state.messages.map((message) => message.id));
   for (const turn of turns) if (saved.has(turn.reply?.id)) turns.delete(turn);
-  byId("environment-label").textContent = state.checkpoints === "sprite" ? "Private Sprite" : "Local workspace";
+  const environment = state.checkpoints === "sprite" ? "Private Sprite" : "Local workspace";
+  byId("environment-label").textContent = environment;
+  byId("start-call").title = `Call Hearth · ${environment}`;
   renderBrain(state);
   paintAvatars();
   if (view === "settings" && settingsSection === "voice") showVoiceEngine();
@@ -1095,7 +1184,11 @@ function connectionCard(provider, entry) {
   const access = node("span", "connector-access", entry.access_rule);
   const links = node("div", "connector-links");
   const flyLabel = configured ? "Open in Fly" : entry.status === "unauthorized" ? "Review in Fly" : "Add in Fly";
-  links.append(externalLink(`${flyLabel} ↗`, entry.dashboard_url), externalLink("Docs ↗", entry.docs_url));
+  for (const [label, url] of [[flyLabel, entry.dashboard_url], ["Docs", entry.docs_url]]) {
+    const link = externalLink(label, url);
+    if (url) link.append(" ", icon("external", 14));
+    links.append(link);
+  }
   footer.append(access, links);
   if (entry.can_test) {
     const test = button("Test", async () => {
@@ -1724,7 +1817,7 @@ function updateMemoryJobs({ pinecone, sync, reindex }) {
   const running = job?.status === "running";
   const details = byId("pinecone-index-details");
   const mode = pinecone.integrated && !pinecone.vector_transport ? "integrated" : "dense";
-  const synced = pinecone.last_sync ? new Date(pinecone.last_sync).toLocaleString() : "Pending";
+  const synced = pinecone.last_sync ? date(pinecone.last_sync) : "Pending";
   details.replaceChildren(...[
     ["Index", pinecone.name],
     ["Namespace", pinecone.namespace],
@@ -1908,6 +2001,8 @@ async function openView(nextView, updateHistory = true) {
   }
   if (view === "timeline" && nextView !== view) timeline.hide();
   view = nextView;
+  byId("start-call").hidden = view !== "chat";
+  byId("environment").hidden = view === "chat";
   byId("view-title").textContent = view[0].toUpperCase() + view.slice(1);
   clearTimeout(reindexPoll);
   for (const item of nav) {
@@ -1950,6 +2045,7 @@ function activateThread(threadId) {
   selectionVersion++;
   sessionStorage.setItem("hearth-thread", threadId);
   input.value = threadDrafts.get(threadId) || "";
+  attachmentDraft.render();
   input.placeholder = threadId === mainThread.id ? "Message Hearth…" : "Message this side chat…";
   resizeInput();
   renderChat(true);
@@ -2000,6 +2096,7 @@ async function changeThread(operation, body = {}) {
       threadList = threadList.filter((item) => item.id !== body.thread_id);
       if (currentThread === body.thread_id) activateThread(mainThread.id);
       threadDrafts.delete(body.thread_id);
+      attachmentDraft.discard(body.thread_id);
       avatarStates.delete(body.thread_id);
       for (const turn of turns) if (turn.threadId === body.thread_id) turns.delete(turn);
       await refreshView();
@@ -2024,6 +2121,7 @@ function readChatEvent(turn, name, payload) {
   if (name === "queued") {
     turn.threadId = payload.thread.id;
     turn.prompt = payload.prompt;
+    if (payload.attachments) turn.attachments = payload.attachments;
     avatarSignal(turn.threadId, { type: "queued" });
     rememberThread(payload.thread);
     if (turn.command && turn.selection === selectionVersion) {
@@ -2087,16 +2185,21 @@ function readChatEvent(turn, name, payload) {
 
 async function chat(prompt, { keepDraft = false, approval } = {}) {
   prompt = prompt.trim();
-  if ((!prompt && !approval) || busy || (approval && [...turns].some((turn) => turn.approval?.id === approval.id && !turn.finished))) return;
+  if (busy || (approval && [...turns].some((turn) => turn.approval?.id === approval.id && !turn.finished))) return;
+  const attachments = keepDraft || approval ? [] : attachmentDraft.selected();
+  if (!attachments || (!prompt && !approval && !attachments.length)) return;
   voice.cancel();
   const source = approval?.thread_id || currentThread;
-  const command = source === mainThread.id && /^\/(side|btw)(?:\s|$)/i.test(prompt);
+  const command = !attachments.length && source === mainThread.id && /^\/(side|btw)(?:\s|$)/i.test(prompt);
   const turn = { threadId: command ? undefined : source, selection: selectionVersion, command,
-    prompt, approval, text: "", warnings: [], actions: new Map() };
+    prompt, approval, attachments, text: "", warnings: [], actions: new Map() };
   for (const previous of turns) if (previous.threadId === source && previous.error) turns.delete(previous);
   turns.add(turn);
   showNotice();
-  if (!keepDraft) input.value = "";
+  if (!keepDraft) {
+    input.value = "";
+    attachmentDraft.discard(source);
+  }
   resizeInput();
   renderChat(true);
   scrollDown();
@@ -2104,7 +2207,7 @@ async function chat(prompt, { keepDraft = false, approval } = {}) {
     await connectionRequest;
     const response = await fetch(approval ? "/api/browse/approve" : "/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(approval ? { id: approval.id, thread_id: source } : { message: prompt, thread_id: source }),
+      body: JSON.stringify(approval ? { id: approval.id, thread_id: source } : { message: prompt, thread_id: source, attachment_ids: attachments.map((item) => item.id) }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
@@ -2129,6 +2232,7 @@ async function chat(prompt, { keepDraft = false, approval } = {}) {
     avatarSignal(turn.threadId || source, { type: "error" });
     if (!turn.user) {
       turns.delete(turn);
+      if (!keepDraft) attachmentDraft.restore(source, attachments);
       if (source === currentThread && !input.value) {
         input.value = prompt;
         resizeInput();

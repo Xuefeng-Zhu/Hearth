@@ -10,7 +10,9 @@ export function setupMobile({ nearBottom, scrollDown }) {
   const avatarSelect = get("avatar-view");
   const threadHeader = get("thread-title").closest("header");
   const avatarOptions = get("mobile-avatar-options");
-  const startCall = get("start-call");
+  const call = get("start-call");
+  const callResume = get("return-to-call");
+  const workspaceHeader = call.parentElement;
 
   function closeDrawer() {
     if (!drawer.open) return;
@@ -91,11 +93,12 @@ export function setupMobile({ nearBottom, scrollDown }) {
   }
 
   function placeAvatarControl() {
-    const inline = !mobile.matches || get("chat-view").classList.contains("face-view");
+    const face = get("chat-view").classList.contains("face-view");
+    const callHost = face ? threadHeader : workspaceHeader;
+    const inline = !mobile.matches || face;
     const host = inline ? threadHeader : avatarOptions;
-    if (avatarSelect.parentElement === host) return;
-    if (inline) threadHeader.append(avatarLabel, avatarSelect);
-    else avatarOptions.append(avatarLabel, avatarSelect);
+    if (avatarSelect.parentElement !== host) host.append(avatarLabel, avatarSelect);
+    if (call.parentElement !== callHost) callHost.append(callResume, call);
   }
 
   function placeControls() {
@@ -103,15 +106,12 @@ export function setupMobile({ nearBottom, scrollDown }) {
     if (mobile.matches) {
       get("mobile-thread-panel").append(threadPanel);
       get("mobile-thread-controls").append(threadControls);
-      get("send").before(startCall);
     } else {
       closeDrawer();
       get("chat-view").prepend(threadPanel);
       get("thread-activity").after(threadControls);
-      threadHeader.append(startCall);
     }
     placeAvatarControl();
-    if (!mobile.matches) threadHeader.append(startCall);
     scheduleFit();
   }
 
