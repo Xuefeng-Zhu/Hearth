@@ -1,5 +1,55 @@
 # Hearth QA for Hacksgiving
 
+## Mobile
+
+November 25, 2026 UTC · `main` · Sprite runtime commit `2acb786`
+
+Touch-enabled Chromium with Playwright passed at **375×667**, **390×844**, and **430×932** portrait, **844×390** and **932×430** landscape, and an extra **320×640** check. The **1440×900** desktop sweep covered the sidebar, Chat, calls, and the workspace views. All sweeps completed without JavaScript or console errors. The harness used an isolated workspace with Mock, fixture Inbox mail, and synthetic microphone input. The Browser plugin was unavailable.
+
+| Area | Verification |
+| --- | --- |
+| Navigation and Chat | Tested bottom tabs and the More sheet, one-tap access to the thread sheet, side-chat creation and switching, Ember full-screen and return, and the mic, call, and send controls on one row. Checked Markdown and artifact chips. An 800-character URL and code token wrapped within the transcript. |
+| Viewport and PWA | Checked the standalone manifest, Apple Home Screen metadata and icon, and `viewport-fit=cover`. Chromium simulated a shrinking and panning visual viewport. The composer stayed within it and the tab bar returned on dismissal. A separate Safe Area test supplied 47/34/12/10 px for top, bottom, left, and right. |
+| Workspace views | Opened Timeline details, checked Artifacts as a list, edited a preview in the full-screen drawer, and scrolled a ten-column CSV inside its table viewport. Checked the reminder form and its Settings shortcut, forwarded Inbox, Memory, Connections tabs, and all seven Settings disclosures. Sampled interactive controls met 44 px and sampled entry fields used at least 16 px type. |
+| Voice and appearance | Exercised full-screen demo calls, mute, minimize, resume, and hang-up. Started and canceled dictation with the mobile overlay. Swept dark mode at 390 px and used reduced motion throughout. |
+
+Physical iPhone Safari, the operating system keyboard animation, and installation from the iOS share sheet remain unverified. The keyboard check exercised the visual viewport response in Chromium. [WebKit visual viewport timing](https://bugs.webkit.org/show_bug.cgi?id=265578), [Apple status-bar metadata](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html)
+
+### 390×844 captures
+
+[Mobile overview](/workspace/tmp/hearth-qa/mobile-overview.png)
+
+| Screen | Before | After |
+| --- | --- | --- |
+| Chat | [Before](/workspace/tmp/hearth-qa/mobile-chat-before.png) | [After](/workspace/tmp/hearth-qa/mobile-chat-after.png), [Markdown and chips](/workspace/tmp/hearth-qa/mobile-chat-markdown-after.png) |
+| Chat threads | [Before](/workspace/tmp/hearth-qa/mobile-threads-before.png) | [After](/workspace/tmp/hearth-qa/mobile-threads-after.png) |
+| Timeline | [Before](/workspace/tmp/hearth-qa/mobile-timeline-before.png) | [After](/workspace/tmp/hearth-qa/mobile-timeline-after.png) |
+| Artifacts | [Before](/workspace/tmp/hearth-qa/mobile-artifacts-before.png) | [After](/workspace/tmp/hearth-qa/mobile-artifacts-after.png) |
+| Artifact detail | [Before](/workspace/tmp/hearth-qa/mobile-artifact-detail-before.png) | [After](/workspace/tmp/hearth-qa/mobile-artifact-detail-after.png) |
+| Reminders | [Before](/workspace/tmp/hearth-qa/mobile-reminders-before.png) | [After](/workspace/tmp/hearth-qa/mobile-reminders-after.png) |
+| More | [Workspace links before](/workspace/tmp/hearth-qa/mobile-more-before.png) | [After](/workspace/tmp/hearth-qa/mobile-more-after.png) |
+| Inbox | [Before](/workspace/tmp/hearth-qa/mobile-inbox-before.png) | [After](/workspace/tmp/hearth-qa/mobile-inbox-after.png) |
+| Memory | [Before](/workspace/tmp/hearth-qa/mobile-memory-before.png) | [After](/workspace/tmp/hearth-qa/mobile-memory-after.png) |
+| Connections | [Before](/workspace/tmp/hearth-qa/mobile-connections-before.png) | [After](/workspace/tmp/hearth-qa/mobile-connections-after.png) |
+| Settings | [Before](/workspace/tmp/hearth-qa/mobile-settings-before.png) | [After](/workspace/tmp/hearth-qa/mobile-settings-after.png), [Open Brain section](/workspace/tmp/hearth-qa/mobile-settings-brain-after.png) |
+| Call | [Before](/workspace/tmp/hearth-qa/mobile-call-before.png) | [After](/workspace/tmp/hearth-qa/mobile-call-after.png) |
+| Voice input | [Before](/workspace/tmp/hearth-qa/mobile-voice-before.png) | [After](/workspace/tmp/hearth-qa/mobile-voice-after.png) |
+
+[Simulated keyboard](/workspace/tmp/hearth-qa/mobile-keyboard-after.png), [Safe areas](/workspace/tmp/hearth-qa/mobile-safe-area.png), [Landscape Chat](/workspace/tmp/hearth-qa/mobile-chat-landscape.png), [Landscape Call](/workspace/tmp/hearth-qa/mobile-call-landscape.png), [Dark Settings](/workspace/tmp/hearth-qa/mobile-dark-settings-brain.png), [Desktop Chat](/workspace/tmp/hearth-qa/mobile-desktop-chat.png)
+
+### Live Box upload
+
+The deployed `POST /api/artifacts/create` returned **201** and synchronized to Box. The deployed `POST /api/artifacts/update` returned **200** for the same file. A detail request after the final deployment returned version 2 and both receipts. The direct gateway request to `GET 2.0/files/2614704783851/versions` returned **403** with “request is not supported by this connector.” Hearth used its saved history. The live verification file remains in Box. [Box verification file](https://app.box.com/file/2614704783851)
+
+| Receipt | ID |
+| --- | --- |
+| Hearth artifact | `4a2a28b60023449ebe6abaf5f1a156b5` |
+| Box file | `2614704783851` |
+| Box version 1 | `2902976041451` |
+| Box version 2 | `2902968544059` |
+
+The Box fixture checked both gateway upload paths, multipart ordering, the 50 MiB file limit, fallback and retry, and workspace-only Trash and restore. `python3 -m unittest discover -s tests` passed **91 tests**. `node --test tests/*.test.mjs` passed **5 tests**. Every `web/*.js` file passed `node --check`. `scripts/deploy.sh` succeeded. The authenticated Sprite `/health` responded with `{"ok": true, "checkpoints": "sprite"}`, and the hashes for seven served assets matched the local files.
+
 ## Round 2
 
 November 25, 2026 UTC · `main` · Sprite runtime commit `37caf1e`

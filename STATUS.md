@@ -1,5 +1,11 @@
 # Hearth status
 
+## Run 17 · Mobile and Box
+
+- The private Hearth Sprite serves the iPhone layout with bottom tabs, a one-tap thread sheet, a keyboard-aware composer, and full-screen call and artifact sheets. Settings sections collapse on mobile. Touch-enabled Chromium passed at 375×667, 390×844, 430×932, both landscape sizes, and 1440 px desktop. Physical iPhone Safari and Home Screen launch remain unverified. [Mobile overview](/workspace/tmp/hearth-qa/mobile-overview.png), [QA evidence](QA-REPORT.md#mobile)
+- The deployed Artifacts API created Box file `2614704783851` with version ID `2902976041451` and saved an edit as version 2 with ID `2902968544059`. The gateway accepts the two multipart `upload/files/…/content` routes with attributes first and continues to return 403 for the versions GET. Hearth displayed both receipts from its local history. Hearth Trash and Timeline restore act on the workspace entry. The verification file remains in Box. [Open verification file](https://app.box.com/file/2614704783851)
+- All 91 Python tests, five Node tests, and JavaScript syntax checks passed. `scripts/deploy.sh` completed and the authenticated Sprite health check returned `{"ok": true, "checkpoints": "sprite"}`. The Sprite served byte-matched mobile assets and still reported Box version 2 after redeployment.
+
 ## Reminder delivery and Email Hearth
 
 - The private Sprite authorized AgentMail and provisioned a dedicated Hearth inbox. One live self-addressed flight confirmation was accepted by AgentMail and imported by the authenticated tick as a flight event proposal. The reminder recipient field was empty, so outbound reminder verification used the disconnected Outbox.
@@ -58,8 +64,6 @@
 - Chromium verified the pinned cards, search, category filter, empty results, and re-scan at desktop and mobile widths using the deployed Connections API and the deployed asset versions. The desktop capture is at `/workspace/tmp/hearth-qa/hearth-catalog.png`.
 
 ## Mocked and pending
-
-- The live Sprites Box connector returned HTTP 403 for the multipart new-file and new-version endpoints. It also rejected version history, file deletion, and Trash restore in endpoint probes. Hearth showed **Saved locally — Box upload unavailable** on all three demo files. The live run has a Box folder ID and local artifact IDs. Successful live upload, a Box file ID, and Box version 2 remain blocked by the gateway. [Box upload API](https://developer.box.com/reference/post-files-content), [Box version upload API](https://developer.box.com/reference/post-files-id-content), [Fly Box connector](https://fly.io/sprites/ecosystem/)
 
 - The Llama model included a stray `</function>` marker in one of two live greeting replies.
 - Tavily, Linkup, Kagi, Keenable, and Firecrawl were covered with mocked HTTP while disconnected. Thanksgiving sample recipients use `example.invalid`. [Sprites gateway discovery](https://docs.fly.io/sprites/concepts/connectors#using-connectors-with-a-coding-agent)
