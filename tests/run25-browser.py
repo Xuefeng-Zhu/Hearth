@@ -114,7 +114,11 @@ def verify(page, context, origin, width, theme, output):
     expect(legacy).to_have_text(re.compile("Weekend market guidePage · v1"))
     legacy.click()
     expect(page.frame_locator("#page-preview-fit iframe").get_by_role("heading", name="Weekend market guide")).to_be_visible()
+    page.get_by_role("dialog", name="Weekend market guide").evaluate("""dialog => {
+      window.previewClosed = new Promise(resolve => dialog.addEventListener("close", resolve, { once: true }));
+    }""")
     page.get_by_role("button", name="Close page preview").click()
+    page.evaluate("window.previewClosed.then(() => true)")
     expect(legacy).to_be_focused()
     page.locator("#message").focus()
     expect(page.locator("#message")).to_be_focused()
