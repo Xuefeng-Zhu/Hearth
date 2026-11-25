@@ -6,12 +6,42 @@ const send = byId("send");
 const notice = byId("notice");
 const chatScroll = byId("chat-scroll");
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
-const modelNames = { mock: "Mock model", meta: "Muse Spark", ollama: "Ollama Cloud", openrouter: "OpenRouter" };
+const modelNames = { mock: "Mock", meta: "Muse Spark", ollama: "Ollama Cloud", openrouter: "OpenRouter" };
+const flyConnectors = "https://fly.io/dashboard/xuefeng-zhu/sprites/connectors";
+const providers = {
+  meta: {
+    name: "Meta Muse Spark", role: "Chat",
+    setup: "In Meta Model API, select a team with access to muse-spark-1.3, then create a key under API keys.",
+    flyName: "Meta (Muse Spark)",
+  },
+  pinecone: {
+    name: "Pinecone", role: "Semantic recall",
+    setup: "In Pinecone, create a serverless dense vector index with 1024 dimensions, cosine similarity, and your own vectors. Use a project key with index, vector, and inference access.",
+    flyName: "Pinecone", field: "index", label: "Index name", placeholder: "hearth-memory", maxLength: 45,
+  },
+  tavily: {
+    name: "Tavily", role: "Web search",
+    setup: "Create a key under API Keys on the Tavily dashboard home page.",
+    flyName: "Tavily (Community)",
+  },
+  agentmail: {
+    name: "AgentMail", role: "Email",
+    setup: "In AgentMail, create or select a sending inbox. Use a key with access to that inbox and permission to send messages.",
+    flyName: "AgentMail", field: "inbox_id", label: "Inbox ID", placeholder: "your-inbox@agentmail.to", maxLength: 254,
+  },
+};
+const connectionLabels = {
+  connected: "Connected", unauthorized: "Found but not authorized",
+  not_set_up: "Not set up", unavailable: "Unreachable", unknown: "Not checked",
+};
+const connectionDrafts = new Map();
 let state;
 let view = "chat";
 let selectedFile;
 let busy = false;
 let timelineTimer;
+let connectionState;
+let connectionRequest;
 
 function node(tag, className, text) {
   const item = document.createElement(tag);
@@ -51,7 +81,7 @@ function date(value) {
 function setBusy(value) {
   busy = value;
   send.disabled = value;
-  for (const item of document.querySelectorAll(".card button, [data-prompt]")) {
+  for (const item of document.querySelectorAll(".cards button, #timeline .card button, [data-prompt]")) {
     item.disabled = value;
   }
 }
@@ -120,7 +150,11 @@ function renderChat() {
 async function refreshState() {
   state = await api("/api/state", undefined, AbortSignal.timeout(6000));
   byId("environment-label").textContent = state.checkpoints === "sprite" ? "Private Sprite" : "Local workspace";
-  byId("model-status").textContent = modelNames[state.model] || "Model unavailable";
+  renderBrain(state.model);
+}
+
+function renderBrain(model) {
+  byId("model-status").textContent = `Brain · ${modelNames[model] || "Unavailable"}`;
 }
 
 async function selectFile(path) {
@@ -196,11 +230,127 @@ async function renderTimeline() {
   }
 }
 
+function connectorSetup(info, status) {
+  const setup = node("div", "connector-setup");
+  if (status === "not_set_up" || status === "unknown") {
+    const steps = node("ol");
+    steps.append(
+      node("li", "", info.setup),
+      node("li", "", `In Fly, choose Add connection → ${info.flyName}. Enter the key in Fly’s form and save.`),
+    );
+    setup.append(steps);
+  }
+  const access = node("p");
+  access.append(
+    "In Access Configuration, turn off Allow all sprites and set Name Prefix to ",
+    node("code", "", "hearth"),
+    ". Check Authorized Sprites and save.",
+  );
+  const link = node("a", "", "Open Fly connectors ↗");
+  link.href = flyConnectors;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  setup.append(access, link);
+  return setup;
+}
+
+function connectionCard(provider, entry) {
+  const info = providers[provider];
+  const card = node("article", "card connection-card");
+  const heading = node("div", "card-header");
+  heading.append(node("h3", "", info.name), node("span", `connection-status ${entry.status}`, connectionLabels[entry.status]));
+  card.append(heading, node("p", "meta", info.role), node("p", "connection-detail", entry.detail));
+  if (entry.status !== "connected") card.append(connectorSetup(info, entry.status));
+  if (info.field) {
+    const form = node("form", "connector-settings");
+    const inputId = `connection-${provider}`;
+    const label = node("label", "", info.label);
+    label.htmlFor = inputId;
+    const field = node("input");
+    field.id = inputId;
+    field.type = info.field === "inbox_id" ? "email" : "text";
+    field.required = info.field === "index";
+    field.maxLength = info.maxLength;
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    field.placeholder = info.placeholder;
+    field.value = connectionDrafts.get(provider) ?? entry.settings[info.field];
+    field.addEventListener("input", () => connectionDrafts.set(provider, field.value));
+    const save = node("button", "", "Save");
+    save.type = "submit";
+    save.setAttribute("aria-label", `Save ${info.name} settings`);
+    const controls = node("div", "connector-controls");
+    controls.append(field, save);
+    form.append(label, controls);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      updateConnections("settings", { provider, value: field.value });
+    });
+    card.append(form);
+  }
+  const test = button("Test", () => updateConnections("test", { provider }));
+  test.className = "test-connection";
+  test.setAttribute("aria-label", `Test ${info.name}`);
+  test.dataset.canTest = String(entry.can_test);
+  test.disabled = !entry.can_test;
+  card.append(test);
+  return card;
+}
+
+function renderConnections() {
+  if (!connectionState) return;
+  byId("connection-grid").replaceChildren(...Object.entries(connectionState.providers)
+    .map(([provider, entry]) => connectionCard(provider, entry)));
+  renderBrain(connectionState.model);
+}
+
+function setConnectionsBusy(value) {
+  byId("rescan-connections").disabled = value;
+  for (const control of byId("connection-grid").querySelectorAll("button, input")) {
+    control.disabled = value || control.dataset.canTest === "false";
+  }
+}
+
+function updateConnections(operation, body = {}) {
+  if (connectionRequest) return connectionRequest;
+  const feedback = byId("connection-notice");
+  const name = providers[body.provider]?.name;
+  feedback.textContent = { rescan: "Checking connections…", test: `Testing ${name}…`, settings: "Saving settings…" }[operation];
+  setConnectionsBusy(true);
+  connectionRequest = (async () => {
+    try {
+      connectionState = await api(`/api/connections/${operation}`, body);
+      if (operation === "settings") connectionDrafts.delete(body.provider);
+      renderConnections();
+      const entry = connectionState.providers[body.provider];
+      feedback.textContent = {
+        rescan: connectionState.scan_error || `Last checked ${date(connectionState.last_scan)}.`,
+        test: entry ? `${name} · ${entry.detail}` : "",
+        settings: `${name} settings saved.`,
+      }[operation];
+    } catch (error) {
+      feedback.textContent = error.message;
+      if (!connectionState) {
+        try {
+          connectionState = await api("/api/connections");
+          renderConnections();
+        } catch {
+          // The request message remains visible until a re-scan succeeds.
+        }
+      }
+    } finally {
+      connectionRequest = undefined;
+      setConnectionsBusy(false);
+    }
+  })();
+  return connectionRequest;
+}
+
 async function refreshView() {
   await refreshState();
   if (view === "chat") renderChat();
   else if (view === "memory") await renderMemory();
-  else await renderTimeline();
+  else if (view === "timeline") await renderTimeline();
 }
 
 async function openView(nextView) {
@@ -216,7 +366,9 @@ async function openView(nextView) {
     }
     byId(`${item.dataset.view}-view`).hidden = !active;
   }
-  if (!busy) {
+  if (view === "connections") {
+    await updateConnections("rescan");
+  } else if (!busy) {
     try {
       await refreshView();
     } catch (error) {
@@ -337,6 +489,7 @@ byId("composer").addEventListener("submit", (event) => {
   event.preventDefault();
   chat(input.value);
 });
+byId("rescan-connections").addEventListener("click", () => updateConnections("rescan"));
 input.addEventListener("input", resizeInput);
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
@@ -354,3 +507,4 @@ document.addEventListener("visibilitychange", () => {
   if (view === "timeline" && !document.hidden && !busy) refreshView().catch((error) => showNotice(error.message));
 });
 openView("chat");
+updateConnections("rescan");

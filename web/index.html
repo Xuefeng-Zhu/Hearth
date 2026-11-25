@@ -16,13 +16,16 @@
         <button type="button" class="nav-link" data-view="chat" aria-current="page"><span class="nav-icon" aria-hidden="true">▤</span> Chat</button>
         <button type="button" class="nav-link" data-view="memory"><span class="nav-icon" aria-hidden="true">▱</span> Memory</button>
         <button type="button" class="nav-link" data-view="timeline"><span class="nav-icon" aria-hidden="true">◷</span> Timeline</button>
+        <button type="button" class="nav-link" data-view="connections"><span class="nav-icon" aria-hidden="true">⌘</span> Connections</button>
       </nav>
-      <div class="sidebar-footer" id="model-status">Connecting to Hearth…</div>
     </aside>
     <main>
       <header class="header">
         <h1 id="view-title">Chat</h1>
-        <span class="environment" id="environment"><span class="dot"></span><span id="environment-label">Connecting</span></span>
+        <div class="header-status">
+          <span class="environment" id="model-status">Brain · Checking…</span>
+          <span class="environment" id="environment"><span class="dot"></span><span id="environment-label">Connecting</span></span>
+        </div>
       </header>
       <p class="notice" id="notice" role="status" hidden></p>
       <section class="view chat-view" id="chat-view" aria-labelledby="view-title">
@@ -58,6 +61,14 @@
       <section class="view panel" id="timeline-view" aria-labelledby="view-title" hidden>
         <div class="section-intro"><h2>Workspace activity</h2><p>Checkpoints, actions, and reminders from Hearth.</p></div>
         <div class="timeline" id="timeline"></div>
+      </section>
+      <section class="view panel" id="connections-view" aria-labelledby="view-title" hidden>
+        <div class="section-intro connections-intro">
+          <div><h2>Connect your providers</h2><p>Set up access in Fly, then let Hearth discover your connections.</p></div>
+          <button type="button" class="rescan" id="rescan-connections">Re-scan</button>
+        </div>
+        <p class="empty connection-notice" id="connection-notice" role="status">Checking connections…</p>
+        <div class="connection-grid" id="connection-grid"></div>
       </section>
     </main>
   </div>
