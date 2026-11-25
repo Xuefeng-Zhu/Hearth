@@ -65,7 +65,7 @@ class Storage:
     def load(self):
         if self.state.is_file():
             return json.loads(self.state.read_text(encoding="utf-8"))
-        return {"messages": [], "actions": {}, "jobs": [], "reminders": [], "outbox": [], "indexed": []}
+        return {"actions": {}, "jobs": [], "reminders": [], "outbox": [], "indexed": []}
 
     def save(self, state):
         atomic_write(self.state, json.dumps(state, ensure_ascii=False))

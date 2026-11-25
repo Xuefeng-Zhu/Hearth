@@ -1,34 +1,43 @@
 import argparse
 import json
 import os
+import re
 import threading
 import time
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, urlsplit
 
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections
 from .connectors import Gateway, read_config
+from .gateway_tools import redact_text
 from .storage import HearthError, ROOT, Storage
+from .threads import MAIN, Threads, compact
 
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
 }
+SIDE_COMMAND = re.compile(r"/(?:side|btw)(?:\s+(.+))?", re.I | re.S)
 
 
 class Application:
     def __init__(self, storage, checkpoints, config, *, config_path=None, gateway=None):
         self.storage = storage
+        self.threads = Threads(storage)
         self.checkpoints = checkpoints
         self.gateway = gateway or Gateway()
         self.connections = Connections(
             config, config_path or storage.live / "connectors.local.json", self.gateway, storage, checkpoints,
         )
         self.operation = threading.Lock()
+        self.turn_lock = threading.Lock()
+        self.turns = {}
         self.restore = None
         self.reload_agent()
 
@@ -57,21 +66,106 @@ class Application:
     def brain_info(self):
         return {**self.connections.brain_info(), **self.brain_status(), "scan_error": self.connections.scan_error}
 
-    def info(self):
+    def info(self, thread_id=MAIN):
+        with self.turn_lock:
+            active = set(self.turns)
         with self.storage.lock():
             state = self.storage.load()
-        return {"messages": state["messages"], "actions": list(state["actions"].values()),
+            threads = self.threads.list()
+            if not any(thread["id"] == thread_id for thread in threads):
+                thread_id = MAIN
+            messages = self.threads.messages(thread_id)
+        return {"thread_id": thread_id, "threads": [{**thread, "busy": thread["id"] in active} for thread in threads],
+                "messages": messages, "actions": list(state["actions"].values()),
                 "jobs": state["jobs"], "reminders": state["reminders"], "restore": self.restore,
                 "checkpoints": self.checkpoints.mode, **self.brain_status()}
 
     def timeline(self):
         with self.storage.lock():
             actions = self.storage.load()["actions"].values()
-            known = {action["checkpoint"]["id"]: action["checkpoint"]
+            known = {action["checkpoint"]["id"]: {**action["checkpoint"],
+                     "thread_id": action.get("thread_id", MAIN), "thread_title": action.get("thread_title", "Main")}
                      for action in actions if action.get("checkpoint")}
-            return [known.get(item["id"], item) for item in self.checkpoints.list()]
+        return [known.get(item["id"], item) for item in self.checkpoints.list()]
+
+    def enqueue(self, thread_id, prompt):
+        command = SIDE_COMMAND.fullmatch(prompt) if thread_id == MAIN else None
+        if command:
+            prompt = require_text(command[1], 4_000)
+        with self.storage.lock():
+            thread = self.threads.create() if command else self.threads.describe(thread_id)
+        thread_id = thread["id"]
+        events = SimpleQueue()
+        events.put(("queued", {"thread": thread, "prompt": redact_text(prompt)}))
+        with self.turn_lock:
+            pending = self.turns.get(thread_id)
+            if pending is not None:
+                pending.append((prompt, events))
+            else:
+                self.turns[thread_id] = deque([(prompt, events)])
+                threading.Thread(target=self.run_turns, args=(thread_id,), daemon=True).start()
+        return events
+
+    def run_turns(self, thread_id):
+        while True:
+            with self.turn_lock:
+                prompt, events = self.turns[thread_id][0]
+            agent = self.agent
+
+            def event(name, data):
+                if name == "done" and self.agent is agent:
+                    self.brain = data["provider"]
+                events.put((name, data))
+
+            try:
+                agent.chat(prompt, event, thread_id)
+            except Exception:
+                event("error", {"message": "Hearth could not finish this turn. Check Timeline for any completed actions."})
+            finally:
+                with self.turn_lock:
+                    pending = self.turns[thread_id]
+                    pending.popleft()
+                    if not pending:
+                        del self.turns[thread_id]
+                events.put(None)
+            if not pending:
+                return
+
+    def update_thread(self, operation, body):
+        if operation == "create" and not body:
+            with self.storage.lock():
+                return self.threads.create()
+        thread_id = body.get("thread_id")
+        if operation == "delete":
+            with self.turn_lock:
+                if isinstance(thread_id, str) and thread_id in self.turns:
+                    raise HearthError("Wait for this chat to finish before deleting it.")
+        with self.storage.lock():
+            self.threads.require_side(thread_id)
+            if operation == "rename" and body.keys() == {"thread_id", "title"}:
+                title = " ".join(redact_text(require_text(body["title"], 80)).split())
+                return self.threads.rename(thread_id, title)
+            if operation == "delete" and body.keys() == {"thread_id"}:
+                thread = self.threads.describe(thread_id)
+                checkpoint = self.checkpoints.create("Before deleting a Hearth side chat")
+                self.threads.delete(thread_id)
+                return self.agent.add_action("thread", "Side chat deleted", status="complete", checkpoint=checkpoint,
+                                             thread_id=thread_id, thread_title=thread["title"])
+            if operation == "share" and body.keys() == {"thread_id", "message_id"}:
+                messages = self.threads.messages(thread_id)
+                message = next((item for item in messages if item["id"] == body["message_id"]), None)
+                if not message:
+                    raise HearthError("That message no longer exists.")
+                thread = self.threads.describe(thread_id)
+                quote = compact(redact_text(message["content"]), 500)
+                text = f"Shared from {thread['title']}\n\n> {quote}"
+                return self.threads.append(MAIN, "user", text, shared_from=thread_id)
+        raise HearthError("Invalid chat request.")
 
     def start_restore(self, action_id):
+        with self.turn_lock:
+            if self.turns:
+                raise HearthError("Wait for active chats to finish before restoring a checkpoint.")
         with self.storage.lock():
             action = self.storage.load()["actions"].get(action_id)
             if not self.agent.can_undo(action):
@@ -148,7 +242,8 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/health":
                 self.json({"ok": True, "checkpoints": self.app.checkpoints.mode})
             elif url.path == "/api/state":
-                self.json(self.app.info())
+                thread_id = parse_qs(url.query).get("thread", [MAIN])[0]
+                self.json(self.app.info(thread_id))
             elif url.path == "/api/connections":
                 self.json(self.app.connection_info())
             elif url.path == "/api/brain":
@@ -190,7 +285,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         routes = {"/api/chat", "/api/approve", "/api/undo",
                   "/api/connections/rescan", "/api/connections/test", "/api/connections/settings",
-                  "/api/brain/test", "/api/brain/settings"}
+                  "/api/brain/test", "/api/brain/settings", "/api/threads/create", "/api/threads/rename",
+                  "/api/threads/delete", "/api/threads/share"}
         if self.path not in routes:
             self.json({"error": "Page not found."}, 404)
             return
@@ -198,15 +294,17 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"error": "Hearth is working on another action."}, 409)
             return
         status = 200
+        stream = None
         try:
             if self.app.restore and self.app.restore["status"] == "restoring":
                 result, status = {"error": "A checkpoint is being restored."}, 409
             else:
                 body = self.body()
                 if self.path == "/api/chat":
-                    self.stream_chat(require_text(body.get("message"), 4_000))
-                    return
-                if self.path.startswith("/api/connections/"):
+                    stream = self.app.enqueue(body.get("thread_id", MAIN), require_text(body.get("message"), 4_000))
+                elif self.path.startswith("/api/threads/"):
+                    result = self.app.update_thread(self.path.rsplit("/", 1)[-1], body)
+                elif self.path.startswith("/api/connections/"):
                     result = self.update_connections(body)
                 elif self.path.startswith("/api/brain/"):
                     result = self.update_brain(body)
@@ -221,7 +319,10 @@ class Handler(BaseHTTPRequestHandler):
             result, status = {"error": str(error)}, 400
         finally:
             self.app.operation.release()
-        self.json(result, status)
+        if stream is not None:
+            self.stream_chat(stream)
+        else:
+            self.json(result, status)
 
     def update_connections(self, body):
         if self.path == "/api/connections/rescan" and not body:
@@ -247,25 +348,23 @@ class Handler(BaseHTTPRequestHandler):
         self.app.reload_agent()
         return self.app.brain_info()
 
-    def stream_chat(self, prompt):
-        self.response_headers(200, "text/event-stream")
-        connected = True
-
-        def event(name, data):
-            nonlocal connected
-            if name == "done":
-                self.app.brain = data["provider"]
-            if connected:
-                try:
-                    self.wfile.write(f"event: {name}\ndata: {json.dumps(data)}\n\n".encode("utf-8"))
-                    self.wfile.flush()
-                except OSError:
-                    connected = False
-
+    def stream_chat(self, events):
         try:
-            self.app.agent.chat(prompt, event)
-        except Exception:
-            event("error", {"message": "Hearth could not finish this turn. Check Timeline for any completed actions."})
+            self.response_headers(200, "text/event-stream")
+            while True:
+                try:
+                    packet = events.get(timeout=12)
+                except Empty:
+                    self.wfile.write(b": Hearth is working\n\n")
+                else:
+                    if packet is None:
+                        return
+                    name, data = packet
+                    self.wfile.write(f"event: {name}\ndata: {json.dumps(data)}\n\n".encode("utf-8"))
+                self.wfile.flush()
+        except OSError:
+            # The worker still finishes and persists the reply if the browser disconnects.
+            return
 
 
 def main():

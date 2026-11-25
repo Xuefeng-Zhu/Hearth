@@ -232,7 +232,7 @@ class ConnectionsTest(unittest.TestCase):
         self.gateway.failed_models.update(("meta", "openrouter", "openai", "anthropic"))
         events = []
         self.app.agent.chat("Hello", lambda name, data: events.append((name, data)))
-        self.assertEqual(events[-1], ("done", {"provider": "gemini"}))
+        self.assertEqual((events[-1][0], events[-1][1]["provider"]), ("done", "gemini"))
         self.assertEqual(self.gateway.completions, ["conn_meta", "conn_openrouter", "conn_openai",
                                                      "conn_anthropic", "conn_gemini"])
         self.app.brain = "gemini"  # The HTTP stream records the provider from the done event.

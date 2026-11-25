@@ -3,6 +3,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from .storage import HearthError, Storage, iso, new_id
+from .threads import MAIN_ORIGIN
 
 
 def cron_field(field, low, high):
@@ -48,7 +49,7 @@ def next_cron(expression, now):
     raise HearthError("That cron expression has no upcoming occurrence.")
 
 
-def add_job(state, message, clock=None, *, at=None, cron=None):
+def add_job(state, message, clock=None, *, at=None, cron=None, origin=None):
     now = clock or datetime.now(timezone.utc)
     if not isinstance(message, str) or not message.strip() or len(message) > 800:
         raise HearthError("Provide a reminder of 1–800 characters.")
@@ -66,7 +67,8 @@ def add_job(state, message, clock=None, *, at=None, cron=None):
             due = due.astimezone(timezone.utc)
         except (TypeError, ValueError):
             raise HearthError("Use a future ISO date with a time zone.") from None
-    job = {"id": new_id(), "message": message.strip(), "next_at": iso(due), "cron": cron, "status": "scheduled"}
+    job = {"id": new_id(), "message": message.strip(), "next_at": iso(due), "cron": cron, "status": "scheduled",
+           **(origin or MAIN_ORIGIN)}
     state["jobs"].append(job)
     return job
 
@@ -79,7 +81,8 @@ def run_due(storage, clock=None):
                and datetime.fromisoformat(job["next_at"]) <= now]
         for job in due:
             state["reminders"].append({
-                "id": new_id(), "message": job["message"], "scheduled_at": job["next_at"], "delivered_at": iso(now)
+                "id": new_id(), "message": job["message"], "scheduled_at": job["next_at"], "delivered_at": iso(now),
+                **{key: job.get(key, default) for key, default in MAIN_ORIGIN.items()},
             })
             if job["cron"]:
                 job["next_at"] = iso(next_cron(job["cron"], now))

@@ -262,7 +262,7 @@ class Integrations:
             for path, content in notes.items()
             for offset in range(0, len(content), 1200)
         ]
-        checkpoint.create("Before syncing memory to Pinecone")
+        checkpoint("Before syncing memory to Pinecone")
         for start in range(0, len(chunks), 32):
             batch = chunks[start:start + 32]
             vectors = self.embed(config, [text for _, _, text in batch], "passage")

@@ -42,7 +42,7 @@ class HearthTest(unittest.TestCase):
 
     def test_thanksgiving_loop_streams_and_stages_an_email(self):
         events = self.chat("Plan Thanksgiving dinner")
-        self.assertEqual(events[-1], ("done", {"provider": "mock"}))
+        self.assertEqual((events[-1][0], events[-1][1]["provider"]), ("done", "mock"))
         self.assertGreater(sum(name == "token" for name, _ in events), 5)
         draft, reminder = [data for name, data in events if name == "action"]
         self.assertEqual(draft["email"]["to"], ["daniel@example.invalid", "maya@example.invalid"])
@@ -118,8 +118,8 @@ class HearthTest(unittest.TestCase):
         self.agent = Agent(self.storage, self.checkpoints, self.config, OfflineGateway())
         events = self.chat("Read USER.md")
         self.assertIn("reset", [name for name, _ in events])
-        self.assertEqual(events[-1], ("done", {"provider": "mock"}))
-        self.assertTrue(self.storage.load()["messages"][-1]["content"].startswith("# Frank"))
+        self.assertEqual((events[-1][0], events[-1][1]["provider"]), ("done", "mock"))
+        self.assertTrue(self.agent.threads.messages("main")[-1]["content"].startswith("# Frank"))
 
     def test_model_fallback_preserves_an_already_staged_action(self):
         class InterruptedGateway(Recorder):
@@ -131,14 +131,14 @@ class HearthTest(unittest.TestCase):
         self.config["llm"][0]["connection_id"] = "test-id"
         self.agent = Agent(self.storage, self.checkpoints, self.config, InterruptedGateway())
         events = self.chat("Plan Thanksgiving dinner")
-        self.assertEqual(events[-1], ("done", {"provider": "mock"}))
+        self.assertEqual((events[-1][0], events[-1][1]["provider"]), ("done", "mock"))
         state = self.storage.load()
         draft, fallback = state["actions"].values()
         self.assertEqual((draft["kind"], draft["status"]), ("email", "pending"))
         self.assertEqual(draft["email"]["to"], ["daniel@example.invalid", "maya@example.invalid"])
         self.assertEqual(fallback["title"], "Brain fallback")
-        self.assertEqual(state["messages"][-1]["action_ids"], [draft["id"]])
-        self.assertEqual(state["messages"][-1]["notices"], [fallback["detail"]])
+        self.assertEqual(self.agent.threads.messages("main")[-1]["action_ids"], [draft["id"]])
+        self.assertEqual(self.agent.threads.messages("main")[-1]["notices"], [fallback["detail"]])
         self.assertEqual(state["outbox"], [])
 
     def test_scheduler_persists_and_catches_up_once(self):

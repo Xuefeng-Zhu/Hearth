@@ -40,7 +40,7 @@ class TestGatewayTools(unittest.TestCase):
         self.assertEqual(request.get_method(), "GET")
         self.assertTrue(request.full_url.endswith("/future_tool/conn_future/v1/items?limit=1"))
         self.assertIsNone(request.data)
-        messages = self.storage.load()["messages"]
+        messages = self.agent.threads.messages("main")
         self.assertIn("[redacted]", messages[-1]["content"])
         self.assertNotIn("placeholder-that-must-not-be-retained", str(events))
         self.assertFalse(self.checkpoints.list())
@@ -99,7 +99,7 @@ class TestGatewayTools(unittest.TestCase):
         with self.assertRaises(HearthError):
             validate_request("future_tool", "POST", "/v1", {"api_key": "opaque"})
         self.agent.chat('Gateway future_tool POST /v1 | {"api_key":"opaque-user-input"}', lambda *_: None)
-        self.assertNotIn("opaque-user-input", self.storage.state.read_text())
+        self.assertNotIn("opaque-user-input", self.agent.threads.path("main").read_text())
         self.assertFalse(self.requests)
 
 
