@@ -1,5 +1,49 @@
 # Hearth QA for Hacksgiving
 
+## Run 19 · Contrast, navigation, and Chat
+
+November 25, 2026 UTC · Private Hearth Sprite
+
+- On a phone, tap the menu in the header and choose **Timeline**. Expand an activity, then open **Undo** and cancel. The drawer highlights the current page and closes on selection, Escape, scrim tap, or a left swipe. **New chat** and the thread list are in the drawer. The desktop sidebar stays in place.
+- In a new chat, enter **Can you create a slide for Seattle trip**. Mock makes a local PPTX. Smart routing on the Sprite made a real PPTX, synced it to Box, and returned a file card. Use **Open** to preview or **Save to Box** to sync a local file. The message’s **⋯** button or a long press opens its timestamp, model details, and actions.
+- Playwright Chromium exercised the drawer, focus trap, Markdown tables, expanding long replies, all Timeline entry kinds and raw details, each Office preview, Reminders, Inbox, both Connections tabs, all seven Settings sections, and demo call captions. The Browser plugin was unavailable. The additional drawer sizes were 375×812, 430×932, and 844×390 in both themes.
+- The contrast sweep found zero failures. The lowest measurements were **5.224:1** for dark body text (**Undo**), **4.054:1** for a dark control border in Reminders, and **4.543:1** for light body text (the composer placeholder). The PDF viewer’s embedded page contents and decorative mascot artwork are outside the app DOM measurement. Physical iPhone Safari was not tested.
+- All 105 Python tests, five Node tests, and JavaScript syntax checks passed. `scripts/deploy.sh` deployed the release, and the authenticated `/health` returned `{"ok": true, "checkpoints": "sprite"}`.
+
+| Hugging Face model on the Sprite | Structured tool call | Chinese reply |
+| --- | ---: | ---: |
+| Kimi K3.1 Pro | 2.699 s | 9.149 s |
+| DeepSeek V4.1 Flash | 0.987 s | 2.531 s |
+| DeepSeek V4 Pro | 0.649 s | 0.999 s |
+
+These are connector wall-clock times for one request per task and model. The full Seattle turn took 13.834 s and the downloaded PPTX passed ZIP validation. [Seattle Trip.pptx in Box](https://app.box.com/file/2614819364671)
+
+### Browser evidence
+
+| Flow | Captures |
+| --- | --- |
+| Timeline at 390 px | [Before](/workspace/tmp/hearth-qa/run19-timeline-before.png), [after](/workspace/tmp/hearth-qa/run19-timeline-after.png), [Undo](/workspace/tmp/hearth-qa/run19-dark-timeline-undo.png) |
+| Drawer in light mode | [Closed](/workspace/tmp/hearth-qa/run19-menu-closed-light.png), [open](/workspace/tmp/hearth-qa/run19-menu-open-light.png) |
+| Drawer in dark mode | [Closed](/workspace/tmp/hearth-qa/run19-menu-closed-dark.png), [open](/workspace/tmp/hearth-qa/run19-menu-open-dark.png) |
+| Seattle in Mock, light | [Before](/workspace/tmp/hearth-qa/run19-chat-mock-before-light.png), [after](/workspace/tmp/hearth-qa/run19-chat-mock-after-light.png) |
+| Seattle in Mock, dark | [Before](/workspace/tmp/hearth-qa/run19-chat-mock-before-dark.png), [after](/workspace/tmp/hearth-qa/run19-chat-mock-after-dark.png) |
+| Seattle through Hugging Face, light | [Reconstructed before](/workspace/tmp/hearth-qa/run19-chat-live-before-light.png), [after](/workspace/tmp/hearth-qa/run19-chat-live-after-light.png) |
+| Seattle through Hugging Face, dark | [Reconstructed before](/workspace/tmp/hearth-qa/run19-chat-live-before-dark.png), [after](/workspace/tmp/hearth-qa/run19-chat-live-after-dark.png) |
+| Dark mobile screens | [Chat](/workspace/tmp/hearth-qa/run19-dark-chat.png), [side chat](/workspace/tmp/hearth-qa/run19-dark-side-chat.png), [Artifacts](/workspace/tmp/hearth-qa/run19-dark-artifacts.png), [Reminders](/workspace/tmp/hearth-qa/run19-dark-reminders.png), [Inbox](/workspace/tmp/hearth-qa/run19-dark-inbox.png), [Connections](/workspace/tmp/hearth-qa/run19-dark-connections-configured.png), [Settings](/workspace/tmp/hearth-qa/run19-dark-settings.png), [call](/workspace/tmp/hearth-qa/run19-dark-call.png) |
+
+The old live capture recreates the reported leak in the old UI from the prompt description and a fresh response from the retired model. That response used a structured tool call, so the previously reported raw markup had to be reconstructed. The after capture renders the actual Sprite reply and artifact metadata in Chromium.
+
+### Rerun the contrast check
+
+With Playwright and its Chromium browser installed, run the fixture and audit from the repository root in two shells. The fixture creates a temporary Hearth workspace.
+
+```sh
+PYTHONPATH=. python tests/contrast-fixture.py
+HEARTH_QA_SCREENSHOTS=/workspace/tmp/hearth-qa node tests/contrast.mjs
+```
+
+Set `PLAYWRIGHT_PATH` or `CHROMIUM_PATH` to use an existing external installation. Set `HEARTH_QA_BEFORE_URL` to capture the baseline Timeline from a Run 18 fixture.
+
 ## Run 18 · Office files
 
 November 25, 2026 UTC · Private Hearth Sprite

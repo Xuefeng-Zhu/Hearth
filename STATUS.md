@@ -1,8 +1,14 @@
 # Hearth status
 
+## Run 19 · Contrast, mobile navigation, and Chat
+
+- Hearth’s private Sprite uses the new Hugging Face pool in **Smart routing**. Kimi K3.1 Pro handles tools, planning, and multilingual turns. DeepSeek V4.1 Flash handles plain chat and is the first fallback. DeepSeek V4 Pro handles code and longer reasoning. Qwen3 Coder Next is the last pool fallback. Kimi and Flash are configured as the image-capable pair for the attachment work.
+- The Seattle prompt produced a valid [PowerPoint in Box](https://app.box.com/file/2614819364671) in 13.83 seconds through the full Hearth turn. Chat shows an actionable file card. Mobile uses a safe-area-aware workspace drawer and keeps the composer at the bottom.
+- Chromium passed the contrast sweep in both themes at 390 and 1440 px, and verified the drawer at 375, 390, and 430 px and in landscape. The lowest measured dark ratios were **5.224:1 for body text** and **4.054:1 for a control border**. [Run 19 report](QA-REPORT.md#run-19--contrast-navigation-and-chat)
+
 ## Run 17 · Mobile and Box
 
-- The private Hearth Sprite serves the iPhone layout with bottom tabs, a one-tap thread sheet, a keyboard-aware composer, and full-screen call and artifact sheets. Settings sections collapse on mobile. Touch-enabled Chromium passed at 375×667, 390×844, 430×932, both landscape sizes, and 1440 px desktop. Physical iPhone Safari and Home Screen launch remain unverified. [Mobile overview](/workspace/tmp/hearth-qa/mobile-overview.png), [QA evidence](QA-REPORT.md#mobile)
+- Run 17 introduced a keyboard-aware iPhone composer and full-screen call and artifact sheets. Settings sections collapse on mobile. Touch-enabled Chromium passed at 375×667, 390×844, 430×932, both landscape sizes, and 1440 px desktop. Physical iPhone Safari and Home Screen launch remain unverified. [Mobile overview](/workspace/tmp/hearth-qa/mobile-overview.png), [QA evidence](QA-REPORT.md#mobile)
 - The deployed Artifacts API created Box file `2614704783851` with version ID `2902976041451` and saved an edit as version 2 with ID `2902968544059`. The gateway accepts the two multipart `upload/files/…/content` routes with attributes first and continues to return 403 for the versions GET. Hearth displayed both receipts from its local history. Hearth Trash and Timeline restore act on the workspace entry. The verification file remains in Box. [Open verification file](https://app.box.com/file/2614704783851)
 - All 91 Python tests, five Node tests, and JavaScript syntax checks passed. `scripts/deploy.sh` completed and the authenticated Sprite health check returned `{"ok": true, "checkpoints": "sprite"}`. The Sprite served byte-matched mobile assets and still reported Box version 2 after redeployment.
 
@@ -41,7 +47,7 @@
 - The live private Sprite transcribed a generated WAV through Hugging Face Whisper. Auto returned “The kitchen is warm and the soup is ready.” in 1.368 s. English returned the same text in 1.766 s. A WebM/Opus upload returned the same text in 1.305 s. These times include the Hearth endpoint and gateway. Chromium exercised MediaRecorder and the level meter with a synthetic microphone, and checked edit mode, auto-send, the duration limit, Space, Escape, and side-chat isolation. The recording screenshot is `/workspace/tmp/hearth-qa/hearth-voice.png`.
 - All 50 Python tests, three Node avatar-state tests, and JavaScript syntax checks pass. The voice endpoint tests cover bounded uploads, audio formats, redaction, upstream errors, selected languages, and credential-free gateway requests. Chromium used a Web Speech test double for interim results and exercised permission-denied and unsupported-browser feedback.
 
-- Smart routing is deployed on the private Sprite. Its saved pool contains two models from the live Hugging Face list. In an isolated workspace running the deployed release, a greeting routed to `meta-llama/Llama-3.1-8B-Instruct:fastest`. A reminder request routed to `Qwen/Qwen3-Coder-Next:fastest` and created the in-app reminder. Both model attempts persisted separate latency and error stats. Timeline recorded both decisions.
+- The original Smart routing verification in an isolated Sprite workspace routed a greeting to the former fast model and used Qwen3 Coder Next to create the requested in-app reminder. Both model attempts persisted separate latency and error stats. Timeline recorded both decisions.
 - Chromium verified the reply chips, Timeline, priority and smart modes, model additions and removals, saved tag edits, and routing previews for Chinese and reminder prompts. The Brain panel fit at 390px. The deployed **Settings → Brain** capture is at `/workspace/tmp/hearth-qa/hearth-routing.png`.
 - All 46 Python tests and `node --check web/app.js` pass. Tests cover all six turn types, same-provider ordering and fallback, latency and failure demotion, stats persistence, and the routing preview without a model call.
 
