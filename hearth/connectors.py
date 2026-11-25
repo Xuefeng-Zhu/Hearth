@@ -4,20 +4,24 @@ import os
 import re
 from http.client import HTTPException
 from pathlib import Path
-from urllib.error import URLError
-from urllib.parse import quote
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .storage import HearthError, ROOT
 
 GATEWAY = "https://api.sprites.dev/v1/gateway"
+GATEWAY_SEGMENT = re.compile(r"[a-zA-Z0-9_-]+")
+DISCOVERY_PROVIDERS = ("meta", "pinecone", "tavily", "agentmail")
 MODEL_PATHS = {"meta": "v1/chat/completions", "ollama": "v1/chat/completions",
                "openrouter": "api/v1/chat/completions"}
 PINECONE_HEADERS = {"X-Pinecone-Api-Version": "2025-10"}
 
 
 class ConnectorError(HearthError):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -29,30 +33,78 @@ class Gateway:
     def __init__(self):
         self.opener = build_opener(NoRedirect())
 
-    def open(self, config, path, body, headers=None):
+    def open(self, config, path, body=None, headers=None, *, timeout=25):
         provider = config["provider"]
         connection_id = config["connection_id"]
-        if not all(re.fullmatch(r"[a-zA-Z0-9_-]+", part) for part in (provider, connection_id)):
+        if not all(GATEWAY_SEGMENT.fullmatch(part) for part in (provider, connection_id)):
             raise ConnectorError("Invalid connector configuration.")
-        request = Request(
-            f"{GATEWAY}/{provider}/{connection_id}/{path}",
-            data=json.dumps(body).encode("utf-8"),
-            headers={"Content-Type": "application/json", **(headers or {})},
-        )
-        try:
-            return self.opener.open(request, timeout=25)
-        except (URLError, OSError):
-            raise ConnectorError(f"The {provider} connector is unavailable.") from None
+        return self.request(f"{provider}/{connection_id}/{path}", body, headers, timeout)
 
-    def json(self, config, path, body, headers=None):
+    def request(self, path, body, headers, timeout):
+        request = Request(
+            f"{GATEWAY}/{path}",
+            data=json.dumps(body).encode("utf-8") if body is not None else None,
+            headers={key: value for key, value in (headers or {}).items()
+                     if key.lower() in {"accept", "idempotency-key", "x-pinecone-api-version"}},
+        )
+        if body is not None:
+            request.add_header("Content-Type", "application/json")
         try:
-            with self.open(config, path, body, headers) as response:
+            return self.opener.open(request, timeout=timeout)
+        except HTTPError as error:
+            error.close()
+            raise ConnectorError("The gateway rejected the request.", error.code) from None
+        except (HTTPException, URLError, OSError):
+            raise ConnectorError("The gateway is unavailable.") from None
+
+    def json(self, config, path, body=None, headers=None, *, timeout=25):
+        return self.read_json(self.open(config, path, body, headers, timeout=timeout))
+
+    @staticmethod
+    def read_json(response):
+        try:
+            with response:
                 data = json.loads(response.read(8 * 1024 * 1024))
         except (HTTPException, OSError, ValueError):
             raise ConnectorError("The connector returned an unreadable response.") from None
         if not isinstance(data, dict):
             raise ConnectorError("The connector returned an unexpected response.")
         return data
+
+    def discover(self):
+        data = self.read_json(self.request("list", None, None, 8))
+        entries = data.get("connections")
+        if not isinstance(entries, list):
+            raise ConnectorError("The gateway returned an unreadable connection list.")
+        authorized = {provider: [] for provider in DISCOVERY_PROVIDERS}
+        found = set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            provider = entry.get("provider")
+            if provider not in DISCOVERY_PROVIDERS:
+                continue
+            found.add(provider)
+            if entry.get("authorized") is False:
+                continue
+            base = entry.get("gateway_base_url")
+            prefix = f"/v1/gateway/{provider}/"
+            try:
+                url = urlsplit(base) if isinstance(base, str) else None
+            except ValueError:
+                url = None
+            if not url or (url.scheme, url.netloc) != ("https", "api.sprites.dev") or url.query or url.fragment:
+                continue
+            if url.path.rstrip("/") == prefix.rstrip("/"):
+                connection_id = entry.get("connection_id", entry.get("id"))
+            elif url.path.startswith(prefix):
+                connection_id = url.path.removeprefix(prefix).removesuffix("/")
+            else:
+                continue
+            if isinstance(connection_id, str) and GATEWAY_SEGMENT.fullmatch(connection_id):
+                authorized[provider].append(connection_id)
+        # The available array is a provider catalog, not a list of organization connections.
+        return authorized, found
 
     def completion(self, config, messages, tools, emit):
         text = []

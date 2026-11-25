@@ -4,12 +4,14 @@ import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
-from .connectors import read_config
-from .storage import HearthError, ROOT, Storage, new_id
+from .connections import Connections
+from .connectors import Gateway, read_config
+from .storage import HearthError, ROOT, Storage
 
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -19,19 +21,37 @@ STATIC = {
 
 
 class Application:
-    def __init__(self, storage, checkpoints, config):
+    def __init__(self, storage, checkpoints, config, *, config_path=None, gateway=None):
         self.storage = storage
         self.checkpoints = checkpoints
-        self.agent = Agent(storage, checkpoints, config)
+        self.gateway = gateway or Gateway()
+        self.connections = Connections(
+            config, config_path or storage.live / "connectors.local.json", self.gateway, storage, checkpoints,
+        )
         self.operation = threading.Lock()
         self.restore = None
+        self.reload_agent()
+
+    def reload_agent(self):
+        self.agent = Agent(self.storage, self.checkpoints, self.connections.active_config(), self.gateway)
+        self.brain = self.agent.models[0]["provider"] if self.agent.models else None
+        self.connection_state = self.connections.report(self.brain)
+
+    def scan_connections(self):
+        if self.connections.scan():
+            self.reload_agent()
+        else:
+            self.connection_state = self.connections.report(self.brain)
+
+    def connection_info(self):
+        return {**self.connection_state, "model": self.brain}
 
     def info(self):
         with self.storage.lock():
             state = self.storage.load()
         return {"messages": state["messages"], "actions": list(state["actions"].values()),
                 "jobs": state["jobs"], "reminders": state["reminders"], "restore": self.restore,
-                "checkpoints": self.checkpoints.mode, "model": self.agent.models[0]["provider"] if self.agent.models else None}
+                "checkpoints": self.checkpoints.mode, "model": self.brain}
 
     def timeline(self):
         with self.storage.lock():
@@ -58,6 +78,8 @@ class Application:
                 self.restore = {"action_id": action["id"], "status": "failed"}
             else:
                 if self.checkpoints.mode == "local":
+                    self.connections.reset()
+                    self.reload_agent()
                     self.restore = None
                     return
         if self.restore["status"] == "restoring":
@@ -116,6 +138,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"ok": True, "checkpoints": self.app.checkpoints.mode})
             elif url.path == "/api/state":
                 self.json(self.app.info())
+            elif url.path == "/api/connections":
+                self.json(self.app.connection_info())
             elif url.path == "/api/checkpoints":
                 self.json({"checkpoints": self.app.timeline()})
             elif url.path == "/api/memory":
@@ -148,7 +172,8 @@ class Handler(BaseHTTPRequestHandler):
         return body
 
     def do_POST(self):
-        routes = {"/api/chat", "/api/approve", "/api/undo"}
+        routes = {"/api/chat", "/api/approve", "/api/undo",
+                  "/api/connections/rescan", "/api/connections/test", "/api/connections/settings"}
         if self.path not in routes:
             self.json({"error": "Page not found."}, 404)
             return
@@ -162,6 +187,8 @@ class Handler(BaseHTTPRequestHandler):
             body = self.body()
             if self.path == "/api/chat":
                 self.stream_chat(require_text(body.get("message"), 4_000))
+            elif self.path.startswith("/api/connections/"):
+                self.update_connections(body)
             else:
                 action_id = require_text(body.get("id"), 40)
                 if self.path == "/api/approve":
@@ -174,12 +201,27 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self.app.operation.release()
 
+    def update_connections(self, body):
+        if self.path == "/api/connections/rescan" and not body:
+            self.app.scan_connections()
+        elif self.path == "/api/connections/test" and body.keys() == {"provider"}:
+            self.app.connections.test(body["provider"])
+            self.app.reload_agent()
+        elif self.path == "/api/connections/settings" and body.keys() == {"provider", "value"}:
+            self.app.connections.save(body["provider"], body["value"])
+            self.app.reload_agent()
+        else:
+            raise HearthError("Invalid connection request.")
+        self.json(self.app.connection_info())
+
     def stream_chat(self, prompt):
         self.response_headers(200, "text/event-stream")
         connected = True
 
         def event(name, data):
             nonlocal connected
+            if name == "done":
+                self.app.brain = data["provider"]
             if connected:
                 try:
                     self.wfile.write(f"event: {name}\ndata: {json.dumps(data)}\n\n".encode("utf-8"))
@@ -200,7 +242,11 @@ def main():
     args = parser.parse_args()
     storage = Storage()
     checkpoints = SpriteCheckpoints() if os.environ.get("HEARTH_CHECKPOINTS") == "sprite" else LocalCheckpoints(storage)
-    app = Application(storage, checkpoints, read_config())
+    config_path = os.environ.get("HEARTH_CONNECTOR_CONFIG")
+    legacy_config = ROOT / "config/connectors.local.json"
+    path = Path(config_path) if config_path else legacy_config if legacy_config.is_file() else None
+    app = Application(storage, checkpoints, read_config(ROOT / "config/connectors.json"), config_path=path)
+    app.scan_connections()
     with HTTPServer((args.host, args.port), app) as server:
         server.serve_forever()
 
