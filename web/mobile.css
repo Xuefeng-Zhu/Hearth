@@ -3,7 +3,7 @@
 .call-icon { display: none; }
 .call-label::before { content: "☎"; margin-inline-end: 5px; }
 
-@media (max-width: 680px), (max-width: 950px) and (max-height: 500px) and (pointer: coarse) {
+@media (max-width: 760px), (max-width: 950px) and (max-height: 500px) and (pointer: coarse) {
   html:has(.layout), body:has(.layout) { overflow: hidden; overscroll-behavior: none; }
   .layout {
     position: fixed;
@@ -22,7 +22,7 @@
   :is(.layout, dialog) button:active { filter: brightness(.92); }
   .sidebar { display: none; }
   .panel, .chat-scroll { overflow-x: hidden; overscroll-behavior-y: contain; }
-  .panel, .chat-scroll, .workspace-sheet, .artifact-drawer, .call-sheet { overflow-wrap: anywhere; }
+  .panel, .chat-scroll, .workspace-drawer, .artifact-drawer, .call-sheet { overflow-wrap: anywhere; }
   .panel { padding: 20px 16px 24px; }
   .section-intro { margin-bottom: 16px; }
   .section-intro h2 { font-size: 31px; }
@@ -35,7 +35,6 @@
   }
   .header h1 { font-size: 17px; }
   .header-status { min-width: 0; flex: 1; flex-wrap: nowrap; align-items: center; }
-  .header-status #model-status { min-width: 0; max-width: 100%; padding: 5px 8px; }
   #environment {
     position: relative;
     flex: none;
@@ -46,59 +45,51 @@
   #environment-label { position: absolute; clip-path: inset(50%); }
   #return-to-call { flex: 0 0 auto; padding-inline: 8px; }
 
-  .mobile-tabs {
-    flex: none;
+  .header #model-status { display: none; }
+  .menu-toggle {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 2px;
-    padding: 5px 6px max(5px, env(safe-area-inset-bottom));
-    background: var(--paper);
-    border-top: 1px solid var(--border);
-  }
-  .mobile-tabs button {
-    display: grid;
-    align-content: center;
-    justify-items: center;
-    gap: 3px;
-    min-width: 0;
-    min-height: 52px;
+    place-items: center;
+    width: 44px;
+    height: 44px;
     border: 0;
-    border-radius: 10px;
-    padding: 3px 1px;
+    border-radius: 9px;
     background: transparent;
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 650;
+    color: var(--accent);
+    font-size: 24px;
   }
-  .mobile-tabs svg {
-    width: 22px;
-    height: 22px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.65;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .mobile-tabs button[aria-current] { color: var(--accent); background: var(--accent-light); }
-  [data-keyboard] .mobile-tabs { display: none; }
-
-  .workspace-sheet[open] {
+  .workspace-drawer[open] {
     display: flex;
     flex-direction: column;
-    width: 100%;
-    max-width: none;
-    max-height: min(82dvh, var(--keyboard-height, 100dvh));
-    margin: auto 0 0;
-    padding: 12px max(16px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom))
-      max(16px, env(safe-area-inset-left));
-    border: 1px solid var(--border);
-    border-radius: 22px 22px 0 0;
+    position: fixed;
+    inset: var(--keyboard-top, 0px) auto auto 0;
+    width: 85vw;
+    max-width: min(440px, 85vw);
+    height: var(--keyboard-height, 100dvh);
+    max-height: none;
+    margin: 0;
+    padding: max(10px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
+    border: 0;
+    border-inline-end: 1px solid var(--border);
     background: var(--paper);
     color: inherit;
+    overflow-y: auto;
     overscroll-behavior: contain;
+    touch-action: pan-y;
+    animation: drawer-enter 200ms ease-out;
   }
-  .workspace-sheet::backdrop { background: #271a2f80; }
-  .workspace-sheet-header {
+  .workspace-drawer::backdrop { background: var(--overlay-scrim); }
+  @keyframes drawer-enter { from { transform: translateX(-100%); } }
+  @media (prefers-reduced-motion: reduce) { .workspace-drawer[open] { animation: none; } }
+  #mobile-brain-status {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 5px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .workspace-drawer-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -107,32 +98,33 @@
     border-bottom: 1px solid var(--border);
     margin-bottom: 8px;
   }
-  .workspace-sheet-header h2 { margin: 0; font: 500 26px/1.1 Georgia, serif; }
-  .workspace-sheet-header button, .thread-picker {
+  .workspace-drawer-header h2 { margin: 0; font: 500 26px/1.1 Georgia, serif; }
+  .workspace-drawer-header button {
     border: 1px solid var(--border);
     border-radius: 9px;
     background: var(--accent-light);
     color: var(--accent);
   }
-  .workspace-sheet-header button { padding: 0; font-size: 24px; line-height: 1; }
-  .workspace-sheet .notice { width: 100%; max-width: none; margin: 0 0 8px; }
-  .workspace-sheet nav { display: grid; gap: 2px; }
-  .workspace-sheet .nav-link { justify-content: start; width: 100%; padding: 8px; font-size: 15px; }
-  .workspace-sheet .nav-icon { display: inline-block; width: 24px; font-size: 18px; }
-  #mobile-thread-panel { min-height: 0; display: flex; }
-  .workspace-sheet .thread-panel { width: 100%; padding: 0; border: 0; background: transparent; }
-  .workspace-sheet .thread-panel-header { display: block; padding: 0 0 7px; }
-  .workspace-sheet :is(.thread-panel-header h2, .thread-select) { display: none; }
-  .workspace-sheet .threads { display: grid; }
-  .workspace-sheet :is(.thread-link, .new-thread) { font-size: 15px; padding: 8px 10px; }
-  .workspace-sheet .new-thread { width: 100%; }
-  .workspace-sheet .thread-controls {
+  .workspace-drawer-header button { padding: 0; font-size: 24px; line-height: 1; }
+  .workspace-drawer .notice { width: 100%; max-width: none; margin: 0 0 8px; }
+  .workspace-drawer nav { display: grid; gap: 2px; }
+  .workspace-drawer .nav-link { justify-content: start; width: 100%; padding: 8px; font-size: 15px; }
+  .workspace-drawer .nav-icon { display: inline-block; width: 24px; font-size: 18px; }
+  #mobile-thread-panel { display: flex; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .workspace-drawer .thread-panel { width: 100%; padding: 0; border: 0; background: transparent; }
+  .workspace-drawer .thread-panel-header { display: block; padding: 0 0 7px; }
+  .workspace-drawer .thread-panel-header h2 { display: block; margin: 0 0 7px; }
+  .workspace-drawer .thread-select { display: none; }
+  .workspace-drawer .threads { display: grid; }
+  .workspace-drawer :is(.thread-link, .new-thread) { font-size: 15px; padding: 8px 10px; }
+  .workspace-drawer .new-thread { width: 100%; }
+  .workspace-drawer .thread-controls {
     margin-top: 8px;
     padding-top: 8px;
     border-top: 1px solid var(--border);
     justify-content: flex-end;
   }
-  .workspace-sheet .thread-controls button { font-size: 14px; padding-inline: 12px; }
+  .workspace-drawer .thread-controls button { font-size: 14px; padding-inline: 12px; }
   #mobile-avatar-options {
     display: flex;
     align-items: center;
@@ -157,9 +149,7 @@
   .thread-heading #avatar-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .avatar-header { width: 43px; margin: 0 -5px 0 -2px; }
   .thread-activity { font-size: 11px; }
-  :is(.layout, .workspace-sheet) .avatar-view { min-height: 44px; padding-inline: 9px; font-size: 16px; }
-  .thread-picker { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; font-size: 12px; font-weight: 650; }
-  .face-view .thread-picker { display: none; }
+  :is(.layout, .workspace-drawer) .avatar-view { min-height: 44px; padding-inline: 9px; font-size: 16px; }
   .face-view {
     top: var(--keyboard-top, 0px);
     bottom: auto;
@@ -174,20 +164,19 @@
   .welcome-mark { width: 52px; height: 52px; }
   .prompts { margin-top: 16px; }
   .transcript { width: calc(100% - 24px); padding: 16px 0; gap: 14px; }
-  .message.user { max-width: 87%; padding: 9px 12px; }
+  .message.user { padding: 9px 12px; }
   .message.assistant { grid-template-columns: 24px minmax(0, 1fr); gap: 7px; }
   .message.assistant > .mascot { width: 34px; margin: -4px -5px 0; }
-  .chat-markdown, .message.user { font-size: 15px; }
-  .artifact-chat-chip { font-size: 13px; }
   .composer {
     position: relative;
     width: calc(100% - 20px);
     grid-template-columns: minmax(0, 1fr) repeat(3, 44px);
     gap: 6px;
-    margin-bottom: 8px;
-    padding: 5px;
-    border-radius: 15px;
+    margin-bottom: 0;
+    padding: 5px 5px max(5px, env(safe-area-inset-bottom));
+    border-radius: 15px 15px 0 0;
   }
+  [data-keyboard] .composer, .face-view .composer { padding-bottom: 5px; }
   .composer textarea { min-height: 44px; max-height: min(132px, 26dvh); padding: 10px 7px; }
   .composer button { width: 44px; height: 44px; }
   .composer #start-call {
@@ -208,7 +197,7 @@
     background: var(--paper);
     border: 1px solid var(--border);
     border-radius: 12px;
-    box-shadow: 0 6px 18px #43214626;
+    box-shadow: 0 6px 18px var(--floating-shadow);
     font-size: 14px;
   }
   .composer .voice-cancel {
@@ -221,10 +210,10 @@
   }
   .voice-reading { flex: 1; flex-wrap: wrap; }
 
-  .layout :is(button, select), .workspace-sheet button, .call-sheet button, .artifact-drawer button,
+  .layout :is(button, select), .workspace-drawer button, .call-sheet button, .artifact-drawer button,
   .layout :is(input:not([type="checkbox"], [type="radio"]), textarea),
   .artifact-drawer .artifact-control { min-height: 44px; }
-  .layout button, .workspace-sheet button, .call-sheet button, .artifact-drawer button { min-width: 44px; }
+  .layout button, .workspace-drawer button, .call-sheet button, .artifact-drawer button { min-width: 44px; }
   .layout :is(input, textarea, select), .artifact-drawer textarea { font-size: 16px; }
   .layout :is(input, textarea, select, label, fieldset), .artifact-drawer textarea { min-width: 0; max-width: 100%; }
   .layout :is(.check-label, .appearance-toggle, .avatar-color, summary) { min-height: 44px; align-content: center; }
@@ -284,8 +273,8 @@
   .connection-summary { margin-bottom: 16px; }
 
   .artifact-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .artifact-search { grid-column: 1 / -1; }
-  .artifact-layout-toggle { display: none; }
+  .artifact-search { grid-column: 1; grid-row: 1; }
+  .artifact-layout-toggle { grid-column: 2; grid-row: 1; justify-self: end; }
   .artifact-collection { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .artifact-collection .artifact-card {
     grid-template: auto auto / 35px minmax(0, 1fr);
@@ -301,6 +290,9 @@
   .artifact-card-foot time { flex: 0 1 auto; }
   .artifact-collection .artifact-card-foot { padding: 7px 0 0; border: 0; }
   .artifact-card-links:empty { display: none; }
+  .artifact-collection[data-layout="grid"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .artifact-collection[data-layout="grid"] .artifact-card { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .artifact-collection[data-layout="grid"] :is(.artifact-card-foot, .artifact-card-links) { grid-column: 1; }
   .artifact-intro .artifact-icon-button, .artifact-drawer .artifact-icon-button { width: 44px; height: 44px; }
   .artifact-table { max-width: 100%; overscroll-behavior-inline: contain; }
   .artifact-table table { overflow-wrap: normal; }
@@ -393,14 +385,11 @@
 
 @media (display-mode: standalone) {
   .layout .header, .face-view, .call-sheet, .artifact-drawer-header {
-    background-image: linear-gradient(#211b24 0 env(safe-area-inset-top), transparent env(safe-area-inset-top));
+    background-image: linear-gradient(var(--standalone-inset) 0 env(safe-area-inset-top), transparent env(safe-area-inset-top));
   }
 }
 
 @media (max-width: 950px) and (max-height: 500px) and (pointer: coarse) {
-  .mobile-tabs { padding-top: 2px; }
-  .mobile-tabs button { min-height: 44px; gap: 1px; }
-  .mobile-tabs svg { width: 18px; height: 18px; }
   .call-sheet-body:has(.call-caption-panel:not([hidden])) {
     display: grid;
     grid-template: auto 1fr auto / minmax(0, 1fr) minmax(0, 1fr);
@@ -408,4 +397,9 @@
   .call-sheet-header, .call-controls, .call-feedback { grid-column: 1 / -1; }
   .call-stage { min-height: 0; }
   .call-captions { max-height: 35dvh; }
+}
+
+@media (max-width: 760px), (max-width: 950px) and (max-height: 500px) and (pointer: coarse) {
+  .message-menu > summary { width: 44px; height: 44px; }
+  .message.assistant > .message-body { padding: 10px 11px; }
 }

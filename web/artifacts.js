@@ -68,7 +68,7 @@ export function csvRows(text) {
 }
 
 function inlineMarkdown(target, text) {
-  const tokens = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))/g;
+  const tokens = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>]+[^\s<>.,!?;:)\]])/g;
   let end = 0;
   for (const match of text.matchAll(tokens)) {
     target.append(text.slice(end, match.index));
@@ -77,6 +77,12 @@ function inlineMarkdown(target, text) {
       const split = token.indexOf("](");
       const link = element("a", "", token.slice(1, split));
       link.href = token.slice(split + 2, -1);
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      target.append(link);
+    } else if (token.startsWith("http")) {
+      const link = element("a", "", token);
+      link.href = token;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
       target.append(link);
@@ -92,8 +98,11 @@ function inlineMarkdown(target, text) {
 
 export function markdown(text, className = "artifact-markdown") {
   const content = element("div", className);
+  const lines = text.split(/\r?\n/);
+  const cells = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((value) => value.trim());
   let block, code;
-  for (const line of text.split(/\r?\n/)) {
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
     if (line.startsWith("```")) {
       if (!code) {
         code = element("pre");
@@ -104,6 +113,29 @@ export function markdown(text, className = "artifact-markdown") {
       block = undefined;
     } else if (code) {
       code.append(line + "\n");
+    } else if (line.includes("|") && lines[index + 1]?.includes("|")
+               && cells(lines[index + 1]).every((cell) => /^:?-{3,}:?$/.test(cell))) {
+      const wrap = element("div", "artifact-table");
+      const table = element("table");
+      const head = table.createTHead().insertRow();
+      const headers = cells(line);
+      for (const label of headers) {
+        const cell = element("th");
+        cell.scope = "col";
+        inlineMarkdown(cell, label);
+        head.append(cell);
+      }
+      const body = table.createTBody();
+      index += 2;
+      while (lines[index]?.includes("|")) {
+        const values = cells(lines[index++]);
+        const row = body.insertRow();
+        headers.forEach((_, column) => inlineMarkdown(row.insertCell(), values[column] || ""));
+      }
+      index--;
+      wrap.append(table);
+      content.append(wrap);
+      block = undefined;
     } else if (!line.trim()) {
       block = undefined;
     } else if (/^#{1,6} /.test(line)) {
@@ -510,13 +542,26 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     const actions = element("div", "artifact-chat-actions");
     for (const artifact of linked) {
       if (!fileTypes[artifact.format]) continue;
-      const verb = artifact.sync === "synced" ? "to Box" : "locally";
-      const chip = control(`Saved “${artifact.title}” ${verb} ▸`, (event) => open(artifact.id, event.currentTarget),
-        "artifact-chat-chip");
-      chip.dataset.artifactId = artifact.id;
-      chip.setAttribute("aria-haspopup", "dialog");
-      chip.title = artifact.sync_message || "";
-      actions.append(chip);
+      const card = element("article", "card chat-file");
+      const name = element("div", "chat-file-name");
+      name.append(element("h3", "", artifact.title), element("p", "meta",
+        [fileTypes[artifact.format][0], fileSize(artifact.size)].filter(Boolean).join(" · ")));
+      const openFile = control("Open", (event) => open(artifact.id, event.currentTarget));
+      openFile.dataset.artifactId = artifact.id;
+      openFile.setAttribute("aria-haspopup", "dialog");
+      const save = artifact.box_url ? fileLink(artifact, true) : control("Save to Box", async (event) => {
+        const target = event.currentTarget;
+        target.disabled = true;
+        try {
+          await retry(artifact);
+        } finally {
+          target.disabled = false;
+        }
+      });
+      const controls = element("div", "chat-file-controls");
+      controls.append(openFile, save);
+      card.append(fileIcon(artifact), name, controls);
+      actions.append(card);
     }
     return actions;
   }

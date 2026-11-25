@@ -250,11 +250,11 @@ function applyAppearance() {
 
 function chooseAvatarMode(mode) {
   const leavingFace = avatarMode === "face" && mode !== "face";
-  if (mode === "face") mobile.closeThreads();
+  if (mode === "face") mobile.closeDrawer();
   avatarMode = mode;
   localStorage.setItem("hearth-avatar-view", mode);
   applyAppearance();
-  if (leavingFace && mobile.isMobile() && view === "chat") byId("open-threads").focus();
+  if (leavingFace && mobile.isMobile() && view === "chat") byId("open-menu").focus();
 }
 
 function whisperConnected() {
@@ -349,7 +349,7 @@ function button(label, action) {
 }
 
 function showNotice(message = "") {
-  const target = byId("thread-sheet").open ? byId("thread-sheet-notice") : notice;
+  const target = byId("workspace-drawer").open ? byId("drawer-notice") : notice;
   target.hidden = !message;
   target.textContent = message;
 }
@@ -392,27 +392,144 @@ function nearBottom() {
   return chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight < 65;
 }
 
-function messageBubble(role, content, { message, status } = {}) {
+function shortModel({ name, model, provider }) {
+  return provider === "mock" ? "Mock" : model?.split("/").at(-1).split(":")[0] || name;
+}
+
+const messageVotes = new Map();
+
+function messageMenu(item, message, role, content, prompt) {
+  const menu = node("details", "message-menu");
+  const summary = node("summary", "", "⋯");
+  summary.setAttribute("aria-label", "Message options");
+  menu.append(summary);
+  const panel = node("div", "message-menu-content");
+  const footer = node("p", "message-route");
+  if (message.at) {
+    const stamp = node("time", "", date(message.at));
+    stamp.dateTime = message.at;
+    footer.append(stamp);
+  }
+  if (message.routing) {
+    const route = message.routing;
+    const speed = route.model?.includes("Flash") && ["quick", "side"].includes(route.class) ? " · fast" : "";
+    footer.append(node("span", "", shortModel(route) + speed));
+  }
+  if (footer.childNodes.length) panel.append(footer);
+  const actions = node("div", "message-menu-actions");
+  if (content) actions.append(button("Copy", async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      menu.open = false;
+      showNotice("Message copied.");
+    } catch {
+      showNotice("Couldn’t copy this message.");
+    }
+  }));
+  if (role === "assistant") {
+    if (prompt) actions.append(button("Retry", () => {
+      if (input.value) return showNotice("Clear the composer to restore this prompt.");
+      input.value = prompt;
+      resizeInput();
+      menu.open = false;
+      input.focus();
+    }));
+    for (const [key, label] of [["up", "Helpful"], ["down", "Unhelpful"]]) {
+      const vote = button(label, () => {
+        if (messageVotes.get(message.id) === key) messageVotes.delete(message.id);
+        else messageVotes.set(message.id, key);
+        for (const choice of actions.querySelectorAll("[data-vote]")) {
+          choice.setAttribute("aria-pressed", String(messageVotes.get(message.id) === choice.dataset.vote));
+        }
+      });
+      vote.dataset.vote = key;
+      vote.setAttribute("aria-pressed", String(messageVotes.get(message.id) === key));
+      actions.append(vote);
+    }
+  }
+  panel.append(actions);
+  menu.append(panel);
+  let timer, origin, held;
+  const cancel = () => clearTimeout(timer);
+  const interactive = (event) => event.target.closest("a, button, details, input, pre");
+  item.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" || interactive(event)) return;
+    origin = { x: event.clientX, y: event.clientY };
+    held = false;
+    timer = setTimeout(() => { held = true; menu.open = true; }, 480);
+  });
+  item.addEventListener("pointermove", (event) => {
+    if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 10) cancel();
+  });
+  item.addEventListener("pointerup", cancel);
+  item.addEventListener("pointercancel", cancel);
+  item.addEventListener("contextmenu", (event) => {
+    if (held && !interactive(event)) event.preventDefault();
+  });
+  item.addEventListener("click", (event) => {
+    if (!held && event.pointerType === "touch" && !interactive(event) && getSelection()?.isCollapsed) {
+      menu.open = !menu.open;
+    }
+    held = false;
+  });
+  return menu;
+}
+
+function checkCollapsedReplies() {
+  for (const toggle of transcript.querySelectorAll(".message-expand")) {
+    const text = toggle.previousElementSibling;
+    if (toggle.getAttribute("aria-expanded") === "true") continue;
+    toggle.hidden = text.scrollHeight <= text.clientHeight + 1;
+    for (const link of text.querySelectorAll("a")) {
+      link.tabIndex = link.getBoundingClientRect().bottom > text.getBoundingClientRect().bottom ? -1 : 0;
+    }
+  }
+}
+window.addEventListener("resize", checkCollapsedReplies);
+
+function messageBubble(role, content, { message, status, prompt, working } = {}) {
   const item = node("article", `message ${role}`);
   let avatar;
   if (role === "assistant") {
     avatar = mascot(avatarLook, avatarColor);
-    avatar.dataset.still = "";
+    if (!working) avatar.dataset.still = "";
     item.append(avatar);
   }
-  const body = node("div");
+  const body = node("div", "message-body");
   const text = role === "assistant" && message?.id ? markdown(content, "chat-markdown") : node("p", "", content);
   const cards = node("div", "cards");
   const notices = node("div");
   notices.setAttribute("role", "status");
   if (status) notices.append(node("p", "queued-label", status));
-  body.append(notices, text, cards);
-  if (message?.routing) {
-    const route = message.routing;
-    const chip = node("p", "routing-chip", `Routed to ${routedModel(route)} — ${route.reason}`);
-    chip.title = route.label;
-    body.append(chip);
+  if (working) {
+    body.classList.add("message-working");
+    const dots = node("span", "typing-dots");
+    dots.setAttribute("aria-hidden", "true");
+    dots.append(node("i"), node("i"), node("i"));
+    body.append(dots);
+    text.setAttribute("role", "status");
   }
+  body.append(notices, text);
+  if (role === "assistant" && message?.id && content) {
+    const toggle = button("Show more", () => {
+      const expanded = toggle.getAttribute("aria-expanded") === "true";
+      toggle.setAttribute("aria-expanded", String(!expanded));
+      toggle.textContent = expanded ? "Show more" : "Show less";
+      text.classList.toggle("message-clamped", expanded);
+      if (expanded) {
+        toggle.scrollIntoView({ block: "nearest" });
+        checkCollapsedReplies();
+      } else {
+        for (const link of text.querySelectorAll("a")) link.removeAttribute("tabindex");
+      }
+    });
+    toggle.className = "message-expand";
+    toggle.hidden = true;
+    toggle.setAttribute("aria-expanded", "false");
+    text.classList.add("message-clamped");
+    body.append(toggle);
+  }
+  body.append(cards);
   if (message?.source === "voice-call" && role === "assistant") body.append(node("p", "meta", "Voice call"));
   if (message?.remembered?.length) {
     const sources = node("details", "remembered");
@@ -440,6 +557,7 @@ function messageBubble(role, content, { message, status } = {}) {
     const linked = message.artifacts || state?.message_artifacts?.[message.id] || [];
     if (linked.length) body.append(artifactLibrary.chatActions(linked));
   }
+  if (message?.id) body.append(messageMenu(item, message, role, content, prompt));
   item.append(body);
   return { item, avatar, cards, notices, text };
 }
@@ -528,8 +646,10 @@ function renderThreads() {
   avatarThreads.clear();
   list.replaceChildren(...entries.map((thread) => {
     const item = button("", () => {
-      mobile.closeThreads();
-      selectThread(thread.id);
+      mobile.closeDrawer();
+      activateThread(thread.id);
+      if (view !== "chat") openView("chat");
+      else selectThread(thread.id);
     });
     item.className = "thread-link";
     item.dataset.thread = thread.id;
@@ -607,6 +727,7 @@ function renderChat(force = false) {
   const nextRows = new Map();
   byId("welcome").hidden = currentThread !== mainThread.id || !!(messages.length || local.length);
   byId("side-welcome").hidden = currentThread === mainThread.id || !!(messages.length || local.length);
+  let previousPrompt;
   for (const [index, stored] of messages.entries()) {
     const message = stored.id ? stored : { ...stored, id: `${currentThread}:${index + 1}` };
     const cards = [...new Set(message.action_ids || [])].map((id) => actions.get(id)).filter(Boolean);
@@ -619,7 +740,7 @@ function renderChat(force = false) {
       if (message.role === "call") {
         item = callCard(message);
       } else {
-        const bubble = messageBubble(message.role, message.content, { message });
+        const bubble = messageBubble(message.role, message.content, { message, prompt: previousPrompt });
         for (const notice of message.notices || []) bubble.notices.append(node("p", "model-warning", notice));
         for (const action of cards) bubble.cards.append(actionCard(action));
         item = bubble.item;
@@ -628,6 +749,7 @@ function renderChat(force = false) {
     }
     nextRows.set(message.id, row);
     rows.push(row.item);
+    if (message.role === "user") previousPrompt = message.content;
   }
   for (const turn of local) {
     turn.bubble = undefined;
@@ -637,8 +759,10 @@ function renderChat(force = false) {
       }).item);
     }
     if (saved.has(turn.reply?.id) || (!turn.user && !turn.error)) continue;
-    const content = turn.reply?.content || turn.text || turn.error || turnProgress(turn);
-    turn.bubble = messageBubble("assistant", content, { message: turn.reply });
+    const content = turn.reply ? turn.reply.content : turn.text || turn.error || turnProgress(turn);
+    turn.bubble = messageBubble("assistant", content, {
+      message: turn.reply, prompt: turn.prompt, working: !turn.reply && !turn.error && !turn.text,
+    });
     rows.push(turn.bubble.item);
     for (const warning of turn.warnings) turn.bubble.notices.append(node("p", "model-warning", warning));
     for (const action of turn.actions.values()) turn.bubble.cards.append(actionCard(actions.get(action.id) || action));
@@ -658,6 +782,7 @@ function renderChat(force = false) {
     }
   }
   reconcileChildren(transcript, rows);
+  checkCollapsedReplies();
   chatRows = nextRows;
   renderFace(local, messages, actions);
   paintAvatars();
@@ -678,6 +803,7 @@ async function refreshState() {
   stateTag = response.headers.get("ETag");
   byId("start-call").disabled = typeof state.voice_call_available !== "boolean";
   threadList = state.threads;
+  renderThreads();
   if (state.thread_id !== currentThread) {
     const deleted = currentThread;
     activateThread(state.thread_id);
@@ -700,6 +826,7 @@ function renderBrain({ model, model_id: id }) {
   const status = byId("model-status");
   status.textContent = `Brain · ${label}`;
   status.title = id && model !== "mock" ? `${name} · ${id}` : name;
+  byId("mobile-brain-label").textContent = shortModel({ name, model: id, provider: model });
 }
 
 function memoryLabel(hit) {
@@ -1126,7 +1253,8 @@ function setBrainControls() {
 
 function routedModel(model) {
   if (!model) return "—";
-  return `${model.name} · ${model.model || "Automatic model"}`;
+  return model.provider === "huggingface" && model.model ? shortModel(model)
+    : `${model.name} · ${model.model || "Automatic model"}`;
 }
 
 function renderRoutingPreview(plans) {
@@ -1682,7 +1810,7 @@ async function refreshView() {
 }
 
 async function openView(nextView, updateHistory = true) {
-  mobile.closeSheets();
+  mobile.closeDrawer();
   if (nextView !== "chat") voice.cancel();
   if (updateHistory && nextView === "connections" && !isConnectionsRoute()) {
     history.replaceState({ ...history.state, hearthView: view }, "");
@@ -1703,10 +1831,6 @@ async function openView(nextView, updateHistory = true) {
     }
     byId(`${item.dataset.view}-view`).hidden = !active;
   }
-  const more = byId("open-more");
-  const inTabBar = nav.some((item) => item.dataset.view === view && item.parentElement === more.parentElement);
-  if (inTabBar) more.removeAttribute("aria-current");
-  else more.setAttribute("aria-current", "page");
   paintAvatars();
   if (view === "connections") {
     renderConnections();
@@ -1746,10 +1870,10 @@ function activateThread(threadId) {
 
 async function selectThread(threadId, focus = false) {
   activateThread(threadId);
+  if (focus && mobile.isMobile()) mobile.closeDrawer();
   showNotice();
   if (focus && view === "chat") {
-    if (mobile.isMobile()) mobile.closeThreads();
-    else input.focus();
+    if (!mobile.isMobile()) input.focus();
   }
   try {
     await refreshView();
@@ -1783,6 +1907,7 @@ async function changeThread(operation, body = {}) {
     if (operation === "create" || operation === "rename") rememberThread(result);
     if (operation === "create" && selection === selectionVersion) {
       await selectThread(result.id, true);
+      if (view !== "chat") await openView("chat");
     } else if (operation === "delete") {
       threadList = threadList.filter((item) => item.id !== body.thread_id);
       if (currentThread === body.thread_id) activateThread(mainThread.id);
@@ -1825,7 +1950,10 @@ function readChatEvent(turn, name, payload) {
     const follow = turn.threadId === currentThread && nearBottom();
     turn.text = name === "reset" ? "" : turn.text + payload.text;
     avatarSignal(turn.threadId, { type: name, text: payload.text });
-    if (turn.bubble) turn.bubble.text.textContent = turn.text || turnProgress(turn);
+    if (turn.bubble) {
+      turn.bubble.text.textContent = turn.text || turnProgress(turn);
+      turn.bubble.text.parentElement.classList.toggle("message-working", !turn.text);
+    }
     if (avatarMode === "face" && turn.threadId === currentThread) updateFaceCaption(turn.text);
     if (follow) scrollDown();
     return;
@@ -2264,14 +2392,7 @@ for (const prompt of document.querySelectorAll("[data-prompt]")) {
   prompt.addEventListener("click", () => chat(prompt.dataset.prompt));
 }
 for (const item of nav) {
-  item.addEventListener("click", () => {
-    if (item.closest(".mobile-tabs") && item.dataset.view === "chat" && view === "chat"
-        && !byId("chat-view").classList.contains("face-view")) {
-      mobile.showThreads();
-    } else {
-      openView(item.dataset.view);
-    }
-  });
+  item.addEventListener("click", () => openView(item.dataset.view));
 }
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {

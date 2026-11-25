@@ -1,15 +1,255 @@
+:root {
+  --text: #271f2c;
+  --face-title: #482f43;
+  --caption-text: #3e303c;
+  --call-phase: #503447;
+  --call-caption-text: #47394c;
+  --artifact-title: #312438;
+  --canvas: #fbf9f6;
+  --face-canvas: #fcf8f3;
+  --call-canvas: #fffbf7;
+  --artifact-canvas: #fbf8f5;
+  --muted: #6e6572;
+  --secondary-text: #514257;
+  --preview-text: #524957;
+  --status-text: #594c60;
+  --avatar-caption: #785669;
+  --face-status: #6e4b62;
+  --voice-label: #70465e;
+  --voice-interim: #654e63;
+  --call-demo: #715568;
+  --call-feedback: #583761;
+  --timeline-undone-text: #725d74;
+  --timeline-tag-text: #625766;
+  --box-label: #6d5d71;
+  --layout-control-text: #725e73;
+  --artifact-badge-text: #655869;
+  --artifact-foot-text: #6c6171;
+  --artifact-sync-text: #6b586a;
+  --artifact-detail-text: #72526b;
+  --accent: #693e75;
+  --focus: #895296;
+  --selection-text: #563061;
+  --notice-text: #51305b;
+  --activity-dot: #90609e;
+  --action-text: #63376f;
+  --avatar-control-text: #633b66;
+  --voice-processing: #99769e;
+  --timeline-number: #4d2b59;
+  --timeline-filter-text: #532b60;
+  --timeline-day-text: #54325d;
+  --timeline-chat-text: #664481;
+  --timeline-model-text: #60396a;
+  --timeline-status-text: #56355e;
+  --timeline-confirm-text: #523455;
+  --search-icon: #795884;
+  --artifact-icon-text: #725380;
+  --artifact-plan-icon: #704780;
+  --artifact-plan-text: #69417a;
+  --artifact-saving-dot: #9e6caf;
+  --artifact-control-text: #66436f;
+  --table-header-text: #5a4262;
+  --delivery-count-text: #60466a;
+  --delivery-text: #57365f;
+  --composer-focus: #aa83b3;
+  --accent-light: #f2e9f3;
+  --nav-hover: #efe6ee;
+  --nav-active: #eadeeb;
+  --thread-active: #eedff0;
+  --search-highlight: #f4e8f4;
+  --recall-bg: #f4eef4;
+  --appearance-selected: #f7eef4;
+  --mic-bg: #f3ebf2;
+  --mic-hover: #e8d9eb;
+  --timeline-arrival: #eee0f0;
+  --timeline-hover: #f6eff6;
+  --timeline-chat-bg: #efe8f5;
+  --timeline-status-bg: #eee3ef;
+  --artifact-control-hover: #f8eff8;
+  --artifact-icon-bg: #efe4f2;
+  --artifact-plan-icon-bg: #eee1f1;
+  --artifact-plan-bg: #f1e5f3;
+  --delivery-count-bg: #ede3ee;
+  --delivery-bg: #f1e9f4;
+  --inbox-proposal-bg: #f7f0f7;
+  --border: #e8e1e7;
+  --appearance-border: #e9dfe4;
+  --caption-border: #ebd9d7;
+  --voice-separator: #efe3e9;
+  --call-border: #e6d8df;
+  --timeline-separator: #e4d7e5;
+  --timeline-rail: #d9c8dc;
+  --artifact-border: #e7dce5;
+  --artifact-foot-border: #eee6ed;
+  --artifact-empty-border: #ddd0e0;
+  --drawer-border: #e6dae7;
+  --drawer-header-border: #e9dfe8;
+  --artifact-paper-border: #e9dfe5;
+  --table-separator: #ece4ea;
+  --artifact-version-border: #f0e9ee;
+  --control-border: #dfd2de;
+  --prompt-hover-border: #af8bb8;
+  --field-border: #dcd1db;
+  --secondary-button-border: #e6d5e9;
+  --appearance-hover-border: #ba9db5;
+  --appearance-active-border: #9b6a94;
+  --call-card-border: #a37aa9;
+  --timeline-filter-border: #dfd0e3;
+  --timeline-arrival-border: #dbc2de;
+  --timeline-button-border: #dac7df;
+  --timeline-confirm-border: #dfc9e1;
+  --artifact-hover-border: #bd9dc4;
+  --artifact-field-border: #e1d8e1;
+  --layout-active-border: #e1d6e0;
+  --artifact-card-hover-border: #cbb1cf;
+  --artifact-anchor: #d5b9dd;
+  --artifact-control-border: #e1d4e1;
+  --quote-mark: #c8a7cd;
+  --inbox-proposal-border: #aa79ad;
+  --paper: #fffdfc;
+  --face-header: #fffaf5;
+  --face-caption-bg: #fffdf9;
+  --sidebar: #f4efed;
+  --thread-panel: #f8f4f2;
+  --code-bg: #f3edf3;
+  --connection-count-bg: #eee8ed;
+  --connection-status-bg: #f2edf2;
+  --appearance-bg: #fbf7f4;
+  --call-stage-bg: #f6ebe6;
+  --timeline-undone-bg: #f7f2f5;
+  --timeline-undone-icon: #ece3eb;
+  --timeline-tag-bg: #f3eeef;
+  --timeline-raw-bg: #f8f4f7;
+  --artifact-layout-bg: #f0e9ed;
+  --artifact-badge-bg: #f3eef2;
+  --artifact-empty-bg: #f9f4f6;
+  --table-striped-bg: #faf7f9;
+  --inbox-source-bg: #f8f3f7;
+  --timeline-count-bg: #eee8ee;
+  --timeline-count-active-bg: #e5d6eb;
+  --connection-dot: #538060;
+  --connection-ok-text: #305c3d;
+  --timeline-memory-text: #47654c;
+  --artifact-list-icon: #2c675b;
+  --artifact-list-text: #285f51;
+  --artifact-synced-text: #28614e;
+  --artifact-synced-dot: #438160;
+  --delivery-sent-text: #245234;
+  --xlsx-text: #286244;
+  --connection-ok-bg: #e9f1e9;
+  --timeline-memory-bg: #eaf0e6;
+  --artifact-list-icon-bg: #e2f0e9;
+  --artifact-list-bg: #e5f0e9;
+  --delivery-sent-bg: #e1eee6;
+  --xlsx-bg: #e0f1e7;
+  --timeline-connector-text: #425884;
+  --box-connected-text: #234e6a;
+  --box-connected-dot: #397bb6;
+  --transcript-icon: #345f8b;
+  --transcript-text: #245477;
+  --box-link-text: #21527a;
+  --docx-text: #234b89;
+  --timeline-connector-bg: #e9edf7;
+  --box-connected-bg: #eef5fc;
+  --transcript-icon-bg: #e2edf9;
+  --transcript-bg: #e7f0fb;
+  --box-link-bg: #edf4fb;
+  --docx-bg: #e0ebff;
+  --box-link-hover: #e2effa;
+  --box-connected-border: #d5e3ef;
+  --box-link-border: #d3e2ef;
+  --box-link-hover-border: #b7cfe3;
+  --warning-text: #694518;
+  --timeline-reminder-text: #865023;
+  --artifact-connection-text: #6e4a2e;
+  --artifact-note-icon: #895735;
+  --artifact-note-text: #825033;
+  --delivery-queued-text: #66490e;
+  --pptx-text: #8c492e;
+  --warning-bg: #f6ede2;
+  --timeline-reminder-bg: #f8eee3;
+  --artifact-connection-bg: #fff6e9;
+  --artifact-note-bg: #f8eadc;
+  --delivery-queued-bg: #f6edda;
+  --pptx-bg: #faeadf;
+  --artifact-connection-border: #eedec9;
+  --artifact-status-dot: #a08682;
+  --thread-delete: #913d47;
+  --mic-active-text: #a13b57;
+  --voice-dot: #ac4663;
+  --timeline-error-text: #894352;
+  --timeline-error-status: #7c3745;
+  --artifact-export-icon: #79495e;
+  --artifact-export-text: #79445e;
+  --artifact-error-text: #983545;
+  --artifact-error-dot: #b3475a;
+  --artifact-delete-text: #963b48;
+  --artifact-delete-hover-text: #8e2735;
+  --delivery-failed-text: #7e2926;
+  --pdf-text: #963642;
+  --mic-active-bg: #f8e3e7;
+  --timeline-error-bg: #faecec;
+  --artifact-export-icon-bg: #f3e4eb;
+  --artifact-export-bg: #f3e4ec;
+  --artifact-delete-hover-bg: #fbebeb;
+  --artifact-delete-bg: #fff0f0;
+  --delivery-failed-bg: #f8e6e4;
+  --pdf-bg: #fae4e5;
+  --artifact-danger-border: #ecc9ce;
+  --accent-fill: #693e75;
+  --accent-fill-hover: #572f63;
+  --danger-fill: #a13749;
+  --danger-fill-hover: #852839;
+  --ember-base: #f57f4d;
+  --ember-ink: #452b40;
+  --ember-highlight: #fffadf;
+  --ember-shade: #6b2a57;
+  --ember-rim: #fff6e4;
+  --ember-wire: #624059;
+  --ember-shadow: #533148;
+  --ember-cheek: #be4d78;
+  --ember-hand-fill: #fff2c9;
+  --ember-hand-stroke: #fff2e5;
+  --ember-puff: #85597c;
+  --ember-star: #ed9c40;
+  --composer-shadow: #4321460b;
+  --call-shadow: #331e3d35;
+  --overlay-scrim: #271a2f80;
+  --layout-control-shadow: #40203d0d;
+  --artifact-shadow: #4e2c4510;
+  --artifact-hover-shadow: #4e2c4517;
+  --drawer-shadow: #25142e3d;
+  --drawer-scrim: #22192e53;
+  --floating-shadow: #43214626;
+  --voice-pulse: #ac46632b;
+  --face-glow: #ffead788;
+  --meter-track: #f0e2eb;
+  --meter-start: #ab73b4;
+  --meter-end: #bf5775;
+  --meter-fill: #ae6597;
+  --field-surface: #fff;
+  --on-solid: #fff;
+  --standalone-inset: #211b24;
+  --timeline-count-text: #6e6572;
+  --call-hover: #563061;
+  --timeline-count-active-text: #532b60;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    color: #eee7ee;
-    background: #211b24;
+    --text: #eee7ee;
+    --canvas: #211b24;
     --muted: #c0b2c2;
     --accent: #e0b7ec;
     --accent-light: #402c49;
-    --accent-fill: #70477e;
     --border: #493b4e;
+    --control-border: #a292aa;
     --paper: #2c2431;
     --panel-muted: #342a39;
+    --accent-fill: #865d93;
+    --danger-fill: #a7455b;
+    --on-solid: #fff;
     --blue: #bbdbf7;
     --blue-paper: #273748;
     --green: #a5debd;
@@ -18,119 +258,228 @@
     --gold-paper: #433226;
     --rose: #f4b7c4;
     --rose-paper: #4b2b38;
+    --face-title: var(--text);
+    --caption-text: var(--text);
+    --call-phase: var(--text);
+    --call-caption-text: var(--text);
+    --artifact-title: var(--text);
+    --face-canvas: var(--canvas);
+    --call-canvas: var(--canvas);
+    --artifact-canvas: var(--canvas);
+    --secondary-text: var(--muted);
+    --preview-text: var(--muted);
+    --status-text: var(--muted);
+    --avatar-caption: var(--muted);
+    --face-status: var(--muted);
+    --voice-label: var(--muted);
+    --voice-interim: var(--muted);
+    --call-demo: var(--muted);
+    --call-feedback: var(--muted);
+    --timeline-undone-text: var(--muted);
+    --timeline-tag-text: var(--muted);
+    --box-label: var(--muted);
+    --layout-control-text: var(--muted);
+    --artifact-badge-text: var(--muted);
+    --artifact-foot-text: var(--muted);
+    --artifact-sync-text: var(--muted);
+    --artifact-detail-text: var(--muted);
+    --focus: var(--accent);
+    --selection-text: var(--accent);
+    --notice-text: var(--accent);
+    --activity-dot: var(--accent);
+    --action-text: var(--accent);
+    --avatar-control-text: var(--accent);
+    --voice-processing: var(--accent);
+    --timeline-number: #f3e3f7;
+    --timeline-filter-text: var(--accent);
+    --timeline-day-text: var(--accent);
+    --timeline-chat-text: var(--accent);
+    --timeline-model-text: var(--accent);
+    --timeline-status-text: var(--accent);
+    --timeline-confirm-text: var(--accent);
+    --search-icon: var(--accent);
+    --artifact-icon-text: var(--accent);
+    --artifact-plan-icon: var(--accent);
+    --artifact-plan-text: var(--accent);
+    --artifact-saving-dot: var(--accent);
+    --artifact-control-text: var(--accent);
+    --table-header-text: var(--accent);
+    --delivery-count-text: var(--accent);
+    --delivery-text: var(--accent);
+    --composer-focus: var(--accent);
+    --nav-hover: var(--accent-light);
+    --nav-active: var(--accent-light);
+    --thread-active: var(--accent-light);
+    --search-highlight: var(--accent-light);
+    --recall-bg: var(--accent-light);
+    --appearance-selected: var(--accent-light);
+    --mic-bg: var(--accent-light);
+    --mic-hover: var(--accent-light);
+    --timeline-arrival: var(--accent-light);
+    --timeline-hover: var(--accent-light);
+    --timeline-chat-bg: var(--accent-light);
+    --timeline-status-bg: var(--accent-light);
+    --artifact-control-hover: var(--accent-light);
+    --artifact-icon-bg: var(--accent-light);
+    --artifact-plan-icon-bg: var(--accent-light);
+    --artifact-plan-bg: var(--accent-light);
+    --delivery-count-bg: var(--accent-light);
+    --delivery-bg: var(--accent-light);
+    --inbox-proposal-bg: var(--accent-light);
+    --appearance-border: var(--border);
+    --caption-border: var(--border);
+    --voice-separator: var(--border);
+    --call-border: var(--border);
+    --timeline-separator: var(--border);
+    --timeline-rail: var(--border);
+    --artifact-border: var(--border);
+    --artifact-foot-border: var(--border);
+    --artifact-empty-border: var(--border);
+    --drawer-border: var(--border);
+    --drawer-header-border: var(--border);
+    --artifact-paper-border: var(--border);
+    --table-separator: var(--border);
+    --artifact-version-border: var(--border);
+    --prompt-hover-border: var(--control-border);
+    --field-border: var(--control-border);
+    --secondary-button-border: var(--control-border);
+    --appearance-hover-border: var(--control-border);
+    --appearance-active-border: var(--control-border);
+    --call-card-border: var(--control-border);
+    --timeline-filter-border: var(--control-border);
+    --timeline-arrival-border: var(--control-border);
+    --timeline-button-border: var(--control-border);
+    --timeline-confirm-border: var(--control-border);
+    --artifact-hover-border: var(--control-border);
+    --artifact-field-border: var(--control-border);
+    --layout-active-border: var(--control-border);
+    --artifact-card-hover-border: var(--control-border);
+    --artifact-anchor: var(--control-border);
+    --artifact-control-border: var(--control-border);
+    --quote-mark: var(--control-border);
+    --inbox-proposal-border: var(--control-border);
+    --face-header: var(--paper);
+    --face-caption-bg: var(--paper);
+    --sidebar: var(--panel-muted);
+    --thread-panel: var(--panel-muted);
+    --code-bg: var(--panel-muted);
+    --connection-count-bg: var(--panel-muted);
+    --connection-status-bg: var(--panel-muted);
+    --appearance-bg: var(--panel-muted);
+    --call-stage-bg: var(--panel-muted);
+    --timeline-undone-bg: var(--panel-muted);
+    --timeline-undone-icon: var(--panel-muted);
+    --timeline-tag-bg: var(--panel-muted);
+    --timeline-raw-bg: var(--panel-muted);
+    --artifact-layout-bg: var(--panel-muted);
+    --artifact-badge-bg: var(--panel-muted);
+    --artifact-empty-bg: var(--panel-muted);
+    --table-striped-bg: var(--panel-muted);
+    --inbox-source-bg: var(--panel-muted);
+    --timeline-count-bg: var(--accent-fill);
+    --timeline-count-active-bg: var(--accent-fill);
+    --connection-dot: var(--green);
+    --connection-ok-text: var(--green);
+    --timeline-memory-text: var(--green);
+    --artifact-list-icon: var(--green);
+    --artifact-list-text: var(--green);
+    --artifact-synced-text: var(--green);
+    --artifact-synced-dot: var(--green);
+    --delivery-sent-text: var(--green);
+    --xlsx-text: var(--green);
+    --connection-ok-bg: var(--green-paper);
+    --timeline-memory-bg: var(--green-paper);
+    --artifact-list-icon-bg: var(--green-paper);
+    --artifact-list-bg: var(--green-paper);
+    --delivery-sent-bg: var(--green-paper);
+    --xlsx-bg: var(--green-paper);
+    --timeline-connector-text: var(--blue);
+    --box-connected-text: var(--blue);
+    --box-connected-dot: var(--blue);
+    --transcript-icon: var(--blue);
+    --transcript-text: var(--blue);
+    --box-link-text: var(--blue);
+    --docx-text: var(--blue);
+    --timeline-connector-bg: var(--blue-paper);
+    --box-connected-bg: var(--blue-paper);
+    --transcript-icon-bg: var(--blue-paper);
+    --transcript-bg: var(--blue-paper);
+    --box-link-bg: var(--blue-paper);
+    --docx-bg: var(--blue-paper);
+    --box-link-hover: #34495e;
+    --box-connected-border: #a4bdd3;
+    --box-link-border: #a4bdd3;
+    --box-link-hover-border: #a4bdd3;
+    --warning-text: var(--gold);
+    --timeline-reminder-text: var(--gold);
+    --artifact-connection-text: var(--gold);
+    --artifact-note-icon: var(--gold);
+    --artifact-note-text: var(--gold);
+    --delivery-queued-text: var(--gold);
+    --pptx-text: var(--gold);
+    --warning-bg: var(--gold-paper);
+    --timeline-reminder-bg: var(--gold-paper);
+    --artifact-connection-bg: var(--gold-paper);
+    --artifact-note-bg: var(--gold-paper);
+    --delivery-queued-bg: var(--gold-paper);
+    --pptx-bg: var(--gold-paper);
+    --artifact-connection-border: #b49a83;
+    --artifact-status-dot: #b49a83;
+    --thread-delete: var(--rose);
+    --mic-active-text: var(--rose);
+    --voice-dot: var(--rose);
+    --timeline-error-text: var(--rose);
+    --timeline-error-status: var(--rose);
+    --artifact-export-icon: var(--rose);
+    --artifact-export-text: var(--rose);
+    --artifact-error-text: var(--rose);
+    --artifact-error-dot: var(--rose);
+    --artifact-delete-text: var(--rose);
+    --artifact-delete-hover-text: var(--rose);
+    --delivery-failed-text: var(--rose);
+    --pdf-text: var(--rose);
+    --mic-active-bg: var(--rose-paper);
+    --timeline-error-bg: var(--rose-paper);
+    --artifact-export-icon-bg: var(--rose-paper);
+    --artifact-export-bg: var(--rose-paper);
+    --artifact-delete-hover-bg: var(--rose-paper);
+    --artifact-delete-bg: var(--rose-paper);
+    --delivery-failed-bg: var(--rose-paper);
+    --pdf-bg: var(--rose-paper);
+    --artifact-danger-border: #cc96a3;
+    --accent-fill-hover: #895b99;
+    --danger-fill-hover: var(--danger-fill);
+    --face-glow: #211b2400;
+    --meter-track: var(--border);
+    --meter-start: var(--accent);
+    --meter-end: var(--rose);
+    --meter-fill: var(--rose);
+    --field-surface: var(--paper);
+    --timeline-count-text: var(--on-solid);
+    --call-hover: #895b99;
+    --timeline-count-active-text: var(--on-solid);
   }
-
-  :is(button, textarea, input, select, a, summary):focus-visible { outline-color: var(--accent); }
-  .sidebar, .thread-panel { background: var(--panel-muted); }
-  .workspace-sheet .thread-panel { background: transparent; }
-  .nav-link:hover, .nav-link[aria-current], .thread-link:hover, .thread-link[aria-current],
-  .notice, .connection-promotion, .connection-tabs, .artifact-layout-toggle,
-  .prompts button:hover, .new-thread:hover, .thread-controls button:hover,
-  .files button:hover, .files button[aria-pressed="true"], .call-quiet:hover,
-  .call-quiet[aria-pressed="true"], .artifact-card-title:hover {
-    background: var(--accent-light);
-    color: var(--accent);
-  }
-
-  :is(.call-button, .call-button:hover, .composer #send, .rescan, .rescan:hover,
-    .primary, .primary:hover, .primary-setting, .primary-setting:hover, .brain-form button.primary,
-    .timeline-undo, .timeline-confirm .timeline-restore) {
-    color: white;
-    background: var(--accent-fill);
-    border-color: var(--accent-fill);
-  }
-  :is(.composer #mic, .composer #mic:hover, .composer #start-call, #call-thinking, .card button,
-    .thread-controls button, .new-thread, .call-quiet, .avatar-view, .timeline-filters button[aria-pressed="true"],
-    .artifact-control, .timeline-approve, .share-message) {
-    color: var(--accent);
-    border-color: var(--border);
-  }
-  :is(.composer #mic, .composer #mic:hover, .composer #start-call, .card button, .timeline-filters button[aria-pressed="true"]) {
-    background: var(--accent-light);
-  }
-  .composer #mic[aria-pressed="true"], .artifact-danger:hover, .artifact-delete {
-    background: var(--rose-paper);
-    border-color: var(--border);
-    color: var(--rose);
-  }
-  .artifact-danger, .thread-controls button:hover:last-child { color: var(--rose); }
-
-  :is(.composer, .prompts button, .artifact-card, .artifact-paper, .artifact-versions,
-    .artifact-control, .artifact-control:hover, .artifact-layout-toggle button[aria-pressed="true"],
-    .artifact-edit textarea, .connection-tabs button[aria-selected="true"], .timeline-confirm,
-    .face-view .thread-header, .face-caption) {
-    background: var(--paper);
-    border-color: var(--border);
-  }
-  :is(.thread-select, .connection-filters input, .connection-filters select, .connector-controls input,
-    .brain-form input, .brain-form select, .preference-fields textarea, .delivery-form :is(input, select, textarea),
-    .timeline-fields :is(input, select), .query-form input, .artifact-toolbar :is(input, select)) {
-    color: inherit;
-    background: var(--paper);
-    border-color: var(--border);
-  }
-  :is(.composer, .artifact-card, .artifact-drawer-header, .artifact-card-foot, .artifact-versions li,
-    .voice-bar, .brain-form fieldset, .call-captions li, .delivery-details > div, .inbox-facts > div) {
-    border-color: var(--border);
-  }
-  :is(.call-sheet, .artifact-drawer, .face-view, .face-stage) { background: #211b24; }
-  :is(.call-stage, .call-setup, .artifact-empty, .avatar-choices button,
-    .timeline-detail, .timeline-raw pre, .chat-markdown :is(code, pre), .inbox-source pre,
-    .artifact-markdown code, .artifact-table th, .artifact-table tr:nth-child(even)) {
-    background: var(--panel-muted);
-    border-color: var(--border);
-  }
-  :is(.avatar-choices button[aria-pressed="true"], .timeline-tag, .timeline-filters button span,
-    .connection-status, .connection-badge, .artifact-badge, .artifact-kind-icon,
-    .delivery-count, .delivery-chip, .inbox-proposal, .timeline-card-head:is(:hover, :focus-visible)) {
-    background: var(--accent-light);
-    color: var(--accent);
-  }
-
-  :is(.prompts button, .avatar-view, .files button, .card pre, .file-preview pre, .artifact-card-title,
-    .call-captions, #call-phase, .face-stage h3, .face-caption, .artifact-table th, .call-setup p,
-    .timeline-confirm p, .brain-form .brain-feedback) { color: inherit; }
-  :is(#avatar-caption, .face-status, .voice-bar, #voice-interim, .call-feedback, #call-demo-label,
-    .artifact-sync, .artifact-card-foot, .artifact-detail-status, .connection-card .connection-uses,
-    .artifact-layout-toggle button, .timeline-detail-fields dd, .artifact-search > span:first-child,
-    .brain-form label) { color: var(--muted); }
-  :is(.artifact-badge.is-box, .artifact-badge.is-transcript, [data-kind="transcript"] .artifact-kind-icon,
-    .artifact-chat-chip, .artifact-box-link, .artifact-box-status[data-connected="true"]) {
-    color: var(--blue);
-    background: var(--blue-paper);
-    border-color: var(--border);
-  }
-  :is(.artifact-badge.is-list, [data-kind="list"] .artifact-kind-icon, .delivery-chip.delivery-sent) {
-    color: var(--green);
-    background: var(--green-paper);
-  }
-  :is(.artifact-badge.is-note, [data-kind="note"] .artifact-kind-icon, .artifact-connection, .delivery-chip.delivery-queued) {
-    color: var(--gold);
-    background: var(--gold-paper);
-    border-color: var(--border);
-  }
-  :is(.artifact-badge.is-export, [data-kind="export"] .artifact-kind-icon, .delivery-chip.delivery-failed) {
-    color: var(--rose);
-    background: var(--rose-paper);
-  }
-  :is(.artifact-sync.is-synced, .connection-card .connection-test) { color: var(--green); }
-  .artifact-sync.is-error { color: var(--rose); }
-  :is(.connection-card .connection-test.failed, .connection-card .connection-test.denied) { color: var(--gold); }
 }
 
 @media (prefers-color-scheme: dark) {
-  .timeline-summary dd { color: #f3e3f7; }
-  .timeline-summary > div { border-left-color: var(--border); }
-  .timeline-day-label { background: #211b24; color: var(--accent); }
-  .timeline-filters button[aria-pressed="true"] { border-color: var(--border); color: var(--accent); }
-  .timeline-filters button span,
-  .timeline-filters button[aria-pressed="true"] span { background: var(--accent-fill); color: #fff; }
-  .timeline-tag-status { background: var(--accent-light); color: var(--accent); }
-  .timeline-entry.is-error .timeline-tag-status { background: var(--rose-paper); color: var(--rose); }
-  .connection-status { background: var(--panel-muted); color: var(--muted); }
-  .connection-status.ok { background: var(--green-paper); color: var(--green); }
-  .connection-status.error, .connection-status.unauthorized { background: var(--gold-paper); color: var(--gold); }
-  .remembered summary { background: var(--accent-light); }
-  .face-status { color: var(--muted); }
-  .artifact-box-status { color: var(--muted); }
+  /* Non-text edges identify controls against the app and their own surfaces. */
+  .composer, .prompts button, .remembered button, .artifact-icon-button, .artifact-layout-toggle,
+  .avatar-choices button, .avatar-color input, .settings-disclosure, .workspace-drawer-header button,
+  .query-form input, .delivery-intro > button,
+  .connection-tabs button[aria-selected="true"], .artifact-layout-toggle button[aria-pressed="true"] {
+    border-color: var(--control-border);
+  }
+  .composer:focus-within, .connection-tabs button[aria-selected="true"]:focus-visible {
+    border-color: var(--focus);
+  }
+  .composer :is(#mic, #send, #start-call), .call-button, .call-end, .rescan, .primary,
+  .card button.primary-setting, .brain-controls #brain-save,
+  .timeline-undo, .timeline-confirm .timeline-restore { border: 1px solid var(--control-border); }
+  :is(button, input, select, textarea):disabled, .rescan[aria-disabled="true"] { opacity: 1; }
+  button:disabled, .rescan[aria-disabled="true"] { cursor: default; border-style: dashed; }
+  :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
+  :is(button, textarea, input, select, a, summary):focus-visible { outline-color: var(--focus); }
+  .timeline-card-head:focus-visible { outline-color: var(--focus); }
+  .timeline-filters button[aria-pressed="true"] { border-color: var(--control-border); }
+  .artifact-layout-toggle button[aria-pressed="true"] { color: var(--accent); }
 }

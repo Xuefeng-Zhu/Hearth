@@ -1,38 +1,71 @@
-const mobile = matchMedia("(max-width: 680px), (max-width: 950px) and (max-height: 500px) and (pointer: coarse)");
+const mobile = matchMedia("(max-width: 760px), (max-width: 950px) and (max-height: 500px) and (pointer: coarse)");
 
 export function setupMobile({ nearBottom, scrollDown }) {
   const get = (id) => document.getElementById(id);
-  const threads = get("thread-sheet");
-  const more = get("more-sheet");
+  const drawer = get("workspace-drawer");
+  const toggle = get("open-menu");
   const threadPanel = get("thread-panel");
   const threadControls = get("thread-controls");
   const avatarLabel = document.querySelector('label[for="avatar-view"]');
   const avatarSelect = get("avatar-view");
-  const threadPicker = get("open-threads");
-  const threadHeader = threadPicker.parentElement;
+  const threadHeader = get("thread-title").closest("header");
   const avatarOptions = get("mobile-avatar-options");
   const startCall = get("start-call");
 
-  function show(sheet) {
-    if (!sheet.open) sheet.showModal();
+  function closeDrawer() {
+    if (!drawer.open) return;
+    toggle.setAttribute("aria-expanded", "false");
+    drawer.close();
   }
 
-  threadPicker.addEventListener("click", () => show(threads));
-  get("open-more").addEventListener("click", () => show(more));
-  threads.addEventListener("close", () => {
-    const notice = get("thread-sheet-notice");
+  toggle.addEventListener("click", () => {
+    if (drawer.open) return;
+    drawer.showModal();
+    toggle.setAttribute("aria-expanded", "true");
+  });
+  drawer.addEventListener("close", () => {
+    if (drawer.open) return;
+    toggle.setAttribute("aria-expanded", "false");
+    const notice = get("drawer-notice");
     notice.hidden = true;
     notice.textContent = "";
+    if (mobile.matches) toggle.focus({ preventScroll: true });
   });
-  for (const sheet of [threads, more]) {
-    sheet.addEventListener("click", (event) => {
-      if (event.target !== sheet) return;
-      const { top, bottom, left, right } = sheet.getBoundingClientRect();
-      if (event.clientY < top || event.clientY > bottom || event.clientX < left || event.clientX > right) {
-        sheet.close();
-      }
-    });
-  }
+  drawer.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeDrawer();
+  });
+  drawer.querySelector("form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    closeDrawer();
+  });
+  drawer.addEventListener("click", (event) => {
+    if (event.target !== drawer) return;
+    const bounds = drawer.getBoundingClientRect();
+    if (event.clientX > bounds.right || event.clientX < bounds.left) closeDrawer();
+  });
+  drawer.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab") return;
+    const items = [...drawer.querySelectorAll("button:enabled, select:enabled, a[href]")]
+      .filter((item) => item.getClientRects().length);
+    const first = items.at(0), last = items.at(-1);
+    if (document.activeElement === (event.shiftKey ? first : last)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
+  });
+  let touchStart;
+  drawer.addEventListener("touchstart", ({ touches }) => {
+    touchStart = touches.length === 1 ? touches[0] : undefined;
+  }, { passive: true });
+  drawer.addEventListener("touchend", ({ changedTouches }) => {
+    if (!touchStart) return;
+    const { clientX, clientY } = changedTouches[0];
+    const distance = touchStart.clientX - clientX;
+    if (distance > 55 && distance > Math.abs(clientY - touchStart.clientY) * 1.5) closeDrawer();
+    touchStart = undefined;
+  }, { passive: true });
+  drawer.addEventListener("touchcancel", () => { touchStart = undefined; });
 
   // Safari keeps the layout viewport full-height when the keyboard takes up the visual viewport.
   const viewport = window.visualViewport;
@@ -61,22 +94,24 @@ export function setupMobile({ nearBottom, scrollDown }) {
     const inline = !mobile.matches || get("chat-view").classList.contains("face-view");
     const host = inline ? threadHeader : avatarOptions;
     if (avatarSelect.parentElement === host) return;
-    if (inline) threadPicker.before(avatarLabel, avatarSelect);
+    if (inline) threadHeader.append(avatarLabel, avatarSelect);
     else avatarOptions.append(avatarLabel, avatarSelect);
   }
 
   function placeControls() {
+    get("new-thread-label").textContent = mobile.matches ? "New chat" : "New side chat";
     if (mobile.matches) {
       get("mobile-thread-panel").append(threadPanel);
       get("mobile-thread-controls").append(threadControls);
       get("send").before(startCall);
     } else {
-      for (const sheet of [threads, more]) sheet.close();
+      closeDrawer();
       get("chat-view").prepend(threadPanel);
       get("thread-activity").after(threadControls);
+      threadHeader.append(startCall);
     }
     placeAvatarControl();
-    if (!mobile.matches) threadPicker.before(startCall);
+    if (!mobile.matches) threadHeader.append(startCall);
     scheduleFit();
   }
 
@@ -86,9 +121,7 @@ export function setupMobile({ nearBottom, scrollDown }) {
   placeControls();
   return {
     isMobile: () => mobile.matches,
-    showThreads: () => show(threads),
-    closeThreads: () => threads.close(),
-    closeSheets: () => { threads.close(); more.close(); },
+    closeDrawer,
     placeAvatarControl,
   };
 }
