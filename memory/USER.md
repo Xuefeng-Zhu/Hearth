@@ -1,4 +1,4 @@
-# Frank
+# Demo profile
 
 This is sample memory for the Hearth demo.
 

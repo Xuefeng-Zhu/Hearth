@@ -41,7 +41,7 @@ class Index:
         self.gateway = gateway
         self.entry = entry
         self.name = entry["index"]
-        self.namespace = entry.get("namespace", "frank")
+        self.namespace = entry.get("namespace", "hearth")
         self.base = f"indexes/{quote(self.name, safe='')}"
         self.records = f"records/namespaces/{quote(self.namespace, safe='')}"
         self.rerank_unavailable = False

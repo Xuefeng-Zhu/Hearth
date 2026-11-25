@@ -12,7 +12,7 @@ from .storage import HearthError, ROOT, atomic_write, iso
 from . import box, browserbase, pinecone, recall, router, search
 
 CATALOG = {entry["slug"]: entry for entry in json.loads((ROOT / "config/catalog.json").read_text(encoding="utf-8"))}
-DASHBOARD = "https://fly.io/dashboard/xuefeng-zhu/sprites/connectors"
+DASHBOARD = "https://fly.io/dashboard"
 ACCESS_RULE = "Name Prefix hearth"
 SETTINGS = {"pinecone": "index", "agentmail": "inbox_id"}
 INDEX = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?")
@@ -223,7 +223,7 @@ class Connections:
             namespace = vector.get("namespace")
             if isinstance(namespace, str) and pinecone.NAMESPACE.fullmatch(namespace):
                 # Earlier releases used hearth as a prefix for workspace hashes.
-                entry["namespace"] = "frank" if namespace == "hearth" and not vector.get("host") else namespace
+                entry["namespace"] = namespace
             host = vector.get("host")
             if isinstance(host, str) and pinecone.INDEX_HOST.fullmatch(host):
                 entry["host"] = host

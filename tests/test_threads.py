@@ -72,7 +72,7 @@ class ThreadTest(unittest.TestCase):
         side_state = self.state(side)
         self.assertEqual(side_state["threads"][1]["title"], "Profile notes")
         reply = side_state["messages"][-1]
-        self.assertTrue(reply["content"].startswith("# Frank"))
+        self.assertTrue(reply["content"].startswith("# Demo profile"))
         shared = self.request("/api/threads/share", {"thread_id": side, "message_id": reply["id"]})
         self.assertTrue(shared["content"].startswith("Shared from Profile notes\n\n> "))
         self.assertEqual(self.state()["messages"], [legacy, shared])

@@ -14,7 +14,11 @@ if [[ -n "${HEARTH_SPRITE_URL:-}" ]]; then
     printf 'header = "Authorization: Bearer %s"\n' "$SPRITE_API_TOKEN"
   } | curl --disable --config - --silent --show-error --fail --max-time 150 --request POST
 else
-  sprite exec --http-post --no-stdin --no-port-forward -o "${HEARTH_SPRITE_ORG:-xuefeng-zhu}" \
+  org=()
+  if [[ -n "${HEARTH_SPRITE_ORG:-}" ]]; then
+    org=(-o "$HEARTH_SPRITE_ORG")
+  fi
+  sprite exec --http-post --no-stdin --no-port-forward "${org[@]}" \
     -s "${HEARTH_SPRITE_NAME:-hearth}" -- python3 -c '
 from pathlib import Path
 from urllib.request import ProxyHandler, Request, build_opener

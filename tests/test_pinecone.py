@@ -191,15 +191,15 @@ class PineconeMemoryTest(unittest.TestCase):
     def test_integrated_bootstrap_and_real_query_filters(self):
         self.start()
         status = self.app.memory_info()["pinecone"]
-        self.assertEqual((status["host"], status["namespace"], status["dimension"]), (HOST, "frank", 1024))
+        self.assertEqual((status["host"], status["namespace"], status["dimension"]), (HOST, "hearth", 1024))
         sync = self.app.memory_sync.job
         self.assertEqual(status["record_count"], sync["upserted"])
         saved = json.loads(self.app.connections.path.read_text())["pinecone"]
-        self.assertEqual((saved["host"], saved["namespace"]), (HOST, "frank"))
+        self.assertEqual((saved["host"], saved["namespace"]), (HOST, "hearth"))
         create, = self.requests("create-for-model")
         self.assertEqual(create[3]["embed"]["field_map"], {"text": "text"})
         self.assertEqual((create[3]["cloud"], create[3]["region"]), ("aws", "us-east-1"))
-        payload, = self.requests("/frank/upsert")
+        payload, = self.requests("/hearth/upsert")
         self.assertEqual(payload[4].get_header("Content-type"), "application/x-ndjson")
         for _, _, _, _, request in self.http.requests:
             self.assertIsNone(request.get_header("Authorization"))
@@ -209,13 +209,13 @@ class PineconeMemoryTest(unittest.TestCase):
         result = self.app.agent.memory_search(CHINESE_QUERY, kind="person", thread_id="main")
         hit, = result["results"]
         self.assertEqual((result["backend"], hit["path"], hit["score"]), ("pinecone", self.path, 0.914))
-        search, = self.requests("/frank/search")
+        search, = self.requests("/hearth/search")
         self.assertEqual(search[3]["query"]["top_k"], 8)
         self.assertEqual(search[3]["query"]["filter"]["kind"], {"$eq": "person"})
         self.assertEqual(search[3]["query"]["filter"]["thread_id"], {"$eq": "main"})
         self.app.memory_sync.request("sync")
         self.assertEqual(self.wait()["upserted"], 0)
-        self.assertEqual(len(self.requests("/frank/upsert")), 1)
+        self.assertEqual(len(self.requests("/hearth/upsert")), 1)
 
     def test_dense_fallback_uses_multilingual_hugging_face_vectors(self):
         self.http.allow_integrated = False
@@ -223,7 +223,7 @@ class PineconeMemoryTest(unittest.TestCase):
         status = self.app.memory_info()["pinecone"]
         self.assertFalse(status["integrated"])
         self.assertEqual((status["embedding_model"], status["dimension"]), (pinecone.DENSE_MODEL, 384))
-        self.assertEqual(self.requests("/vectors/upsert")[0][3]["namespace"], "frank")
+        self.assertEqual(self.requests("/vectors/upsert")[0][3]["namespace"], "hearth")
         result = self.app.agent.memory_search(QUERY, kind="person")
         self.assertEqual(result["results"][0]["score"], 0.914)
         embedding = [row[3]["inputs"] for row in self.http.requests if row[0] == "huggingface"]
@@ -271,7 +271,7 @@ class PineconeMemoryTest(unittest.TestCase):
         current = app.home.snapshot()["builtin"]
         memory = current["memory"]
         self.assertEqual(memory["pinecone"], "Ready")
-        self.assertEqual(memory["record_count"], len(self.http.records["frank"]))
+        self.assertEqual(memory["record_count"], len(self.http.records["hearth"]))
         self.assertTrue(memory["last_sync"])
         connection = next(row for row in current["connections"]["items"] if row["id"] == "pinecone")
         self.assertEqual(connection["status"], "ok")
@@ -290,8 +290,8 @@ class PineconeMemoryTest(unittest.TestCase):
         self.http.allow_box = True
         self.http.upsert_failures = 1
         self.start()
-        self.assertEqual(len(self.requests("/frank/upsert")), 2)
-        remote = self.http.records["frank"]
+        self.assertEqual(len(self.requests("/hearth/upsert")), 2)
+        remote = self.http.records["hearth"]
         shopping, = [hit for hit in self.app.agent.memory_search("what was on my shopping list", kind="artifact")["results"]]
         self.assertEqual((shopping["artifact_id"], shopping["source"]), ("box-32", "Box"))
         original, = [row["_id"] for row in remote.values() if "hives" in row["text"]]
@@ -335,7 +335,7 @@ class PineconeMemoryTest(unittest.TestCase):
         finally:
             CHAT_ORIGIN.reset(origin)
         self.wait()
-        rows = {row["text"]: row for row in self.http.records["frank"].values()}
+        rows = {row["text"]: row for row in self.http.records["hearth"].values()}
         self.assertEqual((rows[first]["thread_id"], rows[first]["kind"]), ("main", "preference"))
         self.assertEqual(rows["Second note."]["thread_id"], thread["id"])
 

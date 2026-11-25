@@ -72,7 +72,7 @@ class VoiceCallTest(unittest.TestCase):
             request, = self.provider.calls
             self.assertEqual(request.full_url, f"{GATEWAY}/vocalbridge/test_connector/api/v1/token")
             self.assertEqual(request.get_method(), "POST")
-            self.assertEqual(json.loads(request.data), {"participant_name": "Frank"})
+            self.assertEqual(json.loads(request.data), {"participant_name": "Demo profile"})
             self.assertFalse(request.has_header("Authorization"))
             self.assertFalse(request.has_header("X-api-key"))
             _, _, status = self.request(PATH + "/status")

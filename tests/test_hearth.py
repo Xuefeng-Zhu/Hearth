@@ -129,7 +129,7 @@ class HearthTest(unittest.TestCase):
         events = self.chat("Read USER.md")
         self.assertIn("reset", [name for name, _ in events])
         self.assertEqual((events[-1][0], events[-1][1]["provider"]), ("done", "mock"))
-        self.assertTrue(self.agent.threads.messages("main")[-1]["content"].startswith("# Frank"))
+        self.assertTrue(self.agent.threads.messages("main")[-1]["content"].startswith("# Demo profile"))
 
     def test_model_fallback_preserves_an_already_staged_action(self):
         class InterruptedGateway(Recorder):

@@ -61,7 +61,7 @@ class DeliveryTest(unittest.TestCase):
         self.storage = Storage(self.root.name)
         self.gateway = MailGateway()
         self.app = Application(self.storage, LocalCheckpoints(self.storage), read_config(), gateway=self.gateway)
-        self.app.reminders.base = "https://your-sprite.sprites.app"
+        self.app.reminders.base = "https://hearth.example.invalid"
 
     def connect(self):
         self.app.agent.config["agentmail"]["connection_id"] = "agentmail-test"

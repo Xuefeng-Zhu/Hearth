@@ -2,15 +2,18 @@
 set -euo pipefail
 umask 077
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
-org=xuefeng-zhu
+org=()
+if [[ -n "${HEARTH_SPRITE_ORG:-}" ]]; then
+  org=(-o "$HEARTH_SPRITE_ORG")
+fi
 private=hearth
 public=hearth-pages
-remote=(--http-post --no-port-forward -o "$org")
+remote=(--http-post --no-port-forward "${org[@]}")
 
-if ! sprite info -o "$org" -s "$public" >/dev/null 2>&1; then
-  sprite -o "$org" create "$public" --skip-console
+if ! sprite info "${org[@]}" -s "$public" >/dev/null 2>&1; then
+  sprite "${org[@]}" create "$public" --skip-console
 fi
-origin=$(sprite info -o "$org" -s "$public" | awk '$1 == "URL:" {print $2}')
+origin=$(sprite info "${org[@]}" -s "$public" | awk '$1 == "URL:" {print $2}')
 if [[ ! "$origin" =~ ^https://hearth-pages-[a-z0-9]+\.sprites\.app/?$ ]]; then
   printf '%s\n' 'Could not discover the dedicated Pages Sprite URL.' >&2
   exit 1
@@ -81,5 +84,5 @@ EOF
 chmod +x "$stage/run"
 tar -C "$stage" -czf - hearth run secret |
   sprite exec "${remote[@]}" --stdin -s "$public" -- bash -c "$install"
-sprite config update -o "$org" -s "$public" --url-auth public
+sprite config update "${org[@]}" -s "$public" --url-auth public
 printf 'Share-only origin %s\n' "$origin"

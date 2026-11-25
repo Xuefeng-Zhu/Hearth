@@ -42,6 +42,7 @@ jobs:
     timeout-minutes: 10
     env:
       SPRITES_TOKEN: ${{ secrets.SPRITES_TOKEN }}
+      HEARTH_SPRITE_ORG: ${{ vars.HEARTH_SPRITE_ORG }}
     steps:
       - uses: actions/checkout@v4
       - name: Skip when no Sprites token is set
