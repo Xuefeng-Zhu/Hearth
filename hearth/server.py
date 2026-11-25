@@ -147,8 +147,11 @@ class Application:
                 return self.threads.rename(thread_id, title)
             if operation == "delete" and body.keys() == {"thread_id"}:
                 thread = self.threads.describe(thread_id)
-                checkpoint = self.checkpoints.create("Before deleting a Hearth side chat")
-                self.threads.delete(thread_id)
+                try:
+                    checkpoint = self.checkpoints.create("Before deleting a Hearth side chat")
+                    self.threads.delete(thread_id)
+                except OSError:
+                    raise HearthError("Hearth could not checkpoint and delete this chat.") from None
                 return self.agent.add_action("thread", "Side chat deleted", status="complete", checkpoint=checkpoint,
                                              thread_id=thread_id, thread_title=thread["title"])
             if operation == "share" and body.keys() == {"thread_id", "message_id"}:
@@ -290,7 +293,16 @@ class Handler(BaseHTTPRequestHandler):
         if self.path not in routes:
             self.json({"error": "Page not found."}, 404)
             return
-        if not self.app.operation.acquire(blocking=False):
+        try:
+            body = self.body()
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+            return
+        if self.app.restore and self.app.restore["status"] == "restoring":
+            self.json({"error": "A checkpoint is being restored."}, 409)
+            return
+        accepting_chat = self.path == "/api/chat" or self.path.startswith("/api/threads/")
+        if not self.app.operation.acquire(blocking=accepting_chat):
             self.json({"error": "Hearth is working on another action."}, 409)
             return
         status = 200
@@ -299,7 +311,6 @@ class Handler(BaseHTTPRequestHandler):
             if self.app.restore and self.app.restore["status"] == "restoring":
                 result, status = {"error": "A checkpoint is being restored."}, 409
             else:
-                body = self.body()
                 if self.path == "/api/chat":
                     stream = self.app.enqueue(body.get("thread_id", MAIN), require_text(body.get("message"), 4_000))
                 elif self.path.startswith("/api/threads/"):
