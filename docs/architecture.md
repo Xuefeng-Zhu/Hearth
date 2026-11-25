@@ -11,6 +11,16 @@ The browser loads HTML, CSS, and JavaScript from [the Python server](../hearth/s
 
 [Agent loop](../hearth/agent.py), [Routing](../hearth/router.py), [Gateway client](../hearth/connectors.py), [Approvals](approvals-and-tasks.md)
 
+## Parallel workers
+
+`spawn_workers` gives the current model one batch of up to six independent assignments per turn. A shared thread pool starts jobs from all chats and recurring tasks in queue order. **Settings → Brain → Parallel workers** controls how many can run at once, from one to six with a default of four. Each worker has a separate model conversation and tool state. Its tools come from the parent turn, including the active skill's allowlist, with an optional narrower list per assignment. The parent receives structured findings in assignment order and writes the final reply.
+
+A worker has 75 seconds from queuing, at most four tool calls and five model calls, and an output budget of 1,536 tokens per model call. Chat workers pause on the normal approval card, which names the worker. Recurring workers can hand the approval off to the task's Inbox notification. Stopping a worker withdraws its pending proposals and prevents subsequent steps. An in-flight connector call can take time to drain and retains its pool slot during cleanup. Connector actions already in execution can still finish.
+
+Chat streams worker snapshots as `worker` events. The saved snapshots restore the Workers card after reload, supply the active list on Home, and produce one Timeline entry per worker. A server restart marks interrupted workers as failed. Browserbase sessions share a separate two-session limit across chat, workers, and approvals in the web process. Hearth requests release in cleanup and retains the slot until the provider's session deadline if release is unconfirmed. Fetch and Search use no live session.
+
+[Worker pool](../hearth/workers.py), [Browserbase](../hearth/browserbase.py), [Chat and worker API](../hearth/server.py)
+
 ## Workspace and background work
 
 | State | Where it lives |

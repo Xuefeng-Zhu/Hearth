@@ -17,6 +17,7 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 ## What you can do
 
 - **Chat with Ember.** Stream replies in Main or in separate side chats. Attach images, audio, PDFs, spreadsheets, and other supported files. Use a connected model, Smart routing across a model pool, or the local Mock brain.
+- **Delegate independent work.** Ask a connected brain to use parallel workers for a comparison or several sources. Hearth shows progress, tool steps, and Stop controls in chat, shows active workers under **Running now** on Home, and combines their findings into one reply. Set the workspace limit from 1 to 6 in **Settings → Brain → Parallel workers**. The default is 4.
 - **Stay on top of work.** Home shows reminders, Inbox, recent files, memory, activity, connector health, and Open-Meteo weather. Add panels from chat and rearrange them on Home.
 - **Make files and pages.** Create and edit DOCX, PDF, XLSX, and PPTX from chat. Preview and download artifacts, keep versions locally, and sync to Box. Build single-file HTML pages with phone and desktop previews, version history, and optional approved snapshot sharing.
 - **Reuse skills in chat.** Start with four built-in Markdown playbooks or write your own. Use **Try it** to preload a skill in a side chat, see which skill Hearth loaded, and undo edits from Timeline. [Skills guide](docs/skills.md)
@@ -31,9 +32,11 @@ flowchart LR
     UI["Browser UI"] <-->|"HTTP + streamed events"| App
     subgraph Sprite["Fly.io Sprite"]
         App["Python server and agent"]
+        Workers["Parallel workers · shared queue"]
         Disk["Workspace disk · Markdown, skills, chats, jobs, files"]
         Checkpoints["Sprite filesystem checkpoints"]
         App <--> Disk
+        App <--> Workers
         App -->|Create or restore| Checkpoints
     end
     App --> Gateway["Sprites connector gateway"]
@@ -57,7 +60,7 @@ Connectors are enabled per Sprite. A fresh clone has empty connection settings a
 | Exa | Web search and source links in chat | Supported. Choose Exa under **Settings → Search**. |
 | AgentMail | Approved chat email, reminder and task delivery, and forwarded-mail imports | Supported. Select or provision an inbox in **Connections**. |
 | Vocal Bridge | Live calls and chat queries from the voice agent | Supported. Requires a deployed voice agent and its connector. |
-| Browserbase | Search, fetch, and approval-gated browser sessions | Connected. Live session verified Nov 25, 2026. |
+| Browserbase | Search, fetch, and approval-gated browser sessions | Connected. Hearth allows two live sessions at a time. |
 | Ollama Cloud | Alternative chat brain through the gateway | Optional. Select it in **Settings → Brain** after connecting. |
 
 [Set up connectors](docs/connectors.md)
@@ -85,7 +88,7 @@ The [GitHub Actions workflow](.github/workflows/deploy.yml) runs the tests first
 
 ## Configuration
 
-Use **Connections** to refresh discovery and **Settings** to configure the brain, recall, search, voice, reminders, approvals, and artifacts. [Connector defaults](config/connectors.json) ship with blank connection IDs. Local settings are saved under the workspace by default. The Sprite service saves connector settings under `~/hearth/config/`.
+Use **Connections** to refresh discovery and **Settings** to configure the brain, recall, search, voice, reminders, approvals, and artifacts. Recurring tasks can delegate through the same pool. A skill can delegate by including `spawn_workers` and the worker tools it allows. [Connector defaults](config/connectors.json) ship with blank connection IDs. Local settings are saved under the workspace by default. The Sprite service saves connector settings under `~/hearth/config/`.
 
 | Setting | Use |
 | --- | --- |
