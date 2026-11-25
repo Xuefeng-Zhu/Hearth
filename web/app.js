@@ -1,5 +1,6 @@
 import { avatarEvent, avatarPose, newAvatar } from "./avatar-state.js";
 import { announcePose, looks, mascot, poseLabel, setLook, setPose } from "./avatar.js";
+import { createVoiceInput } from "./voice.js";
 
 const byId = (id) => document.getElementById(id);
 const nav = [...document.querySelectorAll("[data-view]")];
@@ -76,6 +77,26 @@ const headerMascot = mascot(avatarLook, avatarColor);
 const portraitMascot = mascot(avatarLook, avatarColor);
 byId("avatar-header").append(headerMascot);
 byId("avatar-portrait").append(portraitMascot);
+const voiceLanguages = [...byId("voice-language").options].map((option) => option.value);
+let voicePreferences = { engine: "auto", language: "auto", autoSend: false, seconds: 60 };
+try {
+  const saved = JSON.parse(localStorage.getItem("hearth-voice"));
+  if (["auto", "browser", "whisper"].includes(saved?.engine)) voicePreferences.engine = saved.engine;
+  if (voiceLanguages.includes(saved?.language)) voicePreferences.language = saved.language;
+  if (Number.isInteger(saved?.seconds) && saved.seconds >= 5 && saved.seconds <= 120) voicePreferences.seconds = saved.seconds;
+  voicePreferences.autoSend = saved?.autoSend === true;
+} catch {
+  // Start from the default settings if the saved value is unreadable.
+}
+const voiceLevel = byId("voice-level");
+const mic = byId("mic");
+let voicePhase = "idle";
+let spaceHeld = false;
+const voice = createVoiceInput({
+  update: updateVoice,
+  meter: (level) => { voiceLevel.value = level; },
+  deliver: fillFromVoice,
+});
 
 function avatarState(threadId, now) {
   if (!avatarStates.has(threadId)) avatarStates.set(threadId, newAvatar(now));
@@ -121,6 +142,15 @@ function paintAvatars() {
 }
 
 function updateFaceCaption(text) {
+  text = text.replace(/[ \t]*\[\[memory:[^\]\n]*\]\]/g, "");
+  const tail = text.lastIndexOf("[[");
+  if (tail >= 0) {
+    const marker = text.slice(tail);
+    if ("[[memory:".startsWith(marker) || (marker.startsWith("[[memory:") && !marker.includes("]]"))) {
+      text = text.slice(0, tail);
+    }
+  }
+  text = text.trim();
   const captions = byId("face-captions");
   if (captions.textContent === text) return;
   captions.hidden = !text;
@@ -142,15 +172,6 @@ function renderFace(local, messages, actions) {
   if (details.hidden) details.open = false;
   details.querySelector(".cards").replaceChildren(...items.map((action) => actionCard(actions.get(action.id) || action)));
 }
-  text = text.replace(/[ \t]*\[\[memory:[^\]\n]*\]\]/g, "");
-  const tail = text.lastIndexOf("[[");
-  if (tail >= 0) {
-    const marker = text.slice(tail);
-    if ("[[memory:".startsWith(marker) || (marker.startsWith("[[memory:") && !marker.includes("]]"))) {
-      text = text.slice(0, tail);
-    }
-  }
-  text = text.trim();
 
 function applyAppearance() {
   const hidden = avatarMode === "off";
@@ -182,6 +203,83 @@ function chooseAvatarMode(mode) {
   avatarMode = mode;
   localStorage.setItem("hearth-avatar-view", mode);
   applyAppearance();
+}
+
+function whisperConnected() {
+  const connection = connectionState?.providers?.huggingface?.status;
+  return connection === "connected" || (connection == null && state?.whisper_available === true);
+}
+
+function syncVoiceSettings() {
+  byId("voice-engine").value = voicePreferences.engine;
+  byId("voice-language").value = voicePreferences.language;
+  byId("voice-length").value = voicePreferences.seconds;
+  byId("voice-auto-send").checked = voicePreferences.autoSend;
+  showVoiceEngine();
+}
+
+function showVoiceEngine() {
+  const engine = byId("voice-engine").value;
+  const connected = whisperConnected();
+  const browser = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const status = engine === "whisper"
+    ? (connected ? "Hugging Face is connected." : "Connect Hugging Face in Connections to use Whisper.")
+    : engine === "auto" && connected ? "Auto will use Hugging Face Whisper."
+      : browser ? "Browser uses its default speech language when Language is set to Auto."
+        : "This browser does not support speech recognition. Connect Hugging Face to use Whisper.";
+  updateText(byId("voice-engine-status"), status);
+}
+
+function updateVoice({ thread, phase, interim = "", engine, message }) {
+  const recording = phase === "recording";
+  const processing = phase === "processing";
+  const active = phase !== "idle";
+  const follow = voicePhase !== phase && nearBottom();
+  if (voicePhase !== phase) {
+    if (recording || voicePhase === "recording") avatarSignal(thread, { type: "recording", active: recording });
+    if (processing || voicePhase === "processing") avatarSignal(thread, { type: "voice_processing", active: processing });
+    voicePhase = phase;
+  }
+  const bar = byId("voice-bar");
+  bar.hidden = !active;
+  bar.dataset.phase = phase;
+  mic.setAttribute("aria-pressed", String(active));
+  mic.setAttribute("aria-label", recording ? "Stop voice recording" : active ? "Cancel voice input" : "Start voice input");
+  mic.title = active ? mic.getAttribute("aria-label") : "Start voice input. Hold Space in an empty composer to talk.";
+  voiceLevel.hidden = !recording;
+  if (!recording) voiceLevel.value = 0;
+  updateText(byId("voice-phase"), recording ? `Recording · ${engine === "whisper" ? "Whisper" : "Browser"}`
+    : processing ? "Transcribing…" : active ? "Waiting for microphone…" : "");
+  updateText(byId("voice-key"), recording && spaceHeld ? "Release Space to finish · Esc to cancel" : "Esc to cancel");
+  const preview = byId("voice-interim");
+  preview.hidden = !interim;
+  updateText(preview, interim);
+  if (follow) scrollDown();
+  if (message) showNotice(message);
+}
+
+function fillFromVoice({ thread, text, autoSend }) {
+  if (thread !== currentThread || view !== "chat") return;
+  if (autoSend && !busy) {
+    chat(text, { keepDraft: true });
+    return;
+  }
+  const draft = input.value;
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  const left = draft.slice(0, start);
+  const right = draft.slice(end);
+  const insertion = `${left && !/\s$/.test(left) ? " " : ""}${text}${right && !/^\s/.test(right) ? " " : ""}`;
+  input.setRangeText(insertion.slice(0, Math.max(0, input.maxLength - left.length - right.length)), start, end, "end");
+  resizeInput();
+  input.focus();
+  followComposer();
+}
+
+function startVoice() {
+  if (view !== "chat" || busy) return;
+  showNotice();
+  voice.start(currentThread, voicePreferences, whisperConnected());
 }
 
 function node(tag, className, text) {
@@ -441,6 +539,7 @@ async function refreshState() {
   for (const turn of turns) if (saved.has(turn.reply?.id)) turns.delete(turn);
   byId("environment-label").textContent = state.checkpoints === "sprite" ? "Private Sprite" : "Local workspace";
   renderBrain(state);
+  if (view === "settings" && settingsSection === "voice") showVoiceEngine();
   return true;
 }
 
@@ -850,6 +949,7 @@ function updateConnections(operation, body = {}) {
       if (operation === "settings") connectionDrafts.delete(body.provider);
       renderConnections();
       renderBrain(connectionState);
+      if (view === "settings" && settingsSection === "voice") showVoiceEngine();
       const entry = connectionState.providers[body.provider];
       feedback.textContent = {
         rescan: connectionState.scan_error || `Last checked ${date(connectionState.last_scan)}.`,
@@ -1335,6 +1435,7 @@ async function openSettings(section) {
   }
   if (section === "brain") return openBrainSettings();
   if (section === "appearance") return;
+  if (section === "voice") return syncVoiceSettings();
   if (preferences[section].pending) return;
   try {
     const info = await api(`/api/${section}/settings`);
@@ -1411,6 +1512,7 @@ async function refreshView() {
 }
 
 async function openView(nextView, updateHistory = true) {
+  if (nextView !== "chat") voice.cancel();
   if (updateHistory && nextView === "connections" && !isConnectionsRoute()) {
     history.replaceState({ ...history.state, hearthView: view }, "");
     history.pushState(null, "", connectionHash());
@@ -1447,6 +1549,7 @@ async function openView(nextView, updateHistory = true) {
 
 function activateThread(threadId) {
   if (currentThread === threadId) return;
+  voice.cancel();
   threadDrafts.set(currentThread, input.value);
   currentThread = threadId;
   selectionVersion++;
@@ -1500,6 +1603,10 @@ async function changeThread(operation, body = {}) {
   }
 }
 
+function turnProgress(turn) {
+  return turn.activity ? `${turn.activity}…` : "Thinking…";
+}
+
 function readChatEvent(turn, name, payload) {
   if (name === "queued") {
     turn.threadId = payload.thread.id;
@@ -1538,6 +1645,8 @@ function readChatEvent(turn, name, payload) {
   } else if (name === "error") {
     throw new Error(payload.message);
   } else if (name === "tool_started" || name === "tool_finished" || name === "demo_listening") {
+    turn.activity = payload.title;
+    if (turn.bubble && !turn.text) updateText(turn.bubble.text, turnProgress(turn));
     avatarSignal(turn.threadId, { type: name, title: payload.title });
     return;
   } else if (name === "tool_warning" || name === "demo_warning") {
@@ -1548,9 +1657,10 @@ function readChatEvent(turn, name, payload) {
   else renderThreads();
 }
 
-async function chat(prompt) {
+async function chat(prompt, { keepDraft = false } = {}) {
   prompt = prompt.trim();
   if (!prompt || busy) return;
+  voice.cancel();
   const source = currentThread;
   const command = source === mainThread.id && /^\/(side|btw)(?:\s|$)/i.test(prompt);
   const turn = { threadId: command ? undefined : source, selection: selectionVersion, command,
@@ -1558,7 +1668,7 @@ async function chat(prompt) {
   for (const previous of turns) if (previous.threadId === source && previous.error) turns.delete(previous);
   turns.add(turn);
   showNotice();
-  input.value = "";
+  if (!keepDraft) input.value = "";
   resizeInput();
   renderChat(true);
   scrollDown();
@@ -1603,10 +1713,6 @@ async function chat(prompt) {
     else renderThreads();
     await refreshView().catch(() => {});
   }
-function turnProgress(turn) {
-  return turn.activity ? `${turn.activity}…` : "Thinking…";
-}
-
 }
 
 async function approve(action) {
@@ -1645,8 +1751,6 @@ async function undo(action) {
       await api("/api/undo", { id: action.id }, AbortSignal.timeout(6000));
     } catch (error) {
       if (error.name === "Error") throw error;
-    turn.activity = payload.title;
-    if (turn.bubble && !turn.text) updateText(turn.bubble.text, turnProgress(turn));
     }
     const deadline = Date.now() + 115_000;
     while (Date.now() < deadline) {
@@ -1711,11 +1815,42 @@ byId("avatar-color-reset").addEventListener("click", () => {
   localStorage.removeItem("hearth-avatar-color");
   applyAppearance();
 });
+mic.addEventListener("click", () => voice.active ? voice.stop() : startVoice());
+byId("voice-engine").addEventListener("change", showVoiceEngine);
+byId("voice-settings-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  voicePreferences = {
+    engine: byId("voice-engine").value,
+    language: byId("voice-language").value,
+    seconds: byId("voice-length").valueAsNumber,
+    autoSend: byId("voice-auto-send").checked,
+  };
+  localStorage.setItem("hearth-voice", JSON.stringify(voicePreferences));
+  updateText(byId("voice-settings-status"), "Voice settings saved.");
+});
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && view === "chat" && avatarMode === "face") {
+  if (event.key === "Escape" && voice.active) {
+    event.preventDefault();
+    voice.cancel();
+  } else if (event.key === "Escape" && view === "chat" && avatarMode === "face") {
     chooseAvatarMode("beside");
     byId("avatar-view").focus();
+  } else if (event.code === "Space" && !event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    if (spaceHeld) {
+      event.preventDefault();
+    } else if (!event.repeat && !event.shiftKey && view === "chat" && !busy && !voice.active && !input.value.trim()
+        && (event.target === input || event.target === document.body)) {
+      event.preventDefault();
+      spaceHeld = true;
+      startVoice();
+    }
   }
+});
+document.addEventListener("keyup", (event) => {
+  if (event.code !== "Space" || !spaceHeld) return;
+  event.preventDefault();
+  spaceHeld = false;
+  if (voicePhase === "recording" || voicePhase === "requesting") voice.stop();
 });
 setInterval(() => {
   if (!document.hidden) paintAvatars();
@@ -1857,6 +1992,10 @@ for (const item of nav) {
   item.addEventListener("click", () => openView(item.dataset.view));
 }
 document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    spaceHeld = false;
+    voice.cancel();
+  }
   if ((view === "chat" || view === "timeline") && !document.hidden && !busy) {
     refreshView().catch((error) => showNotice(error.message));
   }

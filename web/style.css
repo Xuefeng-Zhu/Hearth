@@ -447,3 +447,31 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
   .avatar-view { padding-left: 5px; padding-right: 2px; min-height: 29px; font-size: 11px; }
   .settings-nav button { padding-inline: 9px; }
 }
+
+.composer { display: grid; grid-template-columns: minmax(0, 1fr) 38px 38px; }
+.composer textarea { grid-column: 1; }
+.composer #mic {
+  display: grid; place-items: center; background: #f3ebf2; color: var(--accent);
+}
+.composer #mic:hover { background: #e8d9eb; }
+.composer #mic[aria-pressed="true"] { color: #a13b57; background: #f8e3e7; }
+#mic .mic-stop, #mic[aria-pressed="true"] .mic-on { display: none; }
+#mic[aria-pressed="true"] .mic-stop { display: block; }
+.voice-bar {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  padding: 8px 9px 7px; gap: 6px 10px; border-bottom: 1px solid #efe3e9; color: #70465e; font-size: 12px;
+}
+.voice-reading { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.voice-dot { width: 7px; height: 7px; border-radius: 50%; background: #ac4663; flex: none; }
+.voice-bar[data-phase="recording"] .voice-dot { animation: voice-pulse 1.55s ease-in-out infinite; }
+.voice-bar[data-phase="processing"] .voice-dot { background: #99769e; }
+.voice-key { color: var(--muted); }
+#voice-level { width: clamp(58px, 12vw, 112px); height: 11px; }
+#voice-level::-webkit-meter-bar { border: 0; background: #f0e2eb; height: 8px; }
+#voice-level::-webkit-meter-optimum-value { background: linear-gradient(90deg, #ab73b4, #bf5775); border-radius: 99px; }
+#voice-level::-moz-meter-bar { background: #ae6597; border-radius: 99px; }
+#voice-interim { margin: 0; color: #654e63; width: 100%; overflow-wrap: anywhere; max-height: 4.5em; overflow: auto; }
+.voice-settings { max-width: 565px; }
+@keyframes voice-pulse { 50% { box-shadow: 0 0 0 4px #ac46632b; } }
+@media (prefers-reduced-motion: reduce) { .voice-bar[data-phase="recording"] .voice-dot { animation: none; } }
+@media (max-width: 420px) { .composer { column-gap: 5px; } }

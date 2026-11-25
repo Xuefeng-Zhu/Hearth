@@ -88,8 +88,23 @@
             <div class="transcript" id="transcript" aria-label="Conversation"></div>
           </div>
           <form class="composer" id="composer">
+            <div id="voice-bar" class="voice-bar" hidden>
+              <div class="voice-reading">
+                <span class="voice-dot" aria-hidden="true"></span>
+                <span id="voice-phase" role="status"></span>
+                <meter id="voice-level" aria-label="Microphone level" min="0" max="1" value="0" hidden></meter>
+              </div>
+              <span id="voice-key" class="voice-key" aria-hidden="true">Esc to cancel</span>
+              <p id="voice-interim" hidden></p>
+            </div>
             <label class="visually-hidden" for="message">Message Hearth</label>
             <textarea id="message" maxlength="4000" rows="1" placeholder="Message Hearth…" required></textarea>
+            <button type="button" id="mic" aria-label="Start voice input" aria-pressed="false" title="Start voice input. Hold Space in an empty composer to talk.">
+              <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+                <g class="mic-on"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11.5v.5a6.5 6.5 0 0 0 13 0v-.5M12 18.5V21m-3 0h6"/></g>
+                <rect class="mic-stop" x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>
+              </svg>
+            </button>
             <button type="submit" id="send" aria-label="Send message">↑</button>
           </form>
         </div>
@@ -157,6 +172,7 @@
           <button type="button" data-settings="memory">Memory</button>
           <button type="button" data-settings="search">Search</button>
           <button type="button" data-settings="appearance">Appearance</button>
+          <button type="button" data-settings="voice">Voice</button>
         </nav>
         <div id="settings-brain">
           <div class="section-intro">
@@ -355,6 +371,49 @@
               <button type="button" id="avatar-color-reset">Use preset color</button>
             </div>
           </div>
+        </div>
+        <div id="settings-voice" hidden>
+          <div class="section-intro"><h2>Voice</h2><p>Dictate in Main or a side chat with the mic button or hold Space in an empty composer.</p></div>
+          <form class="card brain-form voice-settings" id="voice-settings-form">
+            <fieldset class="preference-fields">
+              <div>
+                <label for="voice-engine">Transcription engine</label>
+                <select id="voice-engine">
+                  <option value="auto">Auto</option>
+                  <option value="browser">Browser</option>
+                  <option value="whisper">Hugging Face Whisper</option>
+                </select>
+                <p class="meta" id="voice-engine-status"></p>
+              </div>
+              <div class="field-pair">
+                <div>
+                  <label for="voice-language">Language</label>
+                  <select id="voice-language">
+                    <option value="auto">Auto</option>
+                    <option value="en-US">English</option>
+                    <option value="zh-CN">中文</option>
+                    <option value="es-ES">Español</option>
+                    <option value="fr-FR">Français</option>
+                    <option value="de-DE">Deutsch</option>
+                    <option value="pt-BR">Português</option>
+                    <option value="it-IT">Italiano</option>
+                    <option value="ja-JP">日本語</option>
+                    <option value="ko-KR">한국어</option>
+                    <option value="ar">العربية</option>
+                    <option value="hi-IN">हिन्दी</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="voice-length">Max recording (seconds)</label>
+                  <input type="number" id="voice-length" min="5" max="120" value="60" required>
+                </div>
+              </div>
+              <label class="check-label"><input type="checkbox" id="voice-auto-send"> Send automatically after transcription</label>
+              <p class="meta">Whisper uses Hugging Face through your Sprite. Browser uses your browser’s speech service.</p>
+              <div class="preference-actions"><button class="primary-setting" type="submit">Save</button></div>
+            </fieldset>
+            <p class="meta" id="voice-settings-status" role="status"></p>
+          </form>
         </div>
       </section>
     </main>
