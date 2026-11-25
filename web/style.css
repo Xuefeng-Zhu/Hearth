@@ -475,3 +475,72 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 @keyframes voice-pulse { 50% { box-shadow: 0 0 0 4px #ac46632b; } }
 @media (prefers-reduced-motion: reduce) { .voice-bar[data-phase="recording"] .voice-dot { animation: none; } }
 @media (max-width: 420px) { .composer { column-gap: 5px; } }
+
+.call-button, .call-quiet, .call-end {
+  min-height: 36px; padding: 7px 13px; border: 1px solid transparent; border-radius: 8px;
+  font-size: 13px; font-weight: 650; white-space: nowrap;
+}
+.call-button { flex: none; color: white; background: var(--accent); }
+.call-button:hover { background: #563061; }
+.call-button span { margin-right: 3px; }
+.call-quiet { color: var(--accent); background: var(--paper); border-color: #dfd2de; }
+.call-quiet:hover, .call-quiet[aria-pressed="true"] { background: var(--accent-light); }
+.call-end { background: #a13749; color: white; }
+.call-end:hover { background: #852839; }
+.call-sheet {
+  padding: 0; width: min(480px, calc(100% - 30px)); max-height: calc(100dvh - 30px); overflow: auto;
+  color: inherit; background: #fffbf7; border: 1px solid #e6d8df; border-radius: 20px;
+  box-shadow: 0 18px 65px #331e3d35;
+}
+.call-sheet::backdrop { background: #271a2f80; }
+.call-sheet-body { display: grid; gap: 14px; padding: 20px; }
+.call-sheet-header { display: flex; justify-content: space-between; align-items: start; gap: 10px; min-width: 0; }
+.call-sheet-header > div { min-width: 0; }
+.call-sheet h2 { margin: 0; font: 500 30px/1.1 Georgia, serif; letter-spacing: -.04em; }
+.call-sheet p { margin: 0; }
+#call-thread { margin-top: 4px; overflow-wrap: anywhere; }
+.call-stage {
+  min-height: 152px; display: grid; align-content: center; justify-items: center; gap: 6px;
+  padding: 12px; text-align: center; background: #f6ebe6; border-radius: 12px;
+}
+#call-avatar { display: grid; place-items: center; width: 130px; margin-top: -8px; }
+#call-phase { color: #503447; font-size: 15px; font-weight: 700; }
+#call-demo-label { color: #715568; font-size: 12px; }
+#call-clock, .call-card-duration { color: var(--accent); font-variant-numeric: tabular-nums; font-weight: 650; }
+#call-clock { font-size: 23px; }
+#call-thinking { padding: 4px 9px; border-radius: 999px; color: #563061; background: var(--accent-light); font-size: 12px; font-weight: 650; }
+.call-caption-panel { min-width: 0; padding: 10px 12px 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--paper); }
+.call-caption-panel h3 { margin: 0 0 5px; color: var(--muted); font-size: 12px; }
+#call-caption-empty { margin-bottom: 9px; }
+.call-captions {
+  list-style: none; padding: 0; margin: 0; max-height: min(26dvh, 165px); overflow: auto;
+  color: #47394c; font-size: 13px; line-height: 1.46;
+}
+.call-captions li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; padding: 6px 0; overflow-wrap: anywhere; }
+.call-captions li + li { border-top: 1px solid var(--border); }
+.call-captions strong { color: var(--accent); }
+.call-feedback { color: #583761; font-size: 13px; }
+.call-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.call-card { border-left: 3px solid #a37aa9; }
+.call-card details { margin-top: 8px; }
+.call-card summary { color: var(--accent); cursor: pointer; font-size: 13px; font-weight: 650; }
+.call-card .call-captions { margin-top: 4px; }
+.call-card-duration { font-size: 13px; }
+#call-settings-form { margin-bottom: 14px; }
+.call-settings-card legend { padding: 0; margin-bottom: 12px; font-size: 16px; font-weight: 650; }
+.call-engine { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.call-engine strong, .call-engine .meta { display: block; }
+.call-engine .meta, .call-settings-card #call-engine-check { margin: 0; }
+#call-engine-check:empty, #call-settings-status:empty { display: none; }
+.call-setup { border-radius: 8px; background: #f6eff6; padding: 10px 12px; }
+.call-setup p { margin: 0; color: #514257; font-size: 13px; line-height: 1.5; }
+.call-setup button { margin-top: 7px; }
+#timeline .card:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 680px) {
+  .thread-header .call-button { min-height: 31px; padding: 5px 7px; font-size: 12px; }
+  .thread-header .call-button span { margin-right: 1px; }
+}
+@media (max-width: 520px) {
+  .call-sheet { width: 100%; max-width: 100%; max-height: calc(100dvh - 16px); margin: auto 0 0; border-radius: 18px 18px 0 0; }
+  .call-sheet-body { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+}

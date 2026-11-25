@@ -1,6 +1,7 @@
 import { avatarEvent, avatarPose, newAvatar } from "./avatar-state.js";
 import { announcePose, looks, mascot, poseLabel, setLook, setPose } from "./avatar.js";
 import { createVoiceInput } from "./voice.js";
+import { callDuration, captionLine, createVoiceCall } from "./voice-call.js";
 
 const byId = (id) => document.getElementById(id);
 const nav = [...document.querySelectorAll("[data-view]")];
@@ -97,6 +98,26 @@ const voice = createVoiceInput({
   meter: (level) => { voiceLevel.value = level; },
   deliver: fillFromVoice,
 });
+const voiceCall = createVoiceCall({
+  api,
+  getThread: () => ({ id: currentThread, title: threadSource({ thread_id: currentThread }) }),
+  isConfigured: () => state?.voice_call_available,
+  prepare: () => {
+    if (busy) return false;
+    voice.cancel();
+    spaceHeld = false;
+    return true;
+  },
+  makeMascot: () => avatarMode === "off" ? null : mascot(avatarLook, avatarColor),
+  update: (_, refresh) => {
+    mic.disabled = voiceCall.inProgress;
+    paintAvatars();
+    if (refresh) refreshView().catch((error) => showNotice(error.message));
+    if (view === "settings" && settingsSection === "voice" && !voiceCall.inProgress) voiceCall.refreshSettings();
+  },
+  onAction: openVoiceAction,
+  date,
+});
 
 function avatarState(threadId, now) {
   if (!avatarStates.has(threadId)) avatarStates.set(threadId, newAvatar(now));
@@ -111,6 +132,8 @@ function avatarSignal(threadId, event) {
 }
 
 function threadPose(thread, now) {
+  const callPose = voiceCall.poseFor(thread.id);
+  if (callPose) return callPose;
   const pose = avatarPose(avatarState(thread.id, now), now, isWorking(thread));
   const local = [...turns].some((turn) => turn.threadId === thread.id && turn.user && !turn.finished);
   if (pose.pose === "thinking" && !local && thread.activity) return thread.activity;
@@ -277,7 +300,7 @@ function fillFromVoice({ thread, text, autoSend }) {
 }
 
 function startVoice() {
-  if (view !== "chat" || busy) return;
+  if (view !== "chat" || busy || voiceCall.inProgress) return;
   showNotice();
   voice.start(currentThread, voicePreferences, whisperConnected());
 }
@@ -356,6 +379,7 @@ function messageBubble(role, content, { message, status } = {}) {
     chip.title = route.label;
     body.append(chip);
   }
+  if (message?.source === "voice-call" && role === "assistant") body.append(node("p", "meta", "Voice call"));
   if (message?.remembered?.length) {
     const sources = node("details", "remembered");
     const summary = node("summary", "", `Remembered · ${message.remembered.length}`);
@@ -380,6 +404,11 @@ function threadSource(item, fallback = "Main") {
   return threadList.find((thread) => thread.id === item.thread_id)?.title || item.thread_title || fallback;
 }
 
+function timelineSource(item) {
+  const name = threadSource(item);
+  return item.source === "voice-call" ? `${name} · Voice call` : name;
+}
+
 function actionCard(action) {
   const card = node("article", "card");
   const header = node("div", "card-header");
@@ -389,7 +418,7 @@ function actionCard(action) {
     sent: "Sent", complete: action.kind === "gateway" ? "Completed" : "", request_unknown: "Request unconfirmed",
   };
   header.append(node("h4", "", action.title), node("span", "meta", statuses[action.status] || ""));
-  card.append(header, node("p", "thread-source", `From ${threadSource(action)}`));
+  card.append(header, node("p", "thread-source", `From ${timelineSource(action)}`));
   if (action.kind === "email") {
     card.append(node("p", "", `To: ${action.email.to.join(", ")}`));
     card.append(node("p", "", `Subject: ${action.email.subject}`), node("pre", "", action.email.text));
@@ -485,6 +514,23 @@ function rememberThread(thread) {
   else threadList[index] = { ...threadList[index], ...thread };
 }
 
+function callCard(message) {
+  const card = node("article", "card call-card");
+  const header = node("div", "card-header");
+  header.append(node("h4", "", message.content), node("time", "call-card-duration", callDuration(message.duration)));
+  card.append(header);
+  if (message.lines.length) {
+    const details = node("details");
+    const list = node("ol", "call-captions");
+    list.append(...message.lines.map(captionLine));
+    details.append(node("summary", "", "Call transcript"), list);
+    card.append(details);
+  } else {
+    card.append(node("p", "meta", "No transcript saved."));
+  }
+  return card;
+}
+
 function renderChat(force = false) {
   renderThreads();
   const actions = new Map((state?.actions || []).map((action) => [action.id, action]));
@@ -500,6 +546,10 @@ function renderChat(force = false) {
   byId("welcome").hidden = currentThread !== mainThread.id || !!(messages.length || local.length);
   byId("side-welcome").hidden = currentThread === mainThread.id || !!(messages.length || local.length);
   for (const message of messages) {
+    if (message.role === "call") {
+      transcript.append(callCard(message));
+      continue;
+    }
     const bubble = messageBubble(message.role, message.content, { message });
     for (const notice of message.notices || []) bubble.notices.append(node("p", "model-warning", notice));
     for (const id of new Set(message.action_ids || [])) {
@@ -530,6 +580,7 @@ async function refreshState() {
   const next = await api(`/api/state?thread=${encodeURIComponent(thread)}`, undefined, AbortSignal.timeout(6000));
   if (request !== stateRequest || thread !== currentThread) return false;
   state = next;
+  byId("start-call").disabled = typeof state.voice_call_available !== "boolean";
   threadList = state.threads;
   if (state.thread_id !== currentThread) {
     threadDrafts.delete(currentThread);
@@ -694,12 +745,17 @@ async function renderTimeline() {
     checkpointStatus = error.message;
   }
   if (view !== "timeline") return;
-  const reminders = state.reminders.slice().reverse().map((item) => timelineItem(item.message,
-    `Due ${date(item.scheduled_at)}`, threadSource(item)));
+  const reminderCard = (item, detail) => {
+    const card = timelineItem(item.message, detail, timelineSource(item));
+    card.dataset.reminderId = item.id;
+    card.dataset.reminderMessage = item.message;
+    return card;
+  };
+  const reminders = state.reminders.slice().reverse().map((item) => reminderCard(item, `Due ${date(item.scheduled_at)}`));
   const scheduled = state.jobs.filter((job) => job.status === "scheduled")
     .sort((a, b) => a.next_at.localeCompare(b.next_at));
-  reminders.push(...scheduled.map((job) => timelineItem(job.message,
-    `Scheduled for ${date(job.next_at)}${job.cron ? ` · ${job.cron} UTC` : ""}`, threadSource(job))));
+  reminders.push(...scheduled.map((job) => reminderCard(job,
+    `Scheduled for ${date(job.next_at)}${job.cron ? ` · ${job.cron} UTC` : ""}`)));
   timeline.replaceChildren(
     timelineSection("Reminders", reminders, "No reminders scheduled."),
     timelineSection("Checkpoints", checkpoints.map((item) => timelineItem(
@@ -708,7 +764,7 @@ async function renderTimeline() {
     timelineSection("Actions", state.actions.slice().reverse().map(actionCard), "No actions yet."),
     timelineSection("Routing", (state.routing || []).slice().reverse().map((route) => timelineItem(
       route.label, `${route.order.map(routedModel).join(" → ")} — ${route.reason} · ${date(route.at)}`,
-      threadSource(route))), "No turns routed yet."),
+      timelineSource(route))), "No turns routed yet."),
   );
   if (scheduled.length && !document.hidden) {
     const untilDue = new Date(scheduled[0].next_at).getTime() - Date.now();
@@ -717,6 +773,20 @@ async function renderTimeline() {
         refreshState().then(renderTimeline).catch((error) => showNotice(error.message));
       }
     }, Math.max(3_000, Math.min(2_147_480_000, untilDue + 2_500)));
+  }
+}
+
+async function openVoiceAction(action, payload) {
+  await openView("timeline");
+  if (view !== "timeline") return;
+  const cards = [...byId("timeline").querySelectorAll("[data-reminder-id]")];
+  const target = action === "show_reminder"
+    ? cards.find((card) => card.dataset.reminderId === payload?.id || card.dataset.reminderMessage === payload?.message)
+      || cards[0] : null;
+  const focus = target || byId("timeline-view").querySelector("h2");
+  if (focus) {
+    focus.tabIndex = -1;
+    focus.focus();
   }
 }
 
@@ -949,7 +1019,10 @@ function updateConnections(operation, body = {}) {
       if (operation === "settings") connectionDrafts.delete(body.provider);
       renderConnections();
       renderBrain(connectionState);
-      if (view === "settings" && settingsSection === "voice") showVoiceEngine();
+      if (view === "settings" && settingsSection === "voice") {
+        showVoiceEngine();
+        voiceCall.refreshSettings();
+      }
       const entry = connectionState.providers[body.provider];
       feedback.textContent = {
         rescan: connectionState.scan_error || `Last checked ${date(connectionState.last_scan)}.`,
@@ -1435,7 +1508,10 @@ async function openSettings(section) {
   }
   if (section === "brain") return openBrainSettings();
   if (section === "appearance") return;
-  if (section === "voice") return syncVoiceSettings();
+  if (section === "voice") {
+    syncVoiceSettings();
+    return voiceCall.syncSettings();
+  }
   if (preferences[section].pending) return;
   try {
     const info = await api(`/api/${section}/settings`);
@@ -1816,6 +1892,7 @@ byId("avatar-color-reset").addEventListener("click", () => {
   applyAppearance();
 });
 mic.addEventListener("click", () => voice.active ? voice.stop() : startVoice());
+byId("call-connections").addEventListener("click", () => openView("connections"));
 byId("voice-engine").addEventListener("change", showVoiceEngine);
 byId("voice-settings-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -1829,6 +1906,7 @@ byId("voice-settings-form").addEventListener("submit", (event) => {
   updateText(byId("voice-settings-status"), "Voice settings saved.");
 });
 document.addEventListener("keydown", (event) => {
+  if (voiceCall.open) return;
   if (event.key === "Escape" && voice.active) {
     event.preventDefault();
     voice.cancel();
@@ -1838,7 +1916,7 @@ document.addEventListener("keydown", (event) => {
   } else if (event.code === "Space" && !event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey) {
     if (spaceHeld) {
       event.preventDefault();
-    } else if (!event.repeat && !event.shiftKey && view === "chat" && !busy && !voice.active && !input.value.trim()
+    } else if (!event.repeat && !event.shiftKey && view === "chat" && !busy && !voice.active && !voiceCall.inProgress && !input.value.trim()
         && (event.target === input || event.target === document.body)) {
       event.preventDefault();
       spaceHeld = true;

@@ -24,6 +24,7 @@
       <header class="header">
         <h1 id="view-title">Chat</h1>
         <div class="header-status">
+          <button type="button" class="call-button" id="return-to-call" aria-haspopup="dialog" hidden>Return to call</button>
           <span class="environment" id="model-status">Brain · Checking…</span>
           <span class="environment" id="environment"><span class="dot"></span><span id="environment-label">Connecting</span></span>
         </div>
@@ -58,6 +59,7 @@
               <option value="beside">Beside chat</option>
               <option value="face">Full screen</option>
             </select>
+            <button type="button" class="call-button" id="start-call" aria-haspopup="dialog" disabled><span aria-hidden="true">☎</span> Call</button>
           </header>
           <section class="face-stage" id="face-stage" aria-label="Face to face" hidden>
             <div class="face-portrait" id="avatar-portrait"></div>
@@ -373,7 +375,35 @@
           </div>
         </div>
         <div id="settings-voice" hidden>
-          <div class="section-intro"><h2>Voice</h2><p>Dictate in Main or a side chat with the mic button or hold Space in an empty composer.</p></div>
+          <div class="section-intro"><h2>Voice</h2><p>Call Hearth or dictate into the composer in any chat.</p></div>
+          <form class="card brain-form voice-settings" id="call-settings-form">
+            <fieldset class="preference-fields call-settings-card">
+              <legend>Voice calls</legend>
+              <div class="call-engine">
+                <div><span class="meta">Call engine</span><strong>Vocal Bridge</strong></div>
+                <span class="connection-status unknown" id="call-engine-status" role="status">Checking…</span>
+              </div>
+              <p class="meta" id="call-engine-check"></p>
+              <div id="call-setup" class="call-setup" hidden>
+                <p>Create and deploy a Vocal Bridge agent with AI Agent Integration set to the client data channel. Add its agent-scoped key in Fly with Name Prefix <code>hearth</code>.</p>
+                <button type="button" id="call-connections">Open Connections</button>
+              </div>
+              <div class="field-pair">
+                <div>
+                  <label for="call-language">Call language</label>
+                  <select id="call-language"><option value="auto">Auto</option><option value="en">English</option><option value="zh">中文</option></select>
+                </div>
+                <div>
+                  <label for="call-limit">Max call minutes</label>
+                  <input type="number" id="call-limit" min="1" max="60" value="10" required>
+                </div>
+              </div>
+              <label class="check-label"><input type="checkbox" id="call-save-transcript" checked> Auto-save call transcript</label>
+              <p class="meta">Hearth replies and actions stay in the thread even when the call transcript is off.</p>
+              <div class="preference-actions"><button class="primary-setting" type="submit">Save call settings</button></div>
+            </fieldset>
+            <p class="meta" id="call-settings-status" role="status"></p>
+          </form>
           <form class="card brain-form voice-settings" id="voice-settings-form">
             <fieldset class="preference-fields">
               <div>
@@ -418,5 +448,36 @@
       </section>
     </main>
   </div>
+  <dialog id="call-sheet" class="call-sheet" aria-labelledby="call-title">
+    <div class="call-sheet-body">
+      <header class="call-sheet-header">
+        <div>
+          <h2 id="call-title">Call Hearth</h2>
+          <p id="call-thread" class="meta"></p>
+        </div>
+        <button class="call-quiet" id="minimize-call" type="button" hidden>Minimize</button>
+      </header>
+      <div class="call-stage">
+        <div id="call-avatar" aria-hidden="true"></div>
+        <p id="call-phase" role="status">Connecting…</p>
+        <p id="call-demo-label" hidden>Demo call — Vocal Bridge not connected</p>
+        <p id="call-clock" aria-label="Call duration" hidden></p>
+        <p id="call-thinking" role="status" hidden>Asked Hearth…</p>
+      </div>
+      <div class="call-caption-panel" id="call-caption-panel" hidden>
+        <h3 id="call-caption-title">Captions</h3>
+        <p class="meta" id="call-caption-empty">Captions will appear here as you speak.</p>
+        <ol id="call-captions" class="call-captions" role="log" aria-labelledby="call-caption-title" tabindex="0"></ol>
+      </div>
+      <p class="call-feedback" id="call-feedback" role="status" hidden></p>
+      <div class="call-controls">
+        <button class="call-quiet" id="call-enable-audio" type="button" hidden>Enable audio</button>
+        <button class="call-quiet" id="call-mute" type="button" aria-pressed="false" hidden>Mute</button>
+        <button class="call-end" id="call-end" type="button" autofocus>Cancel</button>
+        <button class="call-quiet" id="call-retry-save" type="button" hidden>Retry save</button>
+        <button class="call-button" id="call-done" type="button" hidden>Done</button>
+      </div>
+    </div>
+  </dialog>
 </body>
 </html>
