@@ -95,6 +95,10 @@ def entries(storage, threads, can_undo):
     with storage.lock():
         state = storage.load()
         activity = state.get("activity", [])
+        artifacts = state.get("artifacts", {})
+        undo_artifacts = state.get("artifact_undo", {})
+        activity = [{**event, "undoable": artifacts.get(undo["id"], {}).get("revision") == undo["revision"]}
+                    if (undo := undo_artifacts.get(event["id"])) else event for event in activity]
         recall_messages = {event.get("message_id") for event in activity if event["kind"] == "recall"}
         thread_list = threads.list()
         titles = {thread["id"]: thread["title"] for thread in thread_list}

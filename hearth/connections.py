@@ -6,7 +6,7 @@ from urllib.parse import quote
 from .connectors import CORE_PROVIDERS, GATEWAY_SEGMENT, MODELS_PATHS, MODEL_PATHS, ConnectorError, valid_provider
 from .gateway_tools import redact_text
 from .storage import HearthError, ROOT, atomic_write, iso
-from . import recall, router, search
+from . import box, recall, router, search
 
 CATALOG = {entry["slug"]: entry for entry in json.loads((ROOT / "config/catalog.json").read_text(encoding="utf-8"))}
 DASHBOARD = "https://fly.io/dashboard/xuefeng-zhu/sprites/connectors"
@@ -98,6 +98,8 @@ def catalog_entry(provider):
 
 
 def connector_uses(provider):
+    if provider == "box":
+        return ["Artifacts", "Tools"]
     if provider == "vocalbridge":
         return ["Voice call"]
     uses = []
@@ -172,6 +174,8 @@ class Connections:
         config.setdefault("brain_pool", [])
         config["memory"] = recall.settings(config.get("memory", {}))
         config["search"] = search.settings(config.get("search", {}))
+        config["artifacts"] = box.settings(config.get("artifacts", {}))
+        config["box_folders"] = {}
         if not self.path.is_file():
             return config
         try:
@@ -210,12 +214,18 @@ class Connections:
                 config["brain_pool"] = validate_pool(data["brain_pool"])
             except HearthError:
                 pass
-        for key, validate in (("memory", recall.settings), ("search", search.settings)):
+        for key, validate in (("memory", recall.settings), ("search", search.settings), ("artifacts", box.settings)):
             if key in data:
                 try:
                     config[key] = validate(data[key])
                 except HearthError:
                     pass
+        folders = data.get("box_folders")
+        if (isinstance(folders, dict) and folders.get("name") == config["artifacts"]["folder_name"]
+                and folders.get("connection") == config["gateway"].get("box")
+                and box.box_id(folders.get("root")) and isinstance(folders.get("kinds"), dict)
+                and set(folders["kinds"]) == box.FOLDERS.keys() and all(map(box.box_id, folders["kinds"].values()))):
+            config["box_folders"] = folders
         return config
 
     def save_preferences(self, key, selection):
@@ -223,8 +233,17 @@ class Connections:
         if config != self.config:
             raise HearthError("Saved connection settings changed. Re-scan and try again.")
         if selection != config[key]:
+            if key == "artifacts" and selection["folder_name"] != config[key]["folder_name"]:
+                config["box_folders"] = {}
             config[key] = selection
             self.persist(config, f"Before saving Hearth {key} settings")
+            self.config = config
+
+    def save_box_folders(self, folders):
+        with self.storage.lock():
+            config = self.load()
+            config["box_folders"] = folders
+            atomic_write(self.path, json.dumps(config, indent=2) + "\n")
             self.config = config
 
     @staticmethod
@@ -387,6 +406,8 @@ class Connections:
                 entries[provider]["connection_id"] = connection_id
             else:
                 config["gateway"][provider] = connection_id
+                if provider == "box" and old != connection_id:
+                    config["box_folders"] = {}
         try:
             if config != previous:
                 self.persist(config, "Before updating discovered Hearth connections")

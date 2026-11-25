@@ -10,7 +10,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, urlsplit
 
-from . import recall, router, search, timeline, voice, voice_call
+from . import artifacts, box, recall, router, search, timeline, voice, voice_call
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -29,6 +29,7 @@ STATIC = {
     "/vendor/vocalbridge.mjs": ("vendor/vocalbridge.mjs", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
     "/timeline.js": ("timeline.js", "text/javascript; charset=utf-8"),
+    "/artifacts.js": ("artifacts.js", "text/javascript; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
     "/icons/icon.svg": ("icons/icon.svg", "image/svg+xml"),
     "/icons/favicon.svg": ("icons/favicon.svg", "image/svg+xml"),
@@ -51,7 +52,8 @@ class Application:
             storage.live, storage.state, self.threads.root, self.connections.path,
             *((checkpoints.root,) if checkpoints.mode == "local" else ()),
         )
-        self.operation = threading.Lock()
+        self.operation = threading.RLock()
+        self.artifacts = artifacts.Artifacts(storage, self.threads, self.connections, self.operation)
         self.turn_lock = threading.Lock()
         self.turns = {}
         self.turn_activity = {}
@@ -62,7 +64,8 @@ class Application:
         self.reload_agent()
 
     def reload_agent(self, *, reset_brain=True):
-        self.agent = Agent(self.storage, self.checkpoints, self.connections.active_config(), self.gateway, self.memory_index)
+        self.agent = Agent(self.storage, self.checkpoints, self.connections.active_config(), self.gateway,
+                           self.memory_index, self.artifacts)
         if reset_brain:
             self.reset_brain_status()
         self.connection_state = self.connections.report()
@@ -209,6 +212,7 @@ class Application:
                      **({"activity": active[thread["id"]]} if active.get(thread["id"]) else {})}
                     for thread in threads],
                 "messages": messages, "actions": list(state["actions"].values()),
+                "message_artifacts": artifacts.message_artifacts(state, thread_id),
                 "jobs": state["jobs"], "reminders": state["reminders"], "routing": state.get("routing", [])[-50:],
                 "whisper_available": bool(self.memory_index.hf_entry(self.agent.config)),
                 "voice_call_available": voice_call.PROVIDER in self.connections.selected,
@@ -474,6 +478,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.json(self.app.memory_info())
             elif url.path == "/api/search/settings":
                 self.json(self.app.search_info())
+            elif url.path == "/api/artifacts":
+                self.json(self.app.artifacts.list())
+            elif url.path == "/api/artifacts/settings":
+                self.json(self.app.artifacts.info())
+            elif url.path == "/api/artifacts/detail":
+                identity = parse_qs(url.query).get("id", [None])[0]
+                self.json(self.app.artifacts.detail(identity))
             elif url.path == "/api/memory/reindex":
                 self.json({"reindex": self.app.reindex})
             elif url.path == "/api/memory/chat":
@@ -493,6 +504,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"error": "Page not found."}, 404)
         except HearthError as error:
             self.json({"error": str(error)}, 400)
+        except OSError:
+            self.json({"error": "Hearth could not read workspace data."}, 500)
 
     def body(self, limit=24_000):
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
@@ -511,6 +524,9 @@ class Handler(BaseHTTPRequestHandler):
         return body
 
     def do_POST(self):
+        if self.path.startswith("/api/artifacts/"):
+            self.post_artifact()
+            return
         if self.path.startswith("/api/voice/call/"):
             self.post_call()
             return
@@ -577,6 +593,53 @@ class Handler(BaseHTTPRequestHandler):
             self.stream_chat(stream)
         else:
             self.json(result, status)
+
+    def post_artifact(self):
+        operation = self.path.removeprefix("/api/artifacts/")
+        if operation not in {"settings", "create", "save-message", "update", "retry", "delete", "undo"}:
+            self.json({"error": "Page not found."}, 404)
+            return
+        origin = self.headers.get("Origin")
+        if self.headers.get("Sec-Fetch-Site") not in (None, "none", "same-origin") or (
+            origin and not self.same_origin(origin)
+        ):
+            self.json({"error": "Send this request from Hearth."}, 403)
+            return
+        try:
+            self.connection.settimeout(15)
+            body = self.body(8 * box.MAX_BYTES)
+            with self.app.operation:
+                if self.app.restore and self.app.restore["status"] == "restoring":
+                    self.json({"error": "A checkpoint is being restored."}, 409)
+                    return
+                result = self.update_artifacts(operation, body)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+        except TimeoutError:
+            self.json({"error": "The request timed out."}, 408)
+        except OSError:
+            self.json({"error": "Hearth could not update workspace data."}, 500)
+        else:
+            self.json(result, 201 if operation in {"create", "save-message"} else 200)
+
+    def update_artifacts(self, operation, body):
+        service = self.app.artifacts
+        if operation == "settings":
+            self.app.connections.save_preferences("artifacts", box.settings(body))
+            return service.info()
+        if operation == "save-message" and body.keys() == {"thread_id", "message_id"}:
+            return service.save_message(body["thread_id"], require_text(body["message_id"], 90))
+        if operation == "undo" and body.keys() == {"id"}:
+            return service.undo(require_text(body["id"], 40))
+        if operation == "create" and {"title", "content"} <= body.keys() <= {"title", "content", "kind", "format", "thread_id"}:
+            thread_id = body.pop("thread_id", None)
+            origin = None
+            if thread_id is not None:
+                with self.app.storage.lock():
+                    thread = self.app.threads.describe(thread_id)
+                origin = {"thread_id": thread["id"], "thread_title": thread["title"]}
+            return service.create(**body, origin=origin)
+        return service.mutate(operation, body)
 
     def post_call(self):
         operation = self.path.removeprefix("/api/voice/call/")

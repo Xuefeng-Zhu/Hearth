@@ -39,9 +39,11 @@ CUSTOM_PROVIDER = "custom_api"
 
 
 class ConnectorError(HearthError):
-    def __init__(self, message, status=None):
+    def __init__(self, message, status=None, *, unsupported=False, location=None):
         super().__init__(message)
         self.status = status
+        self.unsupported = unsupported
+        self.location = location
 
 
 def model_error(error):
@@ -75,7 +77,7 @@ class Gateway:
             method=method,
             headers={key: value for key, value in (headers or {}).items()
                      if key.lower() in {"accept", "idempotency-key", "x-pinecone-api-version",
-                                        "anthropic-version", "notion-version"}},
+                                        "anthropic-version", "notion-version", "if-match"}},
         )
         if body is not None:
             mime = (headers or {}).get("Content-Type", "application/octet-stream") if binary else "application/json"
@@ -83,8 +85,22 @@ class Gateway:
         try:
             return self.opener.open(request, timeout=timeout)
         except HTTPError as error:
-            error.close()
-            raise ConnectorError("The gateway rejected the request.", error.code) from None
+            unsupported, location = False, None
+            with error:
+                if path.startswith("box/"):
+                    if error.code == 403:
+                        try:
+                            detail = json.loads(error.read(4096))
+                            unsupported = isinstance(detail, dict) and detail.get("error") in (
+                                "endpoint is not supported by the Box connector",
+                                "request is not supported by this connector",
+                            )
+                        except (OSError, HTTPException, ValueError):
+                            pass
+                    if error.code in (301, 302, 303, 307, 308):
+                        location = error.headers.get("Location")
+            raise ConnectorError("The gateway rejected the request.", error.code,
+                                 unsupported=unsupported, location=location) from None
         except (TimeoutError, URLError) as error:
             if isinstance(getattr(error, "reason", error), TimeoutError):
                 raise ConnectorError("The gateway request timed out.", 504) from None
@@ -92,8 +108,10 @@ class Gateway:
         except (HTTPException, OSError):
             raise ConnectorError("The gateway is unavailable.") from None
 
-    def json(self, config, path, body=None, headers=None, *, timeout=25, allow_array=False):
-        return self.read_json(self.open(config, path, body, headers, timeout=timeout), allow_array=allow_array)
+    def json(self, config, path, body=None, headers=None, *, timeout=25, allow_array=False, method=None):
+        options = {"method": method} if method else {}
+        return self.read_json(self.open(config, path, body, headers, timeout=timeout, **options),
+                              allow_array=allow_array)
 
     @staticmethod
     def read_json(response, *, allow_array=False):
