@@ -68,12 +68,25 @@ def metadata(item):
             "box_updated_at": when(item.get("modified_at"))}
 
 
+def box_versions(*rows):
+    history = {}
+    for row in rows:
+        for entry in row.get("box_history", []):
+            history[entry["id"]] = entry
+        if box.box_id(identity := row.get("version_id")):
+            previous = history.get(identity, {})
+            history[identity] = {"id": identity, "number": row.get("version_number") or previous.get("number"),
+                                 "at": row.get("box_updated_at") or previous.get("at")}
+    return list(history.values())
+
+
 def digest(content):
     return hashlib.sha1(content.encode("utf-8")).hexdigest()
 
 
 def public(row, *, content=False):
-    hidden = {"content", "box_connection", "etag", "deleted", "folder_id", "folder_connection", "source_tag"}
+    hidden = {"content", "box_connection", "box_history", "etag", "deleted", "folder_id", "folder_connection",
+              "source_tag"}
     result = {key: value for key, value in row.items() if key not in hidden}
     if row.get("box_id"):
         result["box_url"] = f"https://app.box.com/file/{row['box_id']}"
@@ -251,7 +264,12 @@ class Artifacts:
         if not isinstance(identity, str) or not re.fullmatch(r"(?:[a-f0-9]{32}|box-[0-9]{1,30})", identity):
             raise HearthError("Invalid artifact.")
         with self.storage.lock():
-            row = self.storage.load().get("artifacts", {}).get(identity)
+            local = self.storage.load().get("artifacts", {})
+            row = local.get(identity)
+            if row is None and identity.startswith("box-") and any(
+                    item.get("box_id") == identity[4:] and item.get("box_connection") == self.connection()
+                    for item in local.values()):
+                raise HearthError("This artifact is no longer available.")
         if row is None and identity.startswith("box-"):
             if identity not in self.remote or self.scope != (self.connection(), self.config()["folder_name"]):
                 self.list()
@@ -265,8 +283,10 @@ class Artifacts:
 
     def detail(self, identity, *, versions=True):
         with self.lock:
-            row = self.find(identity)
+            saved = row = self.find(identity)
             history, warnings = [], []
+            history_source = None
+            remote = {}
             client = self.for_row(row)
             if row.get("box_id") and client:
                 try:
@@ -282,27 +302,43 @@ class Artifacts:
                             if row["format"] in box.FORMATS and (type(current_size) is not int
                                                                  or current_size <= box.MAX_BYTES):
                                 row["content"] = client.content(row["box_id"])
-                    if versions:
-                        history.append({"id": remote["version_id"], "number": remote["version_number"],
-                                        "at": remote["box_updated_at"], "current": True})
                 except ConnectorError as error:
                     warnings.append(box.error_message(error, "loading the Box file"))
                 except HearthError as error:
                     warnings.append(str(error))
                 if versions:
+                    current = remote if box.box_id(remote.get("version_id")) else saved
+                    if box.box_id(current.get("version_id")):
+                        history.append({"id": current["version_id"], "number": current["version_number"],
+                                        "at": current["box_updated_at"], "current": True})
                     try:
-                        history.extend({"id": item["id"], "number": item.get("version_number"),
-                                        "at": when(item.get("modified_at") or item.get("created_at")), "current": False}
-                                       for item in client.versions(row["box_id"])
-                                       if box.box_id(item.get("id"))
-                                       and (not history or item["id"] != history[0]["id"]))
+                        older = [{"id": item["id"], "number": item.get("version_number"),
+                                  "at": when(item.get("modified_at") or item.get("created_at")), "current": False}
+                                 for item in client.versions(row["box_id"])
+                                 if box.box_id(item.get("id")) and item["id"] != current.get("version_id")]
+                        history.extend(older)
+                        history_source = "box"
                     except ConnectorError as error:
-                        warnings.append(box.error_message(error, "version history"))
+                        if not box.unsupported(error):
+                            warnings.append(box.error_message(error, "loading Box versions"))
             if row.get("box_id") and not client:
-                warnings.append("Connect the original Box account in Connections to load this file’s history.")
+                if "content" not in row:
+                    warnings.append("Connect the original Box account in Connections to preview this file.")
+            if versions and row.get("box_id") and history_source is None:
+                history_source = "hearth"
+                with self.storage.lock():
+                    actions = self.storage.load().get("artifact_undo", {}).values()
+                snapshots = [action["before"] for action in actions
+                             if action["id"] == identity and action.get("before")
+                             and action["before"].get("box_id") == row["box_id"]]
+                known = box_versions(*snapshots, saved, remote)
+                current_id = remote.get("version_id") or saved.get("version_id")
+                history = [{**entry, "current": entry["id"] == current_id} for entry in reversed(known)]
+                history.sort(key=lambda entry: not entry["current"])
             if row.get("box_id") and row["sync"] == "synced":
                 row = {**row, "revision": self.box_revision(row)}
-            return {**public(row, content=True), "versions": history, "warnings": warnings,
+            return {**public(row, content=True), "versions": history, "version_source": history_source,
+                    "warnings": warnings,
                     "box_connected": bool(self.connection())}
 
     def write(self, row, operation=None, before=None):
@@ -356,10 +392,11 @@ class Artifacts:
                     else:
                         raise
         except ConnectorError as error:
-            if error.unsupported or error.status in (405, 501):
+            if box.unsupported(error):
                 return {**row, "sync": "local", "sync_message": box.UNAVAILABLE}
             return {**row, "sync": "error", "sync_message": box.error_message(error, "saving the file")}
-        return {**row, **metadata(current), "box_connection": self.connection(),
+        version = metadata(current)
+        return {**row, **version, "box_history": box_versions(row, version), "box_connection": self.connection(),
                 "sync": "synced", "sync_message": None}
 
     def create(self, *, title, kind="note", content, format=None, origin=None, message_id=None):
@@ -435,9 +472,15 @@ class Artifacts:
                 self.write(row)
                 return public(row)
             if operation == "delete" and body.keys() == {"id", "revision"}:
-                row = self.checked_row(before, body["revision"])
-                self.trash(row)
-                deleted = {**before, "deleted": True, "revision": new_id()}
+                revision = body["revision"]
+                if before.get("box_id") and before["sync"] == "synced":
+                    if revision != self.box_revision(before):
+                        before = self.checked_row(before, revision)
+                elif revision != before["revision"]:
+                    raise HearthError("This artifact changed. Reopen it before making another change.")
+                deleted = {**before, "deleted": True, "revision": new_id(),
+                           "sync_message": "Moved to Hearth Trash. The Box file remains in Box."
+                           if before.get("box_id") else "Moved to Hearth Trash. Restore it from Timeline."}
                 self.write(deleted, "deleted", before)
                 return public(deleted)
             if operation == "update" and body.keys() == {"id", "revision", "content"}:
@@ -471,16 +514,6 @@ class Artifacts:
             raise HearthError("This artifact changed. Reopen it before making another change.")
         return row
 
-    def trash(self, row):
-        if row.get("box_id"):
-            client = self.for_row(row)
-            if client is None:
-                raise HearthError("Connect the original Box account to move this file to Trash.")
-            try:
-                client.trash(row)
-            except ConnectorError as error:
-                raise HearthError(box.error_message(error, "moving files to Trash")) from None
-
     def undo(self, action_id):
         with self.lock:
             with self.storage.lock():
@@ -491,18 +524,8 @@ class Artifacts:
                 raise HearthError("This artifact changed after that action. Undo the most recent change first.")
             operation, before = action["operation"], action["before"]
             if operation == "created":
-                if row.get("box_id"):
-                    self.trash(self.checked_row(row, self.box_revision(row)))
                 restored = {**row, "deleted": True}
             elif operation == "deleted":
-                if row.get("box_id"):
-                    client = self.for_row(row)
-                    if client is None:
-                        raise HearthError("Connect the original Box account to restore this file.")
-                    try:
-                        client.restore(row["box_id"])
-                    except ConnectorError as error:
-                        raise HearthError(box.error_message(error, "restoring files from Trash")) from None
                 restored = before
             else:
                 restored = self.undo_update(row, before)
@@ -519,17 +542,20 @@ class Artifacts:
     def undo_update(self, row, before):
         if row["sync"] != "synced":
             return before
-        if not before.get("box_id"):
-            self.trash(self.checked_row(row, self.box_revision(row)))
-            return before
         client = self.for_row(row)
-        if not client or not box.box_id(before.get("version_id")):
+        if not client:
+            raise HearthError("Connect the original Box account to restore this edit.")
+        version_id = before.get("version_id")
+        if before["sync"] == "synced" and not box.box_id(version_id):
             raise HearthError("The previous Box version could not be identified.")
         try:
             current = self.checked_row(row, self.box_revision(row))
-            content = client.content(row["box_id"], before["version_id"])
+            content = (client.content(row["box_id"], version_id) if before["sync"] == "synced"
+                       else before["content"])
             item = client.upload({**current, "content": content})
         except ConnectorError as error:
             raise HearthError(box.error_message(error, "restoring the previous version")) from None
-        return {**before, **metadata(item), "sync": "synced", "sync_message": None,
+        version = metadata(item)
+        return {**before, **version, "box_connection": row["box_connection"],
+                "box_history": box_versions(before, row, version), "sync": "synced", "sync_message": None,
                 "content": content, "size": len(content.encode("utf-8")), "updated_at": iso()}

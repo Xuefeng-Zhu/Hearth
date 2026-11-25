@@ -16,6 +16,7 @@ FOLDERS = {"plan": "Plans", "list": "Lists", "note": "Notes",
 FORMATS = {"md": "text/markdown", "txt": "text/plain", "csv": "text/csv", "json": "application/json"}
 DEFAULTS = {"auto_save": True, "format": "md", "folder_name": "Hearth"}
 MAX_BYTES = 128 * 1024
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 UNAVAILABLE = "Saved locally — Box upload unavailable"
 FIELDS = "id,type,name,size,modified_at,created_at,file_version,version_number,etag,sha1"
 BOX_ID = re.compile(r"[0-9]{1,30}")
@@ -42,7 +43,7 @@ def settings(value):
 
 
 def error_message(error, operation):
-    if error.unsupported or error.status == 405:
+    if unsupported(error):
         return f"The Sprites Box connector does not support {operation}."
     if error.status in (401, 403):
         return "Box denied access. Check the authorization in Connections."
@@ -55,6 +56,10 @@ def error_message(error, operation):
     if error.status == 429:
         return "Box is limiting requests. Try again shortly."
     return f"Box could not complete {operation}. Try again."
+
+
+def unsupported(error):
+    return error.unsupported or error.status in (405, 501)
 
 
 class Box:
@@ -112,17 +117,21 @@ class Box:
         attrs = {} if file_id else {"name": row["filename"], "parent": {"id": folder_id}}
         boundary = new_id()
         content_type = FORMATS[row["format"]]
+        content = row["content"].encode("utf-8")
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HearthError("Box uploads must be at most 50 MiB.")
         multipart = (
             f'--{boundary}\r\nContent-Disposition: form-data; name="attributes"\r\n'
             f'Content-Type: application/json\r\n\r\n{json.dumps(attrs)}\r\n'
             f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{row["filename"]}"\r\n'
-            f'Content-Type: {content_type}\r\n\r\n{row["content"]}\r\n--{boundary}--\r\n'
-        ).encode("utf-8")
+            f'Content-Type: {content_type}\r\n\r\n'
+        ).encode("utf-8") + content + f"\r\n--{boundary}--\r\n".encode("ascii")
         headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
         if file_id and row.get("etag"):
             headers["If-Match"] = row["etag"]
-        path = f"files/{file_id}/content" if file_id else "files/content"
-        data = self.json(f"{path}?{urlencode({'fields': FIELDS})}", multipart, headers)
+        path = f"upload/files/{file_id}/content" if file_id else "upload/files/content"
+        data = self.gateway.json(self.connection, f"{path}?{urlencode({'fields': FIELDS})}",
+                                 multipart, headers, timeout=8)
         entries = data.get("entries")
         item = entries[0] if isinstance(entries, list) and entries and isinstance(entries[0], dict) else {}
         if not box_id(item.get("id")) or (file_id and item["id"] != file_id):
@@ -174,12 +183,3 @@ class Box:
             return redact_text(raw.decode("utf-8-sig"))
         except UnicodeError:
             raise HearthError("This file cannot be previewed as UTF-8 text.") from None
-
-    def trash(self, row):
-        headers = {"If-Match": row["etag"]} if row.get("etag") else {}
-        with self.gateway.open(self.connection, f"2.0/files/{row['box_id']}", headers=headers,
-                               timeout=8, method="DELETE"):
-            pass
-
-    def restore(self, identity):
-        return self.json(f"files/{identity}", {})

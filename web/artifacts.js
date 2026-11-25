@@ -327,7 +327,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     if (item.sync !== "synced" && item.box_connected && !pending.has(item.id)) {
       actions.append(control("Retry sync", () => retry(item)));
     }
-    const deletion = control("Delete", () => {
+    const deletion = control("Move to Trash", () => {
       confirming = !confirming;
       renderDetail(item);
       if (confirming) get("artifact-confirm-delete").focus();
@@ -338,9 +338,10 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     detailBody.replaceChildren();
     if (confirming) {
       const confirm = element("div", "artifact-delete");
-      confirm.append(element("p", "", item.box_url ? "Move this file to Box Trash?"
-        : "Delete this artifact? You can restore it in Timeline."));
-      const yes = control(item.box_url ? "Move to Trash" : "Delete artifact",
+      confirm.append(element("p", "", item.box_url
+        ? "Move this artifact to Hearth Trash? The file stays in Box. Restore it from Timeline."
+        : "Move this artifact to Hearth Trash? Restore it from Timeline."));
+      const yes = control("Move to Hearth Trash",
         () => mutate("delete", item, { revision: item.revision }), "artifact-control artifact-danger");
       yes.id = "artifact-confirm-delete";
       confirm.append(yes, control("Cancel", () => {
@@ -382,7 +383,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     }
     detailBody.append(paper);
     const versions = element("section", "artifact-versions");
-    versions.append(element("h3", "", "Version history"));
+    versions.append(element("h3", "", item.version_source === "hearth" ? "Hearth version history" : "Version history"));
     if (item.versions?.length) {
       const list = element("ol");
       for (const version of item.versions) {
@@ -394,7 +395,8 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       }
       versions.append(list);
     } else if (!item.warnings?.length) {
-      versions.append(element("p", "meta", "Box versions will appear after this file syncs."));
+      versions.append(element("p", "meta", item.version_source === "hearth"
+        ? "Hearth has no saved versions for this file." : "Box versions will appear after this file syncs."));
     }
     for (const warning of item.warnings || []) versions.append(element("p", "meta", warning));
     detailBody.append(versions);
@@ -444,7 +446,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
           drawer.close();
         } else await open(item.id);
       }
-      if (operation === "delete") showNotice("Artifact deleted. Undo in Timeline.");
+      if (operation === "delete") showNotice(saved.sync_message);
       else if (saved.sync_message && !inDrawer) showNotice(saved.sync_message);
       refreshChat().catch(() => {});
     } catch (error) {
@@ -458,7 +460,7 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
       if (inDrawer && drawer.open && selected === item.id && editMode) {
         for (const button of detailBody.querySelectorAll("button")) button.disabled = false;
         for (const button of get("artifact-actions").querySelectorAll("button")) {
-          button.disabled = ["Edit", "Delete"].includes(button.textContent);
+          button.disabled = ["Edit", "Move to Trash"].includes(button.textContent);
         }
       } else if (inDrawer && drawer.open && selected === item.id) {
         for (const button of drawer.querySelectorAll("button:not(#artifact-close)")) button.disabled = false;

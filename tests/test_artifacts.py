@@ -9,12 +9,13 @@ from io import BytesIO
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
+from unittest.mock import patch
 
 from hearth import box
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import Gateway, read_config
 from hearth.server import Application, HTTPServer
-from hearth.storage import ROOT, Storage, iso
+from hearth.storage import HearthError, ROOT, Storage, iso
 
 
 class MockBox:
@@ -26,6 +27,7 @@ class MockBox:
         self.folders = {"0": {"id": "0", "name": "All Files", "type": "folder", "parent": None}}
         self.files = {}
         self.reject_upload = None
+        self.reject_versions = False
 
     def allocate(self):
         self.next_id += 1
@@ -67,8 +69,10 @@ class MockBox:
         if url.path == "/v1/gateway/list":
             return self.response({"connections": [
                 {"provider": "box", "authorized": True, "gateway_base_url": "https://api.sprites.dev/v1/gateway/box/qa_Box"}]})
-        assert url.path.startswith("/v1/gateway/box/qa_Box/2.0/")
-        parts = url.path.split("/")[6:]
+        assert url.path.startswith("/v1/gateway/box/qa_Box/")
+        route, *parts = url.path.split("/")[5:]
+        upload = method == "POST" and parts[-1] == "content"
+        assert route == ("upload" if upload else "2.0")
         if method == "GET" and len(parts) == 3 and parts[0] == "folders":
             parent = parts[1]
             if parent not in self.folders:
@@ -116,19 +120,12 @@ class MockBox:
         item = self.files.get(parts[1])
         if not item:
             self.fail(request, 404)
-        if method == "POST" and len(parts) == 2:
-            assert item["trashed"]
-            item["trashed"] = False
-            return self.response(self.metadata(item))
-        if item["trashed"]:
-            self.fail(request, 404)
-        if method == "DELETE" and len(parts) == 2:
-            assert request.get_header("If-match") == self.metadata(item)["etag"]
-            item["trashed"] = True
-            return BytesIO()
+        assert method == "GET"
         if len(parts) == 2:
             return self.response(self.metadata(item))
         if parts[2] == "versions":
+            if self.reject_versions:
+                self.fail(request, 403, {"error": "request is not supported by this connector"})
             return self.response({"entries": [{key: value for key, value in version.items() if key != "content"}
                                                for version in reversed(item["versions"][:-1])]})
         assert parts[2] == "content"
@@ -204,12 +201,18 @@ class ArtifactTest(unittest.TestCase):
         self.assertEqual(edited["box_id"], item["box_id"])
         self.assertEqual(edited["version_number"], "2")
         self.assertEqual([row["number"] for row in self.detail(item)["versions"]], ["2", "1"])
+        self.provider.reject_versions = True
+        fallback = self.detail(item)
+        self.assertEqual(fallback["version_source"], "hearth")
+        self.assertEqual([row["id"] for row in fallback["versions"]], [edited["version_id"], item["version_id"]])
+        self.assertEqual(fallback["warnings"], [])
         listed = self.endpoint()[1]["artifacts"]
         self.assertEqual([row["id"] for row in listed], [item["id"]])
         self.assertEqual(self.endpoint("/update", {"id": item["id"], "revision": detail["revision"], "content": "stale"})[0], 400)
         self.assertEqual(self.undo("updated")[0], 200)
         self.assertIn("# Dinner", self.detail(item)["content"])
         self.assertEqual(self.detail(item)["versions"][0]["number"], "3")
+        self.assertEqual([row["number"] for row in self.detail(item)["versions"]], ["3", "2", "1"])
         self.assertEqual(len(self.provider.folders), 7)
 
     def test_box_items_recursive_listing_and_trash_restore(self):
@@ -230,9 +233,14 @@ class ArtifactTest(unittest.TestCase):
         self.assertNotIn("content", self.detail(items["Menu"]))
         detail = self.detail(items["Shopping"])
         self.assertEqual(detail["content"], "Item,Quantity\nCranberries,1\n")
-        self.assertEqual(self.endpoint("/delete", {"id": detail["id"], "revision": detail["revision"]})[0], 200)
-        self.assertTrue(external["trashed"])
+        request_count = len(self.provider.requests)
+        status, deleted = self.endpoint("/delete", {"id": detail["id"], "revision": detail["revision"]})
+        self.assertEqual(status, 200)
+        self.assertIn("file remains in Box", deleted["sync_message"])
+        self.assertEqual(len(self.provider.requests), request_count)
+        self.assertFalse(external["trashed"])
         self.assertEqual(len(self.endpoint()[1]["artifacts"]), 2)
+        self.assertEqual(self.endpoint("/detail?id=" + detail["id"])[0], 400)
         self.assertEqual(self.undo("deleted")[0], 200)
         self.assertFalse(external["trashed"])
         self.assertEqual(len(self.endpoint()[1]["artifacts"]), 3)
@@ -254,6 +262,17 @@ class ArtifactTest(unittest.TestCase):
         self.assertEqual(self.endpoint("/retry", {"id": item["id"]})[1]["sync"], "synced")
         self.assertEqual(len(self.provider.files), 1)
 
+    def test_box_upload_limit_counts_utf8_file_bytes(self):
+        self.assertEqual(box.MAX_UPLOAD_BYTES, 50 * 1024 * 1024)
+        client = self.app.artifacts.client()
+        row = {"filename": "note.txt", "format": "txt", "content": "ééé"}
+        with patch.object(box, "MAX_UPLOAD_BYTES", 5):
+            with self.assertRaisesRegex(HearthError, "50 MiB"):
+                client.upload(row, "0")
+        with patch.object(box, "MAX_UPLOAD_BYTES", 6):
+            client.upload(row, "0")
+        self.assertEqual(next(iter(self.provider.files.values()))["versions"][0]["content"], "ééé".encode())
+
     def test_box_version_fallback_preserves_pending_local_content(self):
         item = self.create()
         detail = self.detail(item)
@@ -266,6 +285,19 @@ class ArtifactTest(unittest.TestCase):
         self.provider.reject_upload = None
         self.assertEqual(self.endpoint("/retry", {"id": item["id"]})[1]["version_number"], "2")
         self.assertEqual(self.detail(item)["content"], "Local edit")
+
+    def test_undo_first_sync_keeps_box_file_and_restores_previous_content(self):
+        self.provider.reject_upload = 403, {"error": "request is not supported by this connector"}
+        item = self.create()
+        self.provider.reject_upload = None
+        status, updated = self.endpoint("/update", {"id": item["id"], "revision": item["revision"], "content": "Edit"})
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["sync"], "synced")
+        self.assertEqual(self.undo("updated")[0], 200)
+        restored = self.detail(item)
+        self.assertEqual(restored["box_id"], updated["box_id"])
+        self.assertEqual(restored["version_number"], "2")
+        self.assertEqual(restored["content"], "# Dinner")
 
     def test_local_settings_bounds_json_redaction_and_csrf(self):
         self.assertEqual(self.endpoint("/settings", {"auto_save": False, "format": "json", "folder_name": "Kitchen"})[0], 200)
