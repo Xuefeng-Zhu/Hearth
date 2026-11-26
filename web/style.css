@@ -1193,6 +1193,9 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 
 @media (max-width: 900px) {
   .artifact-collection { grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
+  .artifact-filters, .artifact-filters > div { gap: var(--space-1); }
+  .artifact-filters { column-gap: var(--space-3); }
+  .artifact-filters button { padding-inline: var(--space-2); font-size: 12px; }
   .artifact-list-head {
     position: absolute;
     width: 1px;
@@ -1221,6 +1224,9 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
   .artifact-card-title, [data-layout="list"] .artifact-card-title { min-height: var(--touch-height); }
 }
 @media (max-width: 520px) {
+  .artifact-box-control { width: 100%; justify-content: flex-start; }
+  .artifact-box-control .file-question-launch { margin-inline-start: auto; padding-inline: var(--space-2); }
+  .artifact-connection { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: var(--space-3); }
   .artifact-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
   .artifact-search { grid-column: 1 / -1; }
 }

@@ -374,6 +374,10 @@ def layout_smoke(browser, app, origin):
                         right_center = right_box["y"] + right_box["height"] / 2
                         assert abs(left_center - right_center) <= 1, (name, width)
                 if name == "Artifacts":
+                    header_controls = view.locator(".artifact-box-control > *").all()
+                    header_boxes = [control.bounding_box() for control in header_controls]
+                    assert max(box["y"] for box in header_boxes) - min(box["y"] for box in header_boxes) <= 1, (width, header_boxes)
+                    assert max(box["height"] for box in header_boxes) - min(box["height"] for box in header_boxes) <= 1, (width, header_boxes)
                     controls = view.locator(".artifact-toolbar :is(input, select, button)").all()
                     heights = [control.bounding_box()["height"] for control in controls]
                     assert max(heights) - min(heights) <= 1, (width, heights)
