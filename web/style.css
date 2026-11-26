@@ -143,6 +143,19 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
   border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted);
 }
 @media (hover: hover) and (min-width: 761px) {
+  .thread-row { position: relative; }
+  .thread-row:hover { background: var(--thread-active); }
+  .thread-row .thread-link { width: 100%; }
+  .thread-row:hover .thread-link { color: var(--selection-text); }
+  .thread-row:is(:hover, :focus-within, :has([aria-expanded="true"])) .thread-link {
+    padding-inline-end: calc(var(--control-height) + var(--space-1));
+  }
+  .thread-overflow {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    width: var(--control-height);
+  }
   .thread-row:not(:hover, :focus-within) .thread-overflow[aria-expanded="false"] { opacity: 0; pointer-events: none; }
 }
 @media (hover: none) {

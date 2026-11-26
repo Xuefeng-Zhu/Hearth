@@ -654,6 +654,47 @@ def home_add_smoke(browser, app, origin):
         expect(add).to_have_count(0)
 
 
+def thread_row_smoke(browser, app, origin):
+    long_title = "Winter travel plans and December calendar details"
+    with app.storage.lock():
+        long_thread = app.threads.create(title=long_title)
+        app.threads.create(title="Reading list")
+        app.threads.create(title="Weekend plans")
+    for width in (1280, 1440, 1920):
+        with browser_page(browser, origin, color_scheme="light", viewport={"width": width, "height": 900}) as page:
+            open_chat(page)
+            main = page.locator('.thread-link[data-thread="main"]')
+            long_link = page.locator(f'.thread-link[data-thread="{long_thread["id"]}"]')
+            trigger = page.get_by_role("button", name=f"Actions for {long_title}")
+            expect(main).to_have_attribute("aria-current", "true")
+            assert page.locator("#threads").evaluate("""list => [...list.children].every(row =>
+              row.getBoundingClientRect().width === list.clientWidth &&
+              row.firstElementChild.getBoundingClientRect().width === list.clientWidth &&
+              row.lastElementChild.getBoundingClientRect().right === row.getBoundingClientRect().right)""")
+            expect(page.get_by_role("button", name="Actions for Main")).to_have_css("opacity", "0")
+            before = long_link.evaluate("el => parseFloat(getComputedStyle(el).paddingInlineEnd)")
+            long_link.hover()
+            expect(trigger).to_have_css("opacity", "1")
+            expect(long_link).to_have_attribute("title", long_title)
+            assert long_link.evaluate("el => parseFloat(getComputedStyle(el).paddingInlineEnd)") > before
+            label_box = long_link.locator(".thread-label").bounding_box()
+            assert label_box["x"] + label_box["width"] <= trigger.bounding_box()["x"]
+            assert page.locator(".thread-overflow").evaluate_all(
+                "items => items.filter(item => getComputedStyle(item).opacity === '1').length") == 1
+            screenshots = os.environ.get("HEARTH_SMOKE_SCREENSHOTS")
+            if width == 1440 and screenshots:
+                page.screenshot(path=Path(screenshots) / "thread-row-hover-1440-light.png")
+            main.hover()
+            assert main.get_attribute("title") is None
+            assert long_link.get_attribute("title") is None
+            page.get_by_role("button", name="Reading list", exact=True).hover()
+            assert page.get_by_role("button", name="Reading list", exact=True).get_attribute("title") is None
+            page.mouse.move(width - 50, 50)
+            expect(page.get_by_role("button", name="Actions for Main")).to_have_css("opacity", "0")
+            if width == 1440 and screenshots:
+                page.screenshot(path=Path(screenshots) / "thread-row-active-1440-light.png")
+
+
 def thread_menu_smoke(browser, origin):
     with browser_page(browser, origin, color_scheme="dark", viewport={"width": 1440, "height": 900}) as page:
         open_chat(page)
@@ -1058,6 +1099,8 @@ def main():
                     layout_smoke(browser, layout_app, layout_origin)
                 with workspace() as (home_app, home_origin):
                     home_add_smoke(browser, home_app, home_origin)
+                with workspace() as (thread_app, thread_origin):
+                    thread_row_smoke(browser, thread_app, thread_origin)
                 smoke(browser, origin)
                 mobile_thread_menu_smoke(browser, origin)
                 thread_menu_smoke(browser, origin)

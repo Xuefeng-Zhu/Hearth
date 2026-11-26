@@ -1098,8 +1098,14 @@ function renderThreads() {
     });
     item.className = "thread-link";
     item.dataset.thread = thread.id;
-    item.title = thread.title;
-    item.append(node("span", "thread-label", thread.title));
+    const label = node("span", "thread-label", thread.title);
+    item.append(label);
+    if (thread.id !== mainThread.id && thread.title !== "Main") {
+      item.addEventListener("pointerenter", () => {
+        if (label.scrollWidth > label.clientWidth) item.title = thread.title;
+      });
+      item.addEventListener("pointerleave", () => item.removeAttribute("title"));
+    }
     if (thread.id === currentThread) item.setAttribute("aria-current", "true");
     if (thread.status) {
       const dot = node("span", "thread-dot");
@@ -1111,6 +1117,7 @@ function renderThreads() {
     row.append(item);
     const more = iconButton("more", `Actions for ${thread.title}`,
       (event) => openThreadMenu(thread, event.currentTarget), "thread-overflow");
+    more.removeAttribute("title");
     more.dataset.thread = thread.id;
     more.setAttribute("aria-haspopup", "menu");
     more.setAttribute("aria-expanded", "false");
