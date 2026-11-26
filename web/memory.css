@@ -94,7 +94,7 @@
 #memory-view .memory-review button, #memory-review-settings button,
 #memory-review-time, #memory-review-settings .check-label { min-height: var(--control-height); }
 .memory-review-picker { display: grid; gap: 4px; margin-bottom: 10px; color: var(--text); }
-.memory-review-picker select { width: 100%; }
+.memory-review-picker :is(select, .combobox-trigger) { width: 100%; }
 .memory-review-settings { margin-bottom: 14px; }
 .memory-review-settings fieldset { display: grid; gap: 6px; min-width: 0; padding: 0; margin: 0; border: 0; }
 .memory-review-settings .memory-actions { margin-top: var(--space-1); }

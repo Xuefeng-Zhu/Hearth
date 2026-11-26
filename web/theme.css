@@ -466,7 +466,7 @@
 :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
 
 @media (prefers-color-scheme: light) {
-  .composer, .timeline-fields :is(input, select), .artifact-toolbar :is(input, select),
+  .composer, .timeline-fields :is(input, select, .combobox-trigger), .artifact-toolbar :is(input, select, .combobox-trigger),
   .query-form input, .avatar-view {
     border-color: var(--field-edge);
   }

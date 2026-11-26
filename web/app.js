@@ -9,6 +9,7 @@ import { channelChip, createReminders } from "./reminders.js";
 import { reconcileChildren } from "./dom.js";
 import { setupMobile } from "./mobile.js";
 import { createThreadMenu } from "./thread-menu.js";
+import { setupSearchableSelects } from "./combobox.js";
 import { createAttachments } from "./attachments.js";
 import { icon, iconButton, mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
@@ -25,6 +26,7 @@ import { createSSEParser } from "./sse.js";
 import { githubSettings, updateCard } from "./self-update.js";
 
 mountIcons();
+setupSearchableSelects();
 
 const byId = (id) => document.getElementById(id);
 const nav = [...document.querySelectorAll("[data-view]")];
@@ -1421,6 +1423,7 @@ function installSidebar(complete) {
     }
   }
   threadList = [...entries.values()];
+  if (isSetting("memory")) renderMemoryThreadOptions();
   markSeenReplies();
   renderThreads();
 }
@@ -2356,6 +2359,11 @@ function settingOptions(select, options, selected) {
   select.value = selected;
 }
 
+function renderMemoryThreadOptions() {
+  const select = byId("memory-test-thread");
+  settingOptions(select, [["", "All threads"], ...threadList.map(({ id, title }) => [id, title])], select.value);
+}
+
 function renderMemoryPreferences(info) {
   const choice = info.selection;
   const stores = choice.backend === "huggingface" ? ["auto", "pinecone", "local", "huggingface"]
@@ -2365,8 +2373,7 @@ function renderMemoryPreferences(info) {
   settingOptions(byId("memory-model"), Object.entries(info.models), choice.model);
   settingOptions(byId("memory-test-kind"), [["", "All kinds"], ...info.kinds.map((kind) =>
     [kind, kind[0].toUpperCase() + kind.slice(1)])], byId("memory-test-kind").value);
-  settingOptions(byId("memory-test-thread"), [["", "All threads"], ...threadList.map((thread) =>
-    [thread.id, thread.title])], byId("memory-test-thread").value);
+  renderMemoryThreadOptions();
   byId("memory-top-k").value = choice.top_k;
   byId("memory-similarity").value = choice.min_similarity;
   byId("memory-chat-history").checked = choice.include_chat;
@@ -2587,7 +2594,14 @@ async function openSettings(section, target) {
     return voiceCall.syncSettings();
   }
   if (preferences[section].pending) return;
-  if (section === "memory") memoryReview.settings();
+  if (section === "memory") {
+    memoryReview.settings();
+    if (!busy && !threadBusy) {
+      refreshState(undefined, { background: true }).catch(() => {
+        // The recall form can still search across all threads.
+      });
+    }
+  }
   try {
     const info = await api(`/api/${section}/settings`);
     if (view !== "settings" || settingsSection !== section || preferences[section].pending) return;

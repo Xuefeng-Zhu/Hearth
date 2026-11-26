@@ -587,7 +587,7 @@
 .goal-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
 .goal-control { min-width: var(--control-height); min-height: var(--control-height); }
 .goal-editor { min-width: 0; }
-.goal-editor input:not([type="checkbox"]), .goal-editor select, .goal-editor textarea {
+.goal-editor input:not([type="checkbox"]), .goal-editor :is(select, .combobox-trigger), .goal-editor textarea {
   width: 100%;
   min-width: 0;
   min-height: var(--control-height);

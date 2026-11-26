@@ -3,6 +3,7 @@ import { localDay, previousDay, setTimeZone, timeFormatter } from "./time.js";
 import { mascot, setPose } from "./avatar.js";
 import { reconcileChildren } from "./dom.js";
 import { workerDuration, workerStatuses } from "./workers.js";
+import { selectPlacement } from "./combobox.js";
 
 const get = (id) => document.getElementById(id);
 const categories = {
@@ -209,6 +210,9 @@ export function createTimeline({ api, refreshAPI, approve, undo, gatewayResults,
   const filterBar = get("timeline-filters");
   const query = get("timeline-search");
   const threads = get("timeline-thread");
+  const categorySelect = get("timeline-category");
+  categorySelect.append(...Object.entries(kinds).filter(([id]) => id !== "remember")
+    .sort(([, [a]], [, [b]]) => a.localeCompare(b)).map(([id, [label]]) => new Option(label, id)));
   const mobileFilter = matchMedia("(max-width: 760px)");
   const filterOpen = get("timeline-filter-open");
   const filterSheet = get("timeline-filter-sheet");
@@ -217,9 +221,11 @@ export function createTimeline({ api, refreshAPI, approve, undo, gatewayResults,
   const clearFilters = get("timeline-filter-clear");
   const compactSummary = get("timeline-compact-summary");
   const threadLabel = get("timeline-thread-label");
+  const categoryLabel = get("timeline-category-label");
   const desktopControls = filterBar.parentElement;
   let draftFilter;
   let threadFilter = "";
+  let categoryFilter = "";
   const feedback = get("timeline-feedback");
   const announcer = get("timeline-announcer");
   const chips = {};
@@ -274,27 +280,37 @@ export function createTimeline({ api, refreshAPI, approve, undo, gatewayResults,
       render();
     }
   });
+  categorySelect.addEventListener("change", () => {
+    if (!filterSheet.open) {
+      categoryFilter = categorySelect.value;
+      render();
+    }
+  });
 
   function showSelection(active) {
     for (const [id, { chip }] of Object.entries(chips)) chip.setAttribute("aria-pressed", String(id === active));
   }
 
   function placeFilters() {
+    const fields = [threadLabel, selectPlacement(threads), categoryLabel, selectPlacement(categorySelect)];
     if (mobileFilter.matches) {
       get("timeline-filter-options").append(filterBar);
-      get("timeline-filter-thread").append(threadLabel, threads);
+      get("timeline-filter-thread").append(...fields);
     } else {
       if (filterSheet.open) filterSheet.close();
       desktopControls.prepend(filterBar);
-      filterOpen.before(threadLabel, threads);
+      filterOpen.before(...fields);
     }
     threadLabel.classList.toggle("visually-hidden", !mobileFilter.matches);
+    categoryLabel.classList.toggle("visually-hidden", !mobileFilter.matches);
     threads.value = threadFilter;
+    categorySelect.value = categoryFilter;
   }
 
   filterOpen.addEventListener("click", () => {
     draftFilter = todayErrors ? "error" : filter;
     threads.value = threadFilter;
+    categorySelect.value = categoryFilter;
     showSelection(draftFilter);
     filterSheet.showModal();
     chips[draftFilter].chip.focus();
@@ -303,10 +319,12 @@ export function createTimeline({ api, refreshAPI, approve, undo, gatewayResults,
   get("timeline-filter-reset").addEventListener("click", () => {
     draftFilter = "all";
     threads.value = "";
+    categorySelect.value = "";
     showSelection(draftFilter);
   });
   get("timeline-filter-apply").addEventListener("click", () => {
     threadFilter = threads.value;
+    categoryFilter = categorySelect.value;
     filterSheet.close();
     selectFilter(draftFilter);
   });
@@ -317,12 +335,14 @@ export function createTimeline({ api, refreshAPI, approve, undo, gatewayResults,
   });
   filterSheet.addEventListener("close", () => {
     threads.value = threadFilter;
+    categorySelect.value = categoryFilter;
     showSelection(todayErrors ? "error" : filter);
     if (mobileFilter.matches && !get("timeline-view").hidden) filterOpen.focus({ preventScroll: true });
   });
   clearFilters.addEventListener("click", () => {
     threadFilter = "";
     threads.value = "";
+    categoryFilter = categorySelect.value = "";
     selectFilter("all");
     filterOpen.focus({ preventScroll: true });
   });
@@ -534,6 +554,7 @@ export function createTimeline({ api, refreshAPI, approve, undo, gatewayResults,
       }
       if (matches.error) allErrors++;
       if ((threadFilter && row.thread_id !== threadFilter) || (text && !searchText(row).includes(text))) continue;
+      if (categoryFilter && (row.kind === "remember" ? "memory" : row.kind) !== categoryFilter) continue;
       if (todayErrors && key !== today) continue;
       for (const category of Object.keys(categories)) if (matches[category]) counts[category]++;
       if (!matches[activeFilter]) continue;
@@ -548,7 +569,7 @@ export function createTimeline({ api, refreshAPI, approve, undo, gatewayResults,
     errorCount.hidden = allErrors === 0;
     errorCount.textContent = `${allErrors.toLocaleString()} ${allErrors === 1 ? "error" : "errors"}`;
     const filterName = [activeFilter !== "all" ? (todayErrors ? "Today’s errors" : categories[activeFilter]) : "",
-      threadNames.get(threadFilter)].filter(Boolean).join(" · ");
+      threadNames.get(threadFilter), kinds[categoryFilter]?.[0]].filter(Boolean).join(" · ");
     activeChip.hidden = !filterName;
     get("timeline-filter-name").textContent = filterName;
     clearFilters.setAttribute("aria-label", `Remove filter ${filterName}`);
@@ -692,6 +713,7 @@ export function createTimeline({ api, refreshAPI, approve, undo, gatewayResults,
     if (enabled) {
       threadFilter = "";
       threads.value = "";
+      categoryFilter = categorySelect.value = "";
       query.value = "";
     }
     render();

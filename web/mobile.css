@@ -351,7 +351,7 @@
   #timeline-view .timeline-fields { flex-wrap: nowrap; max-width: none; gap: 8px; }
   #timeline-view .timeline-fields input { min-height: 44px; font-size: 16px; }
   #timeline-view .timeline-mobile-filter, #timeline-view .timeline-active-filter button,
-  .timeline-filter-sheet button {
+  .timeline-filter-sheet button:where(:not(.combobox-trigger)) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -408,7 +408,8 @@
   .timeline-filter-sheet .timeline-filters { gap: var(--space-2); margin: var(--space-3) 0; }
   .timeline-filter-sheet .timeline-filters button[aria-pressed="true"] { border-color: var(--field-edge); }
   .timeline-filter-thread { display: grid; gap: var(--space-1); margin-bottom: var(--space-4); font-size: .85rem; }
-  .timeline-filter-sheet select { width: 100%; font-size: 16px; }
+  .timeline-filter-sheet :is(select, .combobox-trigger) { width: 100%; font-size: 16px; }
+  #timeline-category-label { margin-top: var(--space-2); }
   .timeline-filter-sheet footer { justify-content: flex-end; }
   #timeline-filter-apply {
     background: var(--accent-fill);

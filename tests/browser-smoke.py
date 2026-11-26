@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 from playwright.sync_api import expect, sync_playwright
 
+from combobox_smoke import combobox_smoke
+
 from hearth import browserbase
 from hearth.agent import Agent, mock_completion, mock_text, tool_call
 from hearth.checkpoints import LocalCheckpoints
@@ -1104,6 +1106,8 @@ def main():
                 smoke(browser, origin)
                 mobile_thread_menu_smoke(browser, origin)
                 thread_menu_smoke(browser, origin)
+                with workspace() as (combo_app, combo_origin):
+                    combobox_smoke(browser, combo_app, combo_origin, browser_page)
                 stale_refresh(browser, origin)
                 self_update_smoke(browser, app, origin)
         finally:

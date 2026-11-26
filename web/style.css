@@ -42,7 +42,7 @@
 body { margin: 0; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
-select {
+:is(select, .combobox-trigger) {
   appearance: none;
   min-inline-size: 0;
   max-inline-size: 100%;
@@ -64,7 +64,7 @@ select {
   text-overflow: ellipsis;
 }
 select:dir(rtl) { background-position: left var(--control-padding) center; }
-select:hover:not(:disabled) { border-color: var(--focus); }
+:is(select, .combobox-trigger):hover:not(:disabled) { border-color: var(--focus); }
 @media (forced-colors: active) {
   select { appearance: auto; background-image: none; padding-inline-end: var(--control-padding); }
 }
@@ -303,8 +303,8 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .card p, .card pre { margin: var(--space-2) 0 0; font-size: 14px; }
 .card pre { color: var(--preview-text); }
 .meta { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-.card button, .settings-button { display: inline-flex; align-items: center; justify-content: center; gap: var(--control-gap); line-height: var(--control-line-height); color: var(--action-text); background: var(--accent-light); border: 1px solid var(--secondary-button-border); border-radius: var(--radius-control); min-height: var(--control-height); padding: var(--space-2) var(--control-padding); font-size: var(--control-font-size); font-weight: 650; }
-.card button { margin-top: var(--space-3); }
+.card button:where(:not(.combobox-trigger)), .settings-button { display: inline-flex; align-items: center; justify-content: center; gap: var(--control-gap); line-height: var(--control-line-height); color: var(--action-text); background: var(--accent-light); border: 1px solid var(--secondary-button-border); border-radius: var(--radius-control); min-height: var(--control-height); padding: var(--space-2) var(--control-padding); font-size: var(--control-font-size); font-weight: 650; }
+.card button:where(:not(.combobox-trigger)) { margin-top: var(--space-3); }
 .card button:where(:not(.primary-setting):hover:not(:disabled)) { border-color: var(--focus); }
 .card button.primary-setting:hover:not(:disabled) { background-color: var(--accent-fill-hover); }
 .panel, .home-view {
@@ -378,8 +378,8 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .brain-form { max-width: 680px; }
 .brain-form label, .connection-filters label { color: var(--secondary-text); font-size: 13px; font-weight: 650; }
 .brain-form label { display: block; margin-bottom: var(--space-1); }
-.brain-form > :is(p, input, select, div) + label { margin-top: var(--space-4); }
-.brain-form label:not(.check-label) > :is(input:not([type="checkbox"], [type="radio"]), select, textarea) { display: block; }
+.brain-form > :is(p, input, select, div, .combobox-field) + label { margin-top: var(--space-4); }
+.brain-form label:not(.check-label) > :is(input:not([type="checkbox"], [type="radio"]), select, .combobox-trigger, textarea) { display: block; }
 .brain-form > .check-label, .delivery-form .check-label { display: flex; align-items: center; gap: var(--control-gap); }
 .delivery-form .check-label input { flex: none; margin: 0; }
 :where(.brain-form, .connection-filters, .connector-controls, .delivery-form, .automation-editor, .approval-settings, .query-form)
@@ -395,9 +395,9 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
   font-weight: 400;
   line-height: var(--control-line-height);
 }
-:is(.brain-form, .connection-filters) :is(select, textarea, input:not([type="checkbox"], [type="radio"])) { width: 100%; }
-.settings-body :is(.brain-form, .connection-filters) :where(input:not([type="checkbox"], [type="radio"]), select, textarea) { border-color: var(--field-border); }
-.connection-filters :is(input, select) { font-weight: 400; }
+:is(.brain-form, .connection-filters) :is(select, .combobox-trigger, textarea, input:not([type="checkbox"], [type="radio"])) { width: 100%; }
+.settings-body :is(.brain-form, .connection-filters) :where(input:not([type="checkbox"], [type="radio"]), select, .combobox-trigger, textarea) { border-color: var(--field-border); }
+.connection-filters :is(input, select, .combobox-trigger) { font-weight: 400; }
 .brain-form .meta { font-size: 13px; }
 #brain-model-fields, #brain-custom-field { margin-top: var(--space-5); }
 .brain-controls { margin-top: var(--space-5); }
@@ -858,8 +858,8 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
   font-variant-numeric: tabular-nums;
 }
 .timeline-filters button[aria-pressed="true"] span { background: var(--timeline-count-active-bg); color: var(--timeline-count-active-text); }
-.timeline-fields { display: flex; flex: 1 1 300px; max-width: 420px; align-items: center; margin-inline-start: auto; gap: var(--control-gap); min-width: 0; }
-.timeline-fields :is(input, select) {
+.timeline-fields { display: flex; flex: 1 1 390px; max-width: 540px; align-items: center; margin-inline-start: auto; gap: var(--control-gap); min-width: 0; }
+.timeline-fields :is(input, select, .combobox-trigger) {
   flex: 1 1 0;
   width: 0;
   min-width: 0;
@@ -871,7 +871,7 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
   font-size: var(--control-font-size);
 }
 .timeline-fields input { padding: var(--space-2) var(--control-padding); }
-.timeline-fields select { flex: 0 1 42%; }
+.timeline-fields :is(select, .combobox-trigger) { flex: 0 1 30%; }
 .timeline-feedback { margin: var(--space-3) 0 0; }
 .timeline-feedback:empty { display: none; }
 .timeline { padding-top: var(--space-2); }
@@ -1054,7 +1054,7 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 .artifact-load-error > p { margin: 0; }
 .artifact-connection a, .artifact-thread, .artifact-markdown a { color: var(--accent); text-underline-offset: 3px; }
 .artifact-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 160px) auto; align-items: center; gap: var(--control-gap); }
-.artifact-toolbar :is(input, select) { width: 100%; min-width: 0; color: inherit; background-color: var(--paper); min-height: var(--control-height); border: var(--field-outline); border-radius: var(--radius-control); font-size: var(--control-font-size); }
+.artifact-toolbar :is(input, select, .combobox-trigger) { width: 100%; min-width: 0; color: inherit; background-color: var(--paper); min-height: var(--control-height); border: var(--field-outline); border-radius: var(--radius-control); font-size: var(--control-font-size); }
 .artifact-search { position: relative; }
 .artifact-search > .line-icon { position: absolute; inset: 50% auto auto var(--space-3); transform: translateY(-50%); pointer-events: none; color: var(--search-icon); }
 .artifact-search input { padding: var(--space-2) var(--control-padding); padding-inline-start: var(--space-10); }
@@ -1319,7 +1319,7 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 .memory-index-details dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .memory-index-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .4rem; }
 .memory-test-filters { width: 100%; margin-top: .55rem; }
-.memory-test-filters select { width: 100%; }
+.memory-test-filters :is(select, .combobox-trigger) { width: 100%; }
 
 /* Reminder delivery and forwarded mail use the workspace card system. */
 .delivery-intro > button {
@@ -1362,7 +1362,7 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 .reminder-create form { padding: var(--card-padding); border-block-start: var(--surface-border); }
 .inbox-edit { margin-top: var(--space-3); }
 .delivery-form > label:not(.check-label) { display: grid; align-content: start; gap: var(--space-1); font-size: 13px; font-weight: 650; min-width: 0; }
-.delivery-form :is(input:not([type=checkbox]), textarea, select) { width: 100%; min-width: 0; }
+.delivery-form :is(input:not([type=checkbox]), textarea, select, .combobox-trigger) { width: 100%; min-width: 0; }
 .delivery-form p { margin: 0; }
 .delivery-full { grid-column: 1 / -1; }
 .delivery-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; margin-top: 6px; }

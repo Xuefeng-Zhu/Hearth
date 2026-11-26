@@ -118,7 +118,7 @@
 .automation-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: var(--control-gap); margin-bottom: var(--space-3); }
 .automation-dialog-header h2 { margin: 0; font-size: 1.2rem; }
 .automation-editor { gap: var(--grid-gap); }
-.automation-editor input, .automation-editor textarea, .automation-editor select, .approval-settings select {
+.automation-editor input, .automation-editor textarea, .automation-editor :is(select, .combobox-trigger), .approval-settings :is(select, .combobox-trigger) {
   min-height: var(--control-height);
   min-width: 0;
   color: var(--text);
@@ -199,7 +199,7 @@
 .event-automation-toolbar { margin-block-end: .8rem; }
 #event-automation-approval:not(:empty) { margin-block-end: .8rem; }
 .event-automation-card, .event-automation-editor, .event-action { min-width: 0; }
-.event-automation-editor input, .event-automation-editor select, .event-automation-editor textarea { max-width: 100%; }
+.event-automation-editor input, .event-automation-editor :is(select, .combobox-trigger), .event-automation-editor textarea { max-width: 100%; }
 @media (min-width: 761px) {
   .event-automation-editor, .event-trigger-fields:has(> .event-checkbox) {
     grid-template-columns: repeat(2, minmax(0, 1fr));

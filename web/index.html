@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="/skills.css">
   <link rel="stylesheet" href="/workers.css">
   <link rel="stylesheet" href="/memory.css">
+  <link rel="stylesheet" href="/combobox.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -338,6 +339,8 @@
             <input id="timeline-search" type="search" maxlength="240" placeholder="Search activity…">
             <label class="visually-hidden" id="timeline-thread-label" for="timeline-thread">Thread</label>
             <select id="timeline-thread"><option value="">All threads</option></select>
+            <label class="visually-hidden" id="timeline-category-label" for="timeline-category">Category</label>
+            <select id="timeline-category"><option value="">All categories</option></select>
             <button class="timeline-mobile-filter" id="timeline-filter-open" type="button" aria-haspopup="dialog"
               aria-controls="timeline-filter-sheet"><span data-icon="filter" data-icon-size="17"></span>Filter
               <span id="timeline-error-count" class="timeline-error-count" hidden></span></button>
