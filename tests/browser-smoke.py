@@ -178,6 +178,72 @@ def smoke(browser, origin):
         expect(page.get_by_role("heading", name="Main", exact=True)).to_be_visible()
 
 
+def stale_refresh(browser, origin):
+    with browser_page(browser, origin, color_scheme="dark", viewport={"width": 390, "height": 844}) as page:
+        page.add_init_script("""(() => {
+          const fetch = window.fetch.bind(window);
+          window.refreshFixture = {path: '', fault: '', failures: 0, recovered: 0};
+          window.fetch = async (url, options) => {
+            const state = window.refreshFixture;
+            if (url.split('?')[0] !== state.path) return fetch(url, options);
+            if (state.fault) {
+              state.failures++;
+              if (state.fault === 'offline') throw new TypeError('Disconnected fixture');
+              return new Response('{"error":"Private fixture detail"}', {status: 500});
+            }
+            const response = await fetch(url, options);
+            state.recovered = response.status;
+            return response;
+          };
+        })()""")
+        assert page.goto("/").ok
+        expect(page.get_by_role("button", name="Edit layout")).to_be_enabled()
+        status = page.locator("#refresh-status")
+        expect(status).to_have_attribute("role", "status")
+
+        def fail(path, fault, label):
+            page.evaluate("""([path, fault]) => {
+              Object.assign(window.refreshFixture, {path, fault, failures: 0, recovered: 0});
+            }""", [path, fault])
+            page.evaluate("window.dispatchEvent(new Event('focus'))")
+            page.wait_for_function("window.refreshFixture.failures === 1")
+            expect(status).to_be_empty()
+            page.evaluate("window.dispatchEvent(new Event('focus'))")
+            expect(status).to_have_text(label)
+            expect(status).to_be_visible()
+            contrast = status.evaluate("""element => {
+              const style = getComputedStyle(element);
+              const luminance = color => color.match(/\\d+/g).slice(0, 3).map(Number).map(value => {
+                const channel = value / 255;
+                return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+              }).reduce((sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i], 0);
+              const levels = [luminance(style.color), luminance(style.backgroundColor)].sort((a, b) => b - a);
+              return (levels[0] + 0.05) / (levels[1] + 0.05);
+            }""")
+            assert contrast >= 4.5
+            assert not page.get_by_text("Private fixture detail").is_visible()
+
+        def recover():
+            page.evaluate("""() => {
+              window.refreshFixture.fault = '';
+              window.dispatchEvent(new Event('focus'));
+            }""")
+            expect(status).to_be_empty()
+            assert page.evaluate("window.refreshFixture.recovered") == 304
+
+        fail("/api/home", "server", "Stale · Server error")
+        expect(page.get_by_role("heading", name="Today", exact=True)).to_be_visible()
+        recover()
+        page.get_by_role("button", name="Open menu").click()
+        page.get_by_role("dialog", name="Hearth").get_by_role("button", name="Chat", exact=True).click()
+        expect(page.get_by_role("heading", name="Main", exact=True)).to_be_visible()
+        page.wait_for_function("performance.getEntriesByType('resource').some(entry => entry.name.includes('/api/state?'))")
+        page.context.set_offline(True)
+        fail("/api/state", "offline", "Stale · Offline")
+        page.context.set_offline(False)
+        recover()
+
+
 def disconnect(browser, app, origin):
     with browser_page(browser, origin) as page:
         page.add_init_script("""(() => {
@@ -224,6 +290,7 @@ def main():
                 disconnect(browser, app, origin)
             else:
                 smoke(browser, origin)
+                stale_refresh(browser, origin)
         finally:
             browser.close()
     print(f"Chromium {'stream disconnect' if args.disconnect else 'smoke'} passed.")
