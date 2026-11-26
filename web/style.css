@@ -847,6 +847,7 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 .artifact-icon-button { display: grid; place-items: center; width: 36px; height: 36px; flex: none; padding: 0; border: 1px solid var(--border); border-radius: 9px; color: var(--accent); background: var(--paper); font-size: 22px; line-height: 1; }
 .artifact-icon-button:hover, .artifact-control:hover { border-color: var(--artifact-hover-border); background: var(--artifact-control-hover); }
 .artifact-connection { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; padding: 10px 14px; margin-bottom: 15px; border: 1px solid var(--artifact-connection-border); border-radius: 10px; color: var(--artifact-connection-text); background: var(--artifact-connection-bg); font-size: 13px; }
+.artifact-load-error > p { margin: 0; }
 .artifact-connection a, .artifact-thread, .artifact-markdown a { color: var(--accent); text-underline-offset: 3px; }
 .artifact-toolbar { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(95px, .35fr) minmax(130px, .46fr) auto; align-items: center; gap: 9px; }
 .artifact-toolbar :is(input, select) { width: 100%; min-width: 0; color: inherit; background: var(--paper); padding: 8px 10px; min-height: 42px; border: 1px solid var(--artifact-field-border); border-radius: 9px; font-size: 13px; }
@@ -961,7 +962,8 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
   [data-layout="list"] .artifact-card-links { grid-column: 2 / -1; justify-content: flex-start; }
 }
 @media (max-width: 680px) {
-  .artifact-intro { margin-bottom: 17px; align-items: flex-start; }
+  .artifact-intro { margin-bottom: 17px; align-items: flex-start; flex-wrap: wrap; gap: 8px 14px; }
+  .artifact-intro > :first-child { flex: 1 1 230px; }
   .artifact-intro p { margin-top: 6px; font-size: 13px; }
   .artifact-box-control { gap: 4px; }
   .artifact-box-status { min-height: 32px; font-size: 10px; padding: 5px 6px; gap: 4px; }

@@ -452,18 +452,27 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     render();
   }
 
-  async function show() {
+  async function show({ fromRetry = false } = {}) {
     if (request) return request;
-    get("artifact-refresh").disabled = true;
+    const retry = get("artifact-try-again");
+    const problem = get("artifact-load-error");
+    retry.disabled = get("artifact-refresh").disabled = true;
+    problem.hidden = true;
+    if (!snapshot) get("artifact-count").textContent = "Loading artifacts…";
     request = api("/api/artifacts").then((data) => {
       snapshot = data;
       if (snapshot.timezone) setTimeZone(snapshot.timezone);
       render();
     }).catch((error) => {
-      get("artifact-count").textContent = error.message;
+      if (!snapshot) get("artifact-count").textContent = "";
+      problem.hidden = false;
+      get("artifact-error-message").textContent = error.message;
     }).finally(() => {
       request = undefined;
-      get("artifact-refresh").disabled = false;
+      retry.disabled = get("artifact-refresh").disabled = false;
+      if (fromRetry && get("artifacts-view").checkVisibility()) {
+        (problem.hidden ? get("artifact-refresh") : retry).focus();
+      }
     });
     return request;
   }
@@ -815,6 +824,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     opener = undefined;
     if (!get("page-dialog").open) target?.focus();
   });
+  get("artifact-try-again").addEventListener("click", () => show({ fromRetry: true }));
   get("artifact-refresh").addEventListener("click", show);
   search.addEventListener("input", render);
   kind.addEventListener("change", render);
