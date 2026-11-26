@@ -183,6 +183,9 @@ class HomeTest(unittest.TestCase):
         self.assertIn(identity, snapshot["layout"]["hidden"])
         self.assertTrue(snapshot["panels"][identity]["value"][1]["checked"])
         self.app.home.adjust({"id": identity, "operation": "restore"})
+        events = [item["data"]["operation"] for item in self.storage.load()["activity"]
+                  if item["title"].startswith("Home layout")]
+        self.assertEqual(events, ["move", "hide", "restore"])
         thread = self.app.home.panel_chat(identity)
         self.assertEqual(thread["title"], "About Thanksgiving shopping")
         with patch("hearth.agent.time.sleep"):

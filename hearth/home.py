@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 from zoneinfo import ZoneInfo
 
-from . import approvals, panels
+from . import approvals, panels, timeline
 from .artifacts import page_artifacts
 from .gateway_tools import scrub
 from .reminder_config import quiet_until, saved
@@ -198,7 +198,15 @@ class Home:
     def adjust(self, body):
         with self.storage.lock():
             state = self.storage.load()
+            previous = panels.layout(state)
             result = panels.adjust_layout(state, body)
+            if result != previous:
+                operation, identity = body["operation"], body["id"]
+                label = {"move": "Panel moved", "hide": "Panel removed", "restore": "Panel restored"}[operation]
+                state.setdefault("activity", []).append(timeline.entry(
+                    "panel", f"Home layout · {label}", {"thread_id": "", "thread_title": "Workspace"},
+                    id=new_id(), at=iso(), data={"panel_id": identity, "operation": operation},
+                ))
             self.storage.save(state)
             return result
 

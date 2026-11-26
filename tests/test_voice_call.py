@@ -77,6 +77,7 @@ class VoiceCallTest(unittest.TestCase):
             self.assertFalse(request.has_header("X-api-key"))
             _, _, status = self.request(PATH + "/status")
         self.assertEqual(status["last_check"]["status"], "passed")
+        self.assertEqual(self.storage.load()["activity"][-1]["title"], "Call token issued")
         self.assertNotIn(TOKEN, json.dumps(status) + output.getvalue())
         for file in self.storage.root.rglob("*"):
             if file.is_file():

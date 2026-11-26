@@ -460,6 +460,8 @@ class Application:
             self.call_check = (connection_id, {"at": iso(), "status": "failed", "kind": "token", "detail": str(error)})
             raise
         self.call_check = (connection_id, {"at": iso(), "status": "passed", "kind": "token"})
+        timeline.record(self.storage, "voice", "Call token issued", {"thread_id": "", "thread_title": "Workspace"},
+                        provider=provider)
         return reply
 
     def enqueue(self, thread_id, prompt, *, source=None, approval=None, attachment_ids=None, task_run=None,
@@ -1212,7 +1214,11 @@ class Handler(BaseHTTPRequestHandler):
                 if self.body():
                     raise HearthError("A Feed refresh takes no settings.")
                 self.app.ideas.kick()
-                self.json(self.app.feed.tick(force=True))
+                result = self.app.feed.tick(force=True)
+                timeline.record(self.app.storage, "feed", "Feed refresh requested",
+                                {"thread_id": "", "thread_title": "Workspace"},
+                                data={"detail": result["status"], "card_count": len(result["cards"])})
+                self.json(result)
             elif handler := operations.get(self.path):
                 with self.app.operation:
                     if self.app.restoring():
@@ -1463,6 +1469,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.json({"error": "A checkpoint is being restored."}, 409)
                     return
                 result = file_questions.ask(self.app.agent, body)
+                if result.get("source"):
+                    timeline.record(self.app.storage, "artifact", "Answered a question about Box files",
+                                    {"thread_id": "", "thread_title": "Workspace"},
+                                    provider="box", data={"citation_count": len(result["citations"])})
             else:
                 with self.app.operation:
                     if self.app.restore and self.app.restore["status"] == "restoring":

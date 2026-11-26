@@ -132,6 +132,11 @@ class FeedTest(unittest.TestCase):
         idea = next(row for row in generated if row["kind"] == "idea")
         for operation, row in [("like", read), ("save", read), ("less", idea), ("less", idea), ("dismiss", read)]:
             self.engine.feedback({"id": row["id"], "operation": operation})
+        self.engine.save_settings({"steering": "Plan a garden workshop"})
+        events = [row for row in self.storage.load()["activity"] if row["kind"] == "feed"]
+        self.assertEqual([row["data"]["operation"] for row in events[:-1]], ["like", "save", "less", "less", "dismiss"])
+        self.assertEqual(events[-1]["title"], "Feed steering updated")
+        self.assertNotIn("Plan a garden workshop", json.dumps(events))
         profile = {row["topic"]: row["weight"] for row in self.engine.get_settings()["interests"]}
         self.assertEqual((profile["Gardening"], profile["Workshop plans"]), (2, -3))
         self.assertEqual([row["id"] for row in self.engine.list(saved=True, clock=NOW)["cards"]], [read["id"]])

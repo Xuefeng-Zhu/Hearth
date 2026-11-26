@@ -18,7 +18,7 @@ const kinds = {
   worker: ["Worker", "workers"],
   undo: ["Undo", "retry"], inbox: ["Inbox", "inbox"], email: ["Email", "mail"],
   approval: ["Approval", "shield"], task: ["Recurring task", "clock"], automation: ["Automation", "clock"], proactivity: ["Proactivity", "sparkle"],
-  panel: ["Home panel", "home"], checkpoint: ["Checkpoint", "history"], thread: ["Side chat", "message"], tool: ["Tool", "wrench"],
+  panel: ["Home panel", "home"], feed: ["Feed", "sparkle"], checkpoint: ["Checkpoint", "history"], thread: ["Side chat", "message"], tool: ["Tool", "wrench"],
 };
 kinds.remember = kinds.memory;
 
@@ -83,7 +83,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["approval", "task", "automation", "proactivity", "goal", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill", "worker"]
+    action: ["approval", "task", "automation", "proactivity", "goal", "artifact", "browse", "checkpoint", "email", "feed", "gateway", "inbox", "memory", "panel", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill", "worker"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,

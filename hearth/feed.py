@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, unquote, urlsplit
 
-from . import browserbase, mail_content, memory, panels, proactivity, search
+from . import browserbase, mail_content, memory, panels, proactivity, search, timeline
 from .connections import with_model
 from .memory_review import feed_cards as memory_review_cards
 from .connectors import ConnectorError
@@ -19,6 +19,7 @@ from .storage import HearthError, iso, new_id
 DEFAULTS = {"enabled": True, "frequency": 240, "follow": [], "mute": [], "steering": ""}
 KINDS = {"read", "idea", "digest", "reminder-context"}
 FEEDBACK = {"like": 2, "save": 1, "dismiss": -1, "less": -3}
+FEEDBACK_EVENTS = {"like": "Like", "save": "Save", "dismiss": "Dismiss", "less": "Less like this"}
 MAX_EXA = 6
 MAX_CARDS = 6
 MAX_HISTORY = 300
@@ -327,7 +328,13 @@ class Feed:
         with self.storage.lock():
             state = self.storage.load()
             rules = forget_rules(self.storage, state)
-            state["feed_settings"] = validate(body, settings(state), rules)
+            previous = settings(state)
+            state["feed_settings"] = validate(body, previous, rules)
+            if state["feed_settings"]["steering"] != previous["steering"]:
+                state.setdefault("activity", []).append(timeline.entry(
+                    "feed", "Feed steering updated", {"thread_id": "", "thread_title": "Workspace"},
+                    id=new_id(), at=iso(),
+                ))
             self.storage.save(state)
             return self.settings_info(state)
 
@@ -557,6 +564,11 @@ class Feed:
                     saved[identity] = {key: value for key, value in row.items() if key not in {"action_label", "expires_at"}}
                 else:
                     saved.pop(identity, None)
+            state.setdefault("activity", []).append(timeline.entry(
+                "feed", f"Feed feedback · {FEEDBACK_EVENTS[operation]}",
+                {"thread_id": "", "thread_title": "Workspace"}, id=new_id(), at=iso(),
+                data={"operation": operation, "card_id": identity},
+            ))
             self.storage.save(state)
             return public_card(row, votes)
 
