@@ -29,6 +29,7 @@ The desktop sidebar and mobile drawer list **Home**, **Chat**, **Timeline**, **A
 - **Get timely suggestions.** **Home → Feed** combines Exa articles, topic digests, ideas from Memory, reminder prep, and timely Action suggestions. Follow or mute topics, steer what shows up, save cards, or take a card into Chat. [Proactivity guide](docs/proactivity.md)
 - **Stay on top of work.** Home shows reminders, Inbox, recent files, memory, activity, connector health, and Open-Meteo weather. Add panels from chat and rearrange them on Home.
 - **Make files and pages.** Create and edit DOCX, PDF, XLSX, and PPTX from chat. Preview and download artifacts, keep versions locally, and sync to Box. Build single-file HTML pages with phone and desktop previews, version history, and optional approved snapshot sharing.
+- **Ask your Box files.** In **Artifacts → Ask my files** or Chat, ask Hearth about selected files or up to 25 recent files. Answers cite file names with **Open in Box** links. The Sprite verified a question across a DOCX and an XLSX using Hearth’s text extraction, Pinecone, and its connected brain. [Box setup and probe](docs/box.md), [Run 46 verification](docs/run-46.md)
 - **Reuse skills in chat.** Start with four built-in Markdown playbooks or write your own. Use **Try it** to preload a skill in a side chat, select **Using skill** to open its playbook, and undo edits from Timeline. [Skills guide](docs/skills.md)
 - **Review actions.** Approve, edit supported fields, or decline proposed actions, including email. Timeline records tool activity and approvals. Supported changes offer item-level Undo or filesystem checkpoint restore.
 - **Review what Hearth remembers.** Edit your profile and browse linked People, Places, Topics, and Daily notes. Search uses local keyword matching in English and Chinese, with optional Pinecone recall. With Auto-remember enabled, chat can save durable facts to subject notes during the turn. In chat, ask Hearth to permanently forget a specific fact. [Memory guide](docs/memory.md)
@@ -68,8 +69,8 @@ Connectors are enabled per Sprite. A fresh clone has empty connection settings a
 | Connector | What it powers | Status |
 | --- | --- | --- |
 | Hugging Face | Chat, image understanding, Whisper, and dense memory embeddings | Supported. Select a model under **Settings → Brain**. |
-| Pinecone | Semantic recall, namespace sync, and optional reranking | Supported. Set up the index before syncing. Hearth falls back to local recall when Pinecone is unavailable. |
-| Box | Artifact upload, version writes, and reading files from the workspace folder | Supported. Box version history uses local receipts until the gateway supports `GET /2.0/files/{file_id}/versions` (the `GET /versions` route). |
+| Pinecone | Semantic recall, file-question retrieval, namespace sync, and optional reranking | Supported. Ask my files uses the separate `files` namespace. Memory falls back to local recall when Pinecone is unavailable. |
+| Box | Artifact upload, version writes, and reading files from the workspace folder | Supported. Version history can use local receipts. Box AI routes returned HTTP 403 through the Sprites gateway. [Box details](docs/box.md) |
 | Exa | Web search and source links in chat | Supported. Choose Exa under **Settings → Search**. |
 | AgentMail | Approved chat email, reminder and task delivery, and forwarded-mail imports | Supported. Select or provision an inbox in **Settings → Connections**. |
 | Vocal Bridge | Live calls and chat queries from the voice agent | Supported. Requires a deployed voice agent and its connector. |
@@ -142,6 +143,7 @@ Keep the workspace URL behind Sprite authentication. Provider API keys stay with
 
 - [Architecture](docs/architecture.md)
 - [Connectors](docs/connectors.md)
+- [Box and Ask my files](docs/box.md)
 - [Deploy](docs/deploy.md)
 - [Approvals and tasks](docs/approvals-and-tasks.md)
 - [Feed, Action suggestions, and the Morning brief](docs/proactivity.md)
