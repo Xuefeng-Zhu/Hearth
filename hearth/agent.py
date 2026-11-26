@@ -1041,11 +1041,14 @@ class Agent:
             files = set(self.storage.files())
             return demo_recipients((path, self.storage.read(path)) for path in DEMO_GUEST_NOTES if path in files)
 
-    def model_completion(self, model, messages, tools, emit, **limits):
+    def model_completion(self, model, messages, tools, emit, *, text_only=False, **limits):
         stream = ReplyStream(emit)
         reply = self.tools.gateway.completion(model, messages, tools, stream.write, **limits)
-        raw, calls, malformed = text_tool_calls(reply.get("content") or "")
-        reply["content"] = clean_reply(raw)
+        raw, calls, malformed = text_tool_calls(reply.get("content") or "", keep_worker_result=text_only)
+        reply["content"] = clean_reply(raw, keep_worker_result=text_only)
+        if text_only:
+            stream.finish()
+            return reply
         if not reply.get("tool_calls") and calls and not malformed:
             reply["tool_calls"] = calls
         available = {tool["function"]["name"] for tool in tools}
@@ -1307,6 +1310,7 @@ class Agent:
         request = json.dumps({"original_request": turn["prompt"], "assignment": instructions}, ensure_ascii=False)
         messages = [{"role": "system", "content": system}, {"role": "user", "content": request}]
         used_tools = set()
+        findings = []
         steps = 0
         origin_token = CHAT_ORIGIN.set(worker_origin)
         turn_token = TURN_MEMORY.set(turn)
@@ -1332,19 +1336,32 @@ class Agent:
                     try:
                         reply = self.model_completion(model, model_messages, active_tools,
                                                       lambda _: None, timeout=min(25, remaining),
-                                                      max_tokens=workers.OUTPUT_TOKENS, check=worker.remaining)
+                                                      max_tokens=workers.OUTPUT_TOKENS, check=worker.remaining,
+                                                      text_only=synthesizing)
                     except ConnectorError:
-                        if synthesizing or not steps:
+                        if not steps:
                             raise
+                        if synthesizing:
+                            result = self.worker_evidence_result(findings)
+                            break
                         steps = workers.TOOL_LIMIT
                         continue
                 worker.remaining()
                 calls = reply.get("tool_calls", [])
-                if not calls:
-                    result = self.worker_result(reply.get("content"))
+                if synthesizing or not calls:
+                    try:
+                        result = self.worker_result(reply.get("content"))
+                    except HearthError:
+                        if not synthesizing and not findings:
+                            raise
+                        result = self.worker_evidence_result(findings)
                     break
-                if steps + len(calls) > workers.TOOL_LIMIT:
-                    raise HearthError("Worker reached its tool limit.")
+                allowance = workers.TOOL_LIMIT - steps
+                if len(calls) > allowance:
+                    # Models often batch several searches at once. Run what fits in the budget,
+                    # then synthesize from the evidence instead of failing the worker.
+                    calls = calls[:allowance]
+                    reply = {**reply, "tool_calls": calls}
                 messages.append(reply)
                 loading_skill = any(call["function"]["name"] == "skill_load" for call in calls)
                 for call in calls:
@@ -1386,15 +1403,43 @@ class Agent:
                     failure = value.get("error")
                     step_status = action["status"] if action else "failed" if failure else "done"
                     worker.step(step_status, detail=failure)
+                    if not failure:
+                        findings.append(value)
                     messages.append({"role": "tool", "tool_call_id": call["id"],
                                      "content": workers.tool_text(value)})
             else:
-                raise HearthError("Worker reached its model call limit.")
+                result = self.worker_evidence_result(findings)
             return {"result": result, "used_tools": used_tools,
                     **{key: turn[key] for key in ("citations", "artifacts", "browse_images")}}
         finally:
             TURN_MEMORY.reset(turn_token)
             CHAT_ORIGIN.reset(origin_token)
+
+    @classmethod
+    def worker_evidence_result(cls, findings):
+        lines, urls = [], []
+        for value in findings:
+            # Keep the best hit from each search, or the note or action returned by a direct tool.
+            rows = value.get("results", [value.get("action") or value])
+            if not isinstance(rows, list) or not rows:
+                continue
+            row = rows[0]
+            if isinstance(row, dict):
+                title = row.get("title") or row.get("path")
+                excerpt = next((row[key] for key in ("snippet", "excerpt", "content", "text", "message")
+                                if isinstance(row.get(key), str) and row[key].strip()), "")
+                line = " — ".join(part for part in (title, " ".join(excerpt.split())[:250])
+                                  if isinstance(part, str) and part)
+                if isinstance(row.get("url"), str):
+                    urls.append(row["url"])
+            else:
+                line = ""
+            lines.append(line or workers.tool_text(row)[:250])
+        summary = "\n".join(f"- {line}" for line in dict.fromkeys(lines))
+        return cls.worker_result(json.dumps({
+            "summary": summary or "The worker reached its tool budget without usable evidence.",
+            "sources": list(dict.fromkeys(urls)),
+        }, ensure_ascii=False))
 
     @staticmethod
     def worker_result(content):

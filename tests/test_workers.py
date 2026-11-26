@@ -308,6 +308,72 @@ class ChatWorkersTest(unittest.TestCase):
         self.assertEqual(len(gateway.limits), workers.MODEL_LIMIT)
         self.assertTrue(any(name == "done" for name, _ in events))
 
+    def test_batched_calls_fit_budget_and_parent_combines_partial_results(self):
+        class Batched(WorkerGateway):
+            def completion(self, model, messages, tools, emit, **limits):
+                worker = (TURN_MEMORY.get() or {}).get("worker")
+                if not worker:
+                    return super().completion(model, messages, tools, emit, **limits)
+                title = worker.row["title"]
+                if title == "Venues":
+                    raise ConnectorError("Venue research was unavailable.")
+                if not tools:
+                    evidence = json.loads(messages[-1]["content"].split("reference data: ", 1)[1])
+                    assert len(evidence) == workers.TOOL_LIMIT
+                    assert all(json.loads(item)["path"] == "topics/thanksgiving.md" for item in evidence)
+                    return {"role": "assistant", "content": json.dumps({"summary": f"{title} findings verified."})}
+                calls = [tool_call("memory_read", {"path": "topics/thanksgiving.md"})["tool_calls"][0]
+                         for _ in range(workers.TOOL_LIMIT)]
+                calls.append(tool_call("memory_read", {"path": "topics/omitted.md"})["tool_calls"][0])
+                return {"role": "assistant", "content": None, "tool_calls": calls}
+
+        gateway = Batched()
+        app = self.make_app(gateway)
+        events = collect(app.enqueue("main", PROMPT))
+        self.assertEqual([row["status"] for row in gateway.results], ["done", "failed", "done"])
+        done = [data for name, data in events if name == "worker" and data["status"] == "done"]
+        self.assertEqual(len(done), 2)
+        for row in done:
+            self.assertEqual([step["status"] for step in row["steps"]], ["done"] * workers.TOOL_LIMIT)
+        replies = [row["content"] for row in app.threads.messages("main") if row["role"] == "assistant"]
+        self.assertEqual(len(replies), 1)
+        for finding in ("Grants findings verified.", "Equipment findings verified.", "Venue research was unavailable."):
+            self.assertIn(finding, replies[0])
+
+    def test_synthesis_ignores_stray_calls_and_recovers_blank_replies(self):
+        class StrayCalls(WorkerGateway):
+            def completion(self, model, messages, tools, emit, **limits):
+                worker = (TURN_MEMORY.get() or {}).get("worker")
+                if not worker:
+                    return super().completion(model, messages, tools, emit, **limits)
+                if tools:
+                    return {"role": "assistant", "content": None, "tool_calls": [
+                        tool_call("memory_read", {"path": "topics/thanksgiving.md"})["tool_calls"][0]
+                        for _ in range(workers.TOOL_LIMIT)
+                    ]}
+                stray = tool_call("memory_read", {"path": "topics/omitted.md"})
+                if worker.row["title"] == "Grants":
+                    stray["content"] = '{"summary":"Grant synthesis kept.","sources":[]}'
+                    return stray
+                if worker.row["title"] == "Venues":
+                    return {"role": "assistant", "content": (
+                        '```json\n{"summary":"Venue synthesis kept.","sources":[]}\n```\n'
+                        'memory_read>{"path":"topics/omitted.md"}'
+                    )}
+                return {"role": "assistant", "content": 'memory_read>{"path":"topics/omitted.md"}'}
+
+        gateway = StrayCalls()
+        app = self.make_app(gateway)
+        events = collect(app.enqueue("main", PROMPT))
+        self.assertEqual([row["status"] for row in gateway.results], ["done"] * 3)
+        self.assertEqual(gateway.results[0]["summary"], "Grant synthesis kept.")
+        self.assertEqual(gateway.results[1]["summary"], "Venue synthesis kept.")
+        self.assertIn("topics/thanksgiving.md", gateway.results[2]["summary"])
+        self.assertIn("# Thanksgiving", gateway.results[2]["summary"])
+        for name, row in events:
+            if name == "worker" and row["status"] == "done":
+                self.assertEqual(len(row["steps"]), workers.TOOL_LIMIT)
+
     def test_recurring_task_can_delegate_and_handoff_approval(self):
         assignment = {"title": "Browser", "instructions": "Check the sample page with a browser session.",
                       "tools": ["browse_session"]}

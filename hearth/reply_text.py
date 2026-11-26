@@ -34,7 +34,7 @@ TAGGED_NAME = re.compile(r"([a-z_]\w*)\s*>\s*", re.I)
 DECODER = json.JSONDecoder()
 
 
-def text_tool_calls(text):
+def text_tool_calls(text, *, keep_worker_result=False):
     """Separate textual tool envelopes from prose before either is shown or persisted."""
     calls, prose = [], []
     malformed = False
@@ -51,6 +51,10 @@ def text_tool_calls(text):
             value, end = DECODER.raw_decode(text, start)
             if closing := TOOL_END.match(text, end):
                 end = closing.end()
+            if (keep_worker_result and match[0].startswith("```") and isinstance(value, dict)
+                    and "summary" in value and value.keys() <= {"summary", "sources"}):
+                prose.append(text[match.start():end])
+                continue
             if name:
                 value = {"name": name, "arguments": value}
             entries = value.get("tool_calls", [value]) if isinstance(value, dict) else value
@@ -77,8 +81,8 @@ def text_tool_calls(text):
     return "".join(prose), calls, malformed
 
 
-def clean_reply(text):
-    text, _, _ = text_tool_calls(text)
+def clean_reply(text, *, keep_worker_result=False):
+    text, _, _ = text_tool_calls(text, keep_worker_result=keep_worker_result)
     return redact_text(TOOL_MARKUP.sub("", text))
 
 
