@@ -12,6 +12,7 @@ from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import read_config
 from hearth.server import Application, HTTPServer
 from hearth.storage import HearthError, ROOT, Storage
+from hearth.subsystem_status import SubsystemStatus
 
 
 class SubsystemStatusTest(unittest.TestCase):
@@ -137,3 +138,10 @@ class SubsystemStatusTest(unittest.TestCase):
             self.assertEqual(failed_write["last_success"], recovered["last_success"])
             self.assertEqual(failed_write["last_failure_code"], "storage_error")
             self.assertEqual(failed_write["failure_count"], 3)
+
+            with patch.object(self.app, "subsystem_status", SubsystemStatus()):
+                refresh({}, error="private listing fixture")
+                restarted = self.status("box_recall")
+                self.assertTrue(restarted["stale"])
+                self.assertEqual(restarted["last_success"], recovered["last_success"])
+                self.assertEqual(restarted["failure_count"], 1)

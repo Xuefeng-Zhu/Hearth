@@ -13,19 +13,19 @@ class SubsystemStatus:
                      for name in ("http", "scheduler", "box_recall")}
         self.rows["box_recall"]["stale"] = False
 
-    def success(self, subsystem):
+    def success(self, subsystem, *, at=None):
         with self.lock:
             row = self.rows[subsystem]
-            row["last_success"] = iso()
+            row["last_success"] = at or iso()
             if "stale" in row:
                 row["stale"] = False
 
-    def failure(self, subsystem, code):
+    def failure(self, subsystem, code, *, last_success=None):
         with self.lock:
             row = self.rows[subsystem]
             row.update(last_failure=iso(), last_failure_code=code, failure_count=row["failure_count"] + 1)
             if "stale" in row:
-                row["stale"] = True
+                row.update(stale=True, last_success=last_success)
 
     def snapshot(self):
         with self.lock:

@@ -2,6 +2,7 @@
 
 import threading
 import time
+from datetime import datetime, timezone
 
 from . import pinecone, recall, timeline
 from .connectors import ConnectorError
@@ -134,28 +135,37 @@ class MemorySync:
         service = self.app.artifacts
         index = self.app.memory_index
         status = self.app.subsystem_status
+        last_success = None
         try:
             scope = service.box_scope()
             epoch = service.epoch
             if not scope[0] or self.app.restoring():
                 return
             cache = index.read_index(index.box_path)
-            previous = cache.get("rows", {}) if cache.get("scope") == list(scope) else {}
-            rows, incomplete = service.memory_rows(previous)
+            if cache.get("scope") != list(scope):
+                cache = {}
+            try:
+                saved_at = datetime.fromisoformat(cache.get("last_success", ""))
+                if saved_at.tzinfo == timezone.utc:
+                    last_success = iso(saved_at)
+            except (TypeError, ValueError):
+                pass
+            rows, incomplete = service.memory_rows(cache.get("rows", {}))
             with self.app.operation:
                 if scope != service.box_scope() or epoch != service.epoch or self.app.restoring():
                     return
                 if rows is not None:
-                    index.replace_box_artifacts({"scope": list(scope), "rows": rows})
+                    checked_at = last_success if incomplete else iso()
+                    index.replace_box_artifacts({"scope": list(scope), "rows": rows, "last_success": checked_at})
         except OSError:
-            status.failure("box_recall", "storage_error")
+            status.failure("box_recall", "storage_error", last_success=last_success)
         except Exception:
-            status.failure("box_recall", "refresh_failed")
+            status.failure("box_recall", "refresh_failed", last_success=last_success)
         else:
             if incomplete:
-                status.failure("box_recall", "refresh_failed")
+                status.failure("box_recall", "refresh_failed", last_success=last_success)
             elif rows is not None:
-                status.success("box_recall")
+                status.success("box_recall", at=checked_at)
 
     def log(self, agent, job, failed=False):
         title = {"startup": "Pinecone startup backfill", "sync": "Pinecone memory sync",
