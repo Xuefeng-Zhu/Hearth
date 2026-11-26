@@ -200,15 +200,18 @@ async function checkMovedSettings(page, check, shot) {
     await check(`Settings Connections ${name}`);
     await shot(`settings-connections-${await panel.getAttribute("id")}`);
   }
-  await chooseSetting(page, "skills");
+}
+
+async function checkSkills(page, check, shot) {
+  await go(page, "skills");
   await page.locator("#skill-list article").first().waitFor();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth));
-  await check("Settings Skills library");
-  await shot("settings-skills");
+  await check("Skills library");
+  await shot("skills");
   await page.locator("#skill-new").click();
   await page.locator("#skill-editor:modal").waitFor();
-  await check("Settings Skills editor");
-  await shot("settings-skills-editor");
+  await check("Skills editor");
+  await shot("skills-editor");
   await page.locator("#skill-close").click();
 }
 
@@ -357,6 +360,7 @@ async function screens(scheme, width, height) {
     await check(`Settings ${id}`);
     await shot(`settings-${id}`);
   }
+  await checkSkills(page, check, shot);
   await go(page, "chat");
   await page.locator("#start-call").click();
   await page.locator("#call-sheet:modal").waitFor();

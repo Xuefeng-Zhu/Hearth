@@ -34,6 +34,7 @@
         <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>
         <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
         <button type="button" class="nav-link" data-view="memory"><span data-icon="book"></span> Memory</button>
+        <button type="button" class="nav-link" data-view="skills"><span data-icon="skill"></span> Skills</button>
       </nav>
       <nav class="workspace-settings" aria-label="Preferences">
         <p class="workspace-status" role="status" hidden><span class="dot" aria-hidden="true"></span><span data-workspace-status></span></p>
@@ -306,15 +307,19 @@
         <p class="visually-hidden" id="timeline-announcer" role="status"></p>
         <div class="timeline" id="timeline"></div>
       </section>
+      <section class="view panel" id="skills-view" aria-labelledby="view-title" hidden>
+        <div class="section-intro">
+          <h2>Reusable playbooks</h2>
+          <p>Use a playbook in chat or create one for a routine of your own.</p>
+        </div>
+        <div class="settings-actions">
+          <p class="meta" id="skills-status" role="status"></p>
+          <button type="button" class="settings-button primary-setting" id="skill-new"><span data-icon="plus" data-icon-size="17"></span> New skill</button>
+        </div>
+        <div id="skill-list" class="skill-list" aria-label="Playbooks"></div>
+      </section>
       <section class="view panel" id="settings-view" aria-labelledby="view-title" hidden>
         <div class="settings-sections" id="settings-sections">
-        <div class="settings-body" id="settings-skills" hidden>
-          <div class="settings-actions">
-            <p class="meta" id="skills-status" role="status"></p>
-            <button type="button" class="settings-button primary-setting" id="skill-new"><span data-icon="plus" data-icon-size="17"></span> New skill</button>
-          </div>
-          <div id="skill-list" class="skill-list" aria-label="Playbooks"></div>
-        </div>
         <div class="settings-body" id="settings-connections" hidden>
           <div class="settings-actions">
             <p class="meta" id="connection-notice" role="status">Checking connections…</p>
@@ -748,6 +753,7 @@
         <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>
         <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
         <button type="button" class="nav-link" data-view="memory"><span data-icon="book"></span> Memory</button>
+        <button type="button" class="nav-link" data-view="skills"><span data-icon="skill"></span> Skills</button>
       </nav>
       <p class="notice" id="drawer-notice" role="status" hidden></p>
       <div id="mobile-thread-panel"></div>

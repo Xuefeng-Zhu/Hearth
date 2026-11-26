@@ -15,7 +15,7 @@ from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage
 from test_pages import seed_legacy_page
 
-NAV_ORDER = ["home", "chat", "timeline", "artifacts", "reminders", "inbox", "memory", "settings"]
+NAV_ORDER = ["home", "chat", "timeline", "artifacts", "reminders", "inbox", "memory", "skills", "settings"]
 FILES = {
     "Documents": ("docx", {"title": "Dinner notes", "sections": [{"paragraphs": ["Bring dessert."]}]}),
     "PDFs": ("pdf", {"title": "Dinner plan", "sections": [{"paragraphs": ["Dinner starts at 5 PM."]}]}),

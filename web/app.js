@@ -31,7 +31,6 @@ const settingsGroups = [
   ["Assistant", [
     ["brain", "Brain", "Models and routing", "route"],
     ["memory", "Memory", "Recall and saved facts", "book"],
-    ["skills", "Skills", "Reusable playbooks", "skill"],
     ["search", "Search", "Web search providers", "search"],
     ["voice", "Voice", "Calls and dictation", "mic"],
   ]],
@@ -137,8 +136,8 @@ const automation = createAutomation({
 const skills = createSkills({
   api, openChat: openSkillChat,
   onLinkedClose(id) {
-    if (location.hash === settingsHash("skills", id)) {
-      history.replaceState(history.state, "", settingsHash("skills"));
+    if (location.hash === skillHash(id)) {
+      history.replaceState(history.state, "", skillHash());
     }
   },
 });
@@ -1421,6 +1420,10 @@ function settingsHash(section, target) {
   return "#settings" + (section ? `/${section}` : "") + (target ? `/${encodeURIComponent(target)}` : "");
 }
 
+function skillHash(id) {
+  return id ? `#skills/${encodeURIComponent(id)}` : "#skills";
+}
+
 function connectionHash(tab) {
   return settingsHash("connections", tab);
 }
@@ -1433,14 +1436,16 @@ function workspaceRoute() {
   const hash = location.hash;
   if (hash === "#settings") return { view: "settings", hash };
   const [root, ...path] = hash.slice(1).split("/");
-  const [section, item, extra] = root === "settings" ? path
-    : ["connections", "skills"].includes(root) ? [root, ...path] : [];
-  if (extra === undefined && settingsDisclosures.has(section)) {
+  const [section, item, extra] = root === "settings" ? path : [root, ...path];
+  if (extra === undefined && section === "skills") {
     let target;
-    if (section === "connections" && configTabs.includes(item)) target = item;
-    if (section === "skills" && item) {
+    if (item) {
       try { target = decodeURIComponent(item); } catch { /* Open the library for a malformed skill link. */ }
     }
+    return { view: "skills", target, hash: skillHash(target) };
+  }
+  if (extra === undefined && (root === "settings" || root === "connections") && settingsDisclosures.has(section)) {
+    const target = section === "connections" && configTabs.includes(item) ? item : undefined;
     return { view: "settings", section, target, hash: settingsHash(section, target) };
   }
   const filter = artifactFilterFromHash(hash);
@@ -2157,7 +2162,6 @@ async function openSettings(section, target) {
     byId(`settings-${key}`).hidden = !open;
   }
   settingsDisclosures.get(section)?.scrollIntoView({ block: "nearest" });
-  if (section !== "skills") skills.clearLink();
   if (!section) return;
   if (section === "connections") {
     renderConnections();
@@ -2167,7 +2171,6 @@ async function openSettings(section, target) {
     if (isSetting("connections")) delivery.poll();
     return;
   }
-  if (section === "skills") return skills.loadLinked(target);
   if (section === "brain") return openBrainSettings();
   if (section === "appearance") return;
   if (section === "artifacts") return artifactLibrary.settings();
@@ -2271,7 +2274,8 @@ async function openView(nextView, updateHistory = true, section, target) {
   mobile.closeDrawer();
   if (nextView !== "chat") voice.cancel();
   if (updateHistory) {
-    const hash = nextView === "settings" ? settingsHash(section) : nextView === "artifacts" ? artifactHash() : "";
+    const hash = nextView === "settings" ? settingsHash(section) : nextView === "artifacts" ? artifactHash()
+      : nextView === "skills" ? skillHash() : "";
     const sameArtifactsView = nextView === "artifacts" && workspaceRoute()?.view === "artifacts";
     if (hash !== location.hash && !sameArtifactsView) {
       history.pushState({ hearthView: nextView }, "", hash || location.pathname + location.search);
@@ -2279,7 +2283,7 @@ async function openView(nextView, updateHistory = true, section, target) {
   }
   history.replaceState({ ...history.state, hearthView: nextView }, "");
   if (view === "timeline" && nextView !== view) timeline.hide();
-  if (nextView !== "settings") skills.clearLink();
+  if (nextView !== "skills") skills.clearLink();
   view = nextView;
   byId("start-call").hidden = view !== "chat";
   byId("view-title").textContent = view[0].toUpperCase() + view.slice(1);
@@ -2302,6 +2306,9 @@ async function openView(nextView, updateHistory = true, section, target) {
   } else if (view === "home") {
     if (previousView !== "home") byId("home-view").scrollTop = 0;
     await homePage.load();
+  } else if (view === "skills") {
+    if (previousView !== "skills") byId("skills-view").scrollTop = 0;
+    await skills.loadLinked(target);
   } else if (view === "artifacts") {
     artifactLibrary.selectFormat(artifactFilterFromHash(location.hash) || "all");
     await artifactLibrary.show();

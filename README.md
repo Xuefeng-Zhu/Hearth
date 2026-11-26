@@ -9,18 +9,18 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 | Home | Chat approval | Artifacts and Pages |
 | --- | --- | --- |
 | [![Live Home showing a demo For you card, current weather, and healthy Pinecone and Browserbase connections](docs/screenshots/home.png)](docs/screenshots/home.png) | [![Ember beside an email approval card](docs/screenshots/chat-approval.png)](docs/screenshots/chat-approval.png) | [![HTML pages in the Artifacts library](docs/screenshots/artifacts-pages.png)](docs/screenshots/artifacts-pages.png) |
-| **Recurring tasks** | **Settings → Connections** | **Settings → Skills** |
-| [![Recurring task with schedule and run history](docs/screenshots/recurring-tasks.png)](docs/screenshots/recurring-tasks.png) | [![Connector catalog in Settings](docs/screenshots/connections.png)](docs/screenshots/connections.png) | [![Built-in playbooks in Settings](docs/screenshots/skills.png)](docs/screenshots/skills.png) |
+| **Recurring tasks** | **Settings → Connections** | **Skills** |
+| [![Recurring task with schedule and run history](docs/screenshots/recurring-tasks.png)](docs/screenshots/recurring-tasks.png) | [![Connector catalog in Settings](docs/screenshots/connections.png)](docs/screenshots/connections.png) | [![Built-in playbooks in the Skills library](docs/screenshots/skills.png)](docs/screenshots/skills.png) |
 
 [<img src="docs/screenshots/mobile-dark-drawer.png" alt="Hearth’s dark mobile drawer with Settings pinned below the workspace links and chats" width="195">](docs/screenshots/mobile-dark-drawer.png)
 
-The Settings and mobile drawer screenshots use local demo data. Home, Chat approval, Artifacts and Pages, and Recurring tasks were captured before the navigation update.
+The Connections, Skills, and mobile drawer screenshots use local demo data. Home, Chat approval, Artifacts and Pages, and Recurring tasks were captured before the navigation update.
 
 ## Navigation
 
-The desktop sidebar and mobile drawer list **Home**, **Chat**, **Timeline**, **Artifacts**, **Reminders**, **Inbox**, and **Memory** in that order. On phones, the seven links fit in a two-column grid above **Threads** and **New chat**. The drawer scrolls through longer chat lists with **Settings** pinned at the bottom.
+The desktop sidebar and mobile drawer list **Home**, **Chat**, **Timeline**, **Artifacts**, **Reminders**, **Inbox**, **Memory**, and **Skills** in that order. On phones, the eight links fit in a two-column grid above **Threads** and **New chat**. The drawer scrolls through longer chat lists with **Settings** pinned at the bottom.
 
-**Settings** opens with all sections collapsed. The same accordion on desktop and phones groups preferences under **Assistant**, **Connected**, **Notifications**, and **App**. Manage and test connectors under **Connected → Connections** or browse and edit playbooks under **Assistant → Skills**. Existing `#connections` and `#skills` bookmarks open those sections. On phones, find **Ember view** under **App → Appearance**.
+**Settings** opens with all sections collapsed. The same accordion on desktop and phones groups preferences under **Assistant**, **Connected**, **Notifications**, and **App**. Manage and test connectors under **Connected → Connections** and review skill approval policies under **Notifications → Approvals**. Browse and edit playbooks on the **Skills** page. The `#skills` bookmark opens that page, and `#connections` opens Settings → Connections. On phones, find **Ember view** under **App → Appearance**.
 
 ## What you can do
 

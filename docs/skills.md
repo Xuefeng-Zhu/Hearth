@@ -1,6 +1,6 @@
 # Skills
 
-Skills are reusable playbooks for Hearth. Open **Settings → Skills** from the desktop sidebar or mobile drawer. The library shows which playbooks are built in, when Hearth last loaded each one, and its use count. Bookmarks to `#skills` still open the library.
+Skills are reusable playbooks for Hearth. Open **Skills** from the desktop sidebar or mobile drawer. The library shows which playbooks are built in, when Hearth last loaded each one, and its use count. Use `#skills` to bookmark the library.
 
 - **Plan a dinner party** checks memory for guest allergies and dietary needs, proposes a menu, and creates an Excel shopping list.
 - **Weekly family brief** reads reminders, recurring tasks, and memory to summarize the coming week.

@@ -1,4 +1,4 @@
-"""Exercise Settings → Skills in Chromium across desktop and mobile themes."""
+"""Exercise Skills in Chromium across desktop and mobile themes."""
 
 import argparse
 import re
@@ -16,7 +16,7 @@ from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage
 from test_skills import Disconnected, playbook
 
-NAV = ["home", "chat", "timeline", "artifacts", "reminders", "inbox", "memory", "settings"]
+NAV = ["home", "chat", "timeline", "artifacts", "reminders", "inbox", "memory", "skills", "settings"]
 DINNER = "Plan a dinner party"
 CHAT_SKILL = "Water the seedlings"
 CONTRAST = """(root) => {
@@ -68,10 +68,7 @@ def choose(page, label, mobile):
 
 
 def open_skills(page, mobile):
-    choose(page, "Settings", mobile)
-    section = page.locator('[data-settings="skills"]')
-    expect(section.locator("svg")).to_have_count(2)
-    section.click()
+    choose(page, "Skills", mobile)
 
 
 def verify(page, origin, width, theme, output, app):
@@ -97,14 +94,13 @@ def verify(page, origin, width, theme, output, app):
         page.screenshot(path=output / f"{name}-{width}-{theme}.png", animations="disabled")
 
     page.goto(origin + "/#skills")
-    expect(page).to_have_url(origin + "/#settings/skills")
-    expect(page.get_by_role("heading", name="Settings", level=1)).to_be_visible()
-    expect(page.locator('[data-settings="skills"]')).to_have_attribute("aria-expanded", "true")
+    expect(page).to_have_url(origin + "/#skills")
+    expect(page.get_by_role("heading", name="Skills", level=1)).to_be_visible()
     dinner = page.get_by_role("button", name=DINNER, exact=True)
     expect(dinner).to_be_visible()
     expect(page.locator(".skill-badge")).to_have_count(4)
     expect(page.get_by_text("Never used", exact=True)).to_have_count(4)
-    capture("skills-library", "#settings-skills")
+    capture("skills-library", "#skills-view")
 
     dinner.focus()
     page.keyboard.press("Enter")
@@ -171,7 +167,7 @@ def verify(page, origin, width, theme, output, app):
     chip = page.locator("#transcript").get_by_role("link", name=f"Using skill: {DINNER}", exact=True)
     expect(chip).to_be_visible()
     expect(chip.locator("svg")).to_have_count(1)
-    expect(chip).to_have_attribute("href", "#settings/skills/plan-dinner-party")
+    expect(chip).to_have_attribute("href", "#skills/plan-dinner-party")
     expect(page.get_by_text("Confirm allergies and quantities before shopping.", exact=False)).to_be_visible()
     expect(page.get_by_role("heading", name="Shopping list", exact=True)).to_be_visible()
     expect(page.get_by_text(re.compile(r"^XLSX · "))).to_be_visible()
@@ -180,7 +176,7 @@ def verify(page, origin, width, theme, output, app):
     choose(page, "Chat", mobile)
     expect(chip).to_be_visible()
     chip.press("Enter")
-    expect(page).to_have_url(origin + "/#settings/skills/plan-dinner-party")
+    expect(page).to_have_url(origin + "/#skills/plan-dinner-party")
     expect(editor).to_be_visible()
     page.go_back()
     expect(chip).to_be_visible()
@@ -190,7 +186,7 @@ def verify(page, origin, width, theme, output, app):
     page.reload()
     expect(editor).to_be_visible()
     editor.get_by_role("button", name="Close skill editor").click()
-    expect(page).to_have_url(origin + "/#settings/skills")
+    expect(page).to_have_url(origin + "/#skills")
     expect(dinner).to_be_focused()
     dinner_card = dinner.locator("xpath=ancestor::article")
     expect(dinner_card.get_by_text("1 use", exact=True)).to_be_visible()

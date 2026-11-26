@@ -15,9 +15,9 @@ from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage
 
 HOME_FIXTURE = runpy.run_path(str(Path(__file__).with_name("run22-browser.py")))
-NAV = ["Home", "Chat", "Timeline", "Artifacts", "Reminders", "Inbox", "Memory"]
+NAV = ["Home", "Chat", "Timeline", "Artifacts", "Reminders", "Inbox", "Memory", "Skills"]
 GROUPS = {
-    "Assistant": ["Brain", "Memory", "Skills", "Search", "Voice"],
+    "Assistant": ["Brain", "Memory", "Search", "Voice"],
     "Connected": ["Connections", "Artifacts"],
     "Notifications": ["Reminders", "Proactivity", "Approvals"],
     "App": ["Home", "Appearance"],
@@ -136,13 +136,15 @@ def verify_settings(page, origin, mobile, capture):
     expect(view.get_by_role("searchbox", name="Search providers")).to_be_visible()
     expect(view.locator("#configured-panel .connection-card").first).to_be_visible()
     capture("settings-connections")
-    page.goto(origin + "/#skills")
-    expect(page).to_have_url(origin + "/#settings/skills")
-    expect(view.get_by_role("button", name="Skills", exact=True)).to_have_attribute("aria-expanded", "true")
+    expect(view.locator('[data-settings="skills"]')).to_have_count(0)
+    page.goto(origin + "/#settings/skills")
+    expect(page).to_have_url(origin + "/#skills")
+    view = page.locator("#skills-view")
+    expect(page.get_by_role("heading", name="Skills", level=1)).to_be_visible()
     expect(view.get_by_role("button", name="New skill")).to_be_visible()
     expect(view.get_by_role("button", name="Plan a dinner party")).to_be_visible()
     if not mobile:
-        capture("settings-skills")
+        capture("skills")
 
 
 def verify(context, origin, width, theme, output):
