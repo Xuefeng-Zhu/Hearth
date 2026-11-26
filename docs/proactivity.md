@@ -2,7 +2,7 @@
 
 **Home → For you** offers timely next steps, such as preparing for a booking, collecting gift ideas, making a shopping workbook from a dinner Page, or checking a missing reminder detail. Each card shows why it’s timely, the work Hearth would do, the urgency, and when the offer expires.
 
-- **Do it** starts a side chat with the offered prompt, a selected skill, or parallel workers. Sending, spending, posting, and deleting require an approval card even when the corresponding workspace approval preference allows the action.
+- **Do it** starts a side chat with the offered prompt, a selected skill, or parallel workers. Offers that use a skill disappear if that playbook is deleted. Sending, spending, posting, and deleting require an approval card even when the corresponding workspace approval preference allows the action.
 - **Snooze** hides the offer for one day or one week. A still-valid card can return during awake hours, subject to the daily limit and its original expiry.
 - **Dismiss** clears the offer. Hearth uses the occasion’s dedupe key and its main reference to limit repeat offers.
 - **Not interested in this kind** mutes the category and records a checked line in `PROACTIVITY_PREFERENCES.md`. Clear that line or uncheck it in Memory to allow future suggestions of that kind.

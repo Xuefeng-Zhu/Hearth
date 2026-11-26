@@ -22,7 +22,19 @@ for file in web/*.js; do node --check "$file" || exit; done
 
 The Python requirements include Playwright. Install Chromium with `python -m playwright install chromium` to run the Python browser fixtures. Use `--with-deps` on a Linux host that needs browser system libraries. Browser fixtures exercise desktop and touch layouts in light and dark themes.
 
-Run the Skills browser fixture from the repository root with `PYTHONPATH=. python tests/run30-browser.py --output /tmp/hearth-skills`.
+Run the browser regressions from the repository root. The first two scripts use `--shots` and the remaining scripts use `--output`. Each script accepts `--chromium` to use an existing browser binary.
+
+```sh
+export PYTHONPATH=.
+for run in 21 22; do
+  python "tests/run$run-browser.py" --shots "/tmp/hearth-browser-$run" || exit
+done
+for run in 25 30 31 32 33; do
+  python "tests/run$run-browser.py" --output "/tmp/hearth-browser-$run" || exit
+done
+```
+
+The fixtures exercise Home, attachments, Pages, Skills, parallel workers, structured Memory, and For you. [Live Sprite results](../QA-REPORT.md)
 
 The contrast sweep uses Node Playwright. The following commands install it in a temporary directory and start an isolated fixture server.
 

@@ -8,7 +8,7 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 
 | Home | Chat approval | Artifacts and Pages |
 | --- | --- | --- |
-| [![Home with reminders, files, and activity](docs/screenshots/home.png)](docs/screenshots/home.png) | [![Ember beside an email approval card](docs/screenshots/chat-approval.png)](docs/screenshots/chat-approval.png) | [![HTML pages in the Artifacts library](docs/screenshots/artifacts-pages.png)](docs/screenshots/artifacts-pages.png) |
+| [![Live Home with For you and Browserbase connector health](docs/screenshots/home.png)](docs/screenshots/home.png) | [![Ember beside an email approval card](docs/screenshots/chat-approval.png)](docs/screenshots/chat-approval.png) | [![HTML pages in the Artifacts library](docs/screenshots/artifacts-pages.png)](docs/screenshots/artifacts-pages.png) |
 | **Recurring tasks** | **Connections** | |
 | [![Recurring task with schedule and run history](docs/screenshots/recurring-tasks.png)](docs/screenshots/recurring-tasks.png) | [![Connections catalog and Browserbase setup](docs/screenshots/connections.png)](docs/screenshots/connections.png) | |
 
@@ -23,7 +23,7 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 - **Make files and pages.** Create and edit DOCX, PDF, XLSX, and PPTX from chat. Preview and download artifacts, keep versions locally, and sync to Box. Build single-file HTML pages with phone and desktop previews, version history, and optional approved snapshot sharing.
 - **Reuse skills in chat.** Start with four built-in Markdown playbooks or write your own. Use **Try it** to preload a skill in a side chat, see which skill Hearth loaded, and undo edits from Timeline. [Skills guide](docs/skills.md)
 - **Review actions.** Approve, edit supported fields, or decline proposed actions, including email. Timeline records tool activity and approvals. Supported changes offer item-level Undo or filesystem checkpoint restore.
-- **Review what Hearth remembers.** Edit your profile and browse linked People, Places, Topics, and Daily notes. Search uses keyword and optional Pinecone recall. With Auto-remember enabled, chat can save durable facts to subject notes during the turn. [Memory guide](docs/memory.md)
+- **Review what Hearth remembers.** Edit your profile and browse linked People, Places, Topics, and Daily notes. Search uses local keyword matching in English and Chinese, with optional Pinecone recall. With Auto-remember enabled, chat can save durable facts to subject notes during the turn. In chat, ask Hearth to permanently forget a specific fact. [Memory guide](docs/memory.md)
 - **Run on a schedule.** Create reminders or recurring prompts with their own run history. AgentMail can import forwarded mail as proposals and deliver configured reminder or task email.
 - **Talk to Hearth.** Dictate with browser speech recognition or Hugging Face Whisper. Vocal Bridge adds live calls routed to the originating chat, with a scripted call demo available locally.
 
@@ -62,7 +62,7 @@ Connectors are enabled per Sprite. A fresh clone has empty connection settings a
 | Exa | Web search and source links in chat | Supported. Choose Exa under **Settings → Search**. |
 | AgentMail | Approved chat email, reminder and task delivery, and forwarded-mail imports | Supported. Select or provision an inbox in **Connections**. |
 | Vocal Bridge | Live calls and chat queries from the voice agent | Supported. Requires a deployed voice agent and its connector. |
-| Browserbase | Search, fetch, and approval-gated browser sessions | Connected. Hearth allows two live sessions at a time. |
+| Browserbase | Search, fetch, and approval-gated browser sessions | The demo Sprite passed the read-only connection check in Run 34. Hearth allows two live sessions at a time. |
 | Ollama Cloud | Alternative chat brain through the gateway | Optional. Select it in **Settings → Brain** after connecting. |
 
 [Set up connectors](docs/connectors.md)
@@ -110,7 +110,7 @@ node --test tests/*.test.mjs
 for file in web/*.js; do node --check "$file" || exit; done
 ```
 
-The [QA report](QA-REPORT.md) includes a 90-second demo.
+The [QA report](QA-REPORT.md) includes the Run 34 live Sprite results, known issues, and a 90-second demo.
 
 ## Project layout
 
