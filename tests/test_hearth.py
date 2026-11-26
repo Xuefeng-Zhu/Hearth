@@ -141,12 +141,12 @@ class HearthTest(unittest.TestCase):
 
         self.config["llm"][0]["connection_id"] = "test-id"
         self.agent = Agent(self.storage, self.checkpoints, self.config, InterruptedGateway())
-        events = self.chat("Plan Thanksgiving dinner")
+        events = self.chat("Email guest@example.invalid | Dinner | Join us?")
         self.assertEqual((events[-1][0], events[-1][1]["provider"]), ("done", "mock"))
         state = self.storage.load()
         draft, fallback = state["actions"].values()
         self.assertEqual((draft["kind"], draft["status"]), ("email", "pending"))
-        self.assertEqual(draft["email"]["to"], ["daniel@example.invalid", "maya@example.invalid"])
+        self.assertEqual(draft["email"]["to"], ["guest@example.invalid"])
         self.assertEqual(fallback["title"], "Brain fallback")
         self.assertEqual(self.agent.threads.messages("main")[-1]["action_ids"], [draft["id"]])
         self.assertEqual(self.agent.threads.messages("main")[-1]["notices"], [fallback["detail"]])

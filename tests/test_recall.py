@@ -80,7 +80,7 @@ class RecallTest(unittest.TestCase):
 
     def test_chat_cites_only_sources_used_and_persists_metadata(self):
         def completion(model, messages, tools, emit):
-            reference = json.loads(messages[0]["content"].split("\n")[-1])
+            reference = json.loads(messages[1]["content"])["untrusted_reference_data"]
             hit, = reference["Recalled memory (citation, path, line, heading, excerpt)"]
             self.assertEqual(hit["path"], self.path)
             self.assertEqual(hit["line"], 3)

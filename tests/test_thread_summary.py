@@ -34,7 +34,8 @@ class SummaryGateway:
         else:
             self.chats.append(messages)
             asking = messages[-1]["content"] == "What color is the orchard gate?"
-            answer = "Periwinkle." if asking and FACT in messages[0]["content"] else "Acknowledged."
+            reference = json.loads(messages[1]["content"])["untrusted_reference_data"]
+            answer = "Periwinkle." if asking and FACT == reference.get("Earlier in this chat") else "Acknowledged."
             emit(answer)
         return {"role": "assistant", "content": answer}
 
@@ -136,9 +137,10 @@ class RollingSummaryTest(unittest.TestCase):
         reply = self.chat("What color is the orchard gate?")
         messages = self.gateway.chats[-1]
         self.assertEqual(messages[0]["role"], "system")
-        self.assertIn('Earlier in this chat: "' + FACT + '"', messages[0]["content"])
-        self.assertEqual(len(messages[1:]), 16)
-        self.assertNotIn(FACT, [row["content"] for row in messages[1:]])
+        self.assertNotIn(FACT, messages[0]["content"])
+        self.assertEqual(json.loads(messages[1]["content"])["untrusted_reference_data"]["Earlier in this chat"], FACT)
+        self.assertEqual(len(messages[2:]), 16)
+        self.assertNotIn(FACT, [row["content"] for row in messages[2:]])
         self.assertEqual(self.threads.messages(MAIN)[39]["content"], messages[-1]["content"])
         self.assertEqual(reply["content"], "Periwinkle.")
 
@@ -191,7 +193,8 @@ class RollingSummaryTest(unittest.TestCase):
         self.config["memory"]["summarize_long_chats"] = False
         disabled = Agent(self.storage, self.checkpoints, self.config, self.gateway)
         disabled.chat("Run without a rolling summary.", lambda *_: None)
-        self.assertNotIn("Earlier in this chat", self.gateway.chats[-1][0]["content"])
+        reference = json.loads(self.gateway.chats[-1][1]["content"])["untrusted_reference_data"]
+        self.assertNotIn("Earlier in this chat", reference)
         self.assertEqual(disabled.rolling_summaries.models, [])
         self.assertEqual(disabled.threads.summary(MAIN), summary)
 

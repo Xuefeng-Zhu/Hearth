@@ -181,7 +181,7 @@ class SkillsTest(unittest.TestCase):
                                             "subject": "Dinner", "text": "Will you join us?"})
 
         with patch.object(self.agent, "model_completion", side_effect=complete):
-            self.agent.chat("Draft an email about dinner.", lambda *_: None)
+            self.agent.chat("Draft an email about dinner to guest@example.invalid.", lambda *_: None)
             self.assertEqual(approvals.records(self.storage), [])
             self.agent.chat("Send it.", lambda *_: None)
         proposal, = approvals.records(self.storage, pending=True)

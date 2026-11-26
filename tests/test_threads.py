@@ -162,8 +162,8 @@ class ThreadTest(unittest.TestCase):
         self.chat("Main anchor reference")
         side_id = self.chat("/side Garden plan")[0][1]["thread"]["id"]
         self.chat("Check awareness in Main")
-        side_prompt = calls[1][0]["content"]
-        main_prompt = calls[-1][0]["content"]
+        side_prompt = calls[1][1]["content"]
+        main_prompt = calls[-1][1]["content"]
         self.assertIn("Recent Main excerpts for read-only reference", side_prompt)
         self.assertIn("Main anchor reference", side_prompt)
         self.assertIn("USER.md", side_prompt)
@@ -213,7 +213,7 @@ class ThreadTest(unittest.TestCase):
                 release_main.set()
             self.assertEqual(main.result(3)[-1][0], "done")
             self.assertEqual(followup.result(3)[-1][0], "done")
-        self.assertEqual([item["content"] for item in reported_history[1:]],
+        self.assertEqual([item["content"] for item in reported_history[2:]],
                          ["Hold the Main stream", "Reply complete", "Queued follow-up"])
         self.assertFalse(self.state()["threads"][0]["busy"])
 

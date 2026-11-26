@@ -386,7 +386,7 @@ class ChatWorkersTest(unittest.TestCase):
                     })}
                 if tools:
                     return tool_call("spawn_workers", {"tasks": self.assignments})
-                assert [item["role"] for item in messages] == ["system", "user"]
+                assert [item["role"] for item in messages] == ["system", "user", "user"]
                 result = json.loads(messages[-1]["content"].split("spawn_workers: ", 1)[1])
                 self.results = result["workers"]
                 return tool_call("web_search", {"query": "more lanterns"})
