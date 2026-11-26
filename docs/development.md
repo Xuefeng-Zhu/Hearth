@@ -49,6 +49,12 @@ The Run 39 WebKit regression checks 375×667, 390×844, and 1440×1000 in both t
 PYTHONPATH=. python tests/run39-browser.py --output /tmp/hearth-browser-39
 ```
 
+The Run 43 WebKit fixture exercises Memory review at 390×844 and 375×667 in dark mode with fictional notes. It checks the settings, Feed card, individual and bulk review actions, and Timeline Undo. It also measures touch targets, overflow, and WCAG AA contrast on the review surfaces.
+
+```sh
+PYTHONPATH=. python tests/run43-browser.py --output /tmp/hearth-browser-43
+```
+
 The contrast sweep uses Node Playwright. The following commands install it in a temporary directory and start an isolated fixture server.
 
 ```sh

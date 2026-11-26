@@ -22,6 +22,21 @@ Hearth regenerates `live/memory/.index.json` after memory changes and refreshes 
 
 New workspaces default to **Automatic** in **Settings → Memory → Auto-remember**. Existing settings carry forward. **Ask first** queues unsolicited memory writes for approval. **Off** requires a direct request to edit a note. Connected brains are instructed to save durable details during the turn, keep one note per subject, mark inferences, and use the latest user statement when facts conflict. Hearth screens writes for recognized secrets, identity-document IDs, and payment card numbers. [Agent tools](../hearth/agent.py)
 
+## Nightly Memory review
+
+Hearth checks memory at **03:00 America/Los_Angeles** by default. Turn off nightly checks, set a different Pacific time, or select **Run now** in **Settings → Memory → Memory review**. Run now is available with the schedule off. A sleeping Sprite catches up on wake. [Scheduler wake](deploy.md#wake-the-scheduler)
+
+One pass reads the profile, people files, and saved Markdown notes. With Pinecone connected, it checks a batch of Hearth-managed records against the current sources in the configured namespace. Large libraries rotate through batches. The fast brain receives the excerpts as reference data and returns source IDs in a strict schema, validated locally. Mock mode uses local matching and date checks. Each pass can propose up to 20 items. A failed pass leaves the notes alone and records a diagnostic in Timeline.
+
+Open **Memory → Review** to see proposed edits and their sources. **Home → Feed** shows a card for a digest with pending items after Action suggestions quiet hours end. A pass with no new proposals updates its status in Settings.
+
+- **Merge duplicate** keeps one copy of a repeated line and removes the copy shown in the proposal.
+- **Contradiction** shows both versions and their sources. Accept acknowledges the disagreement. Edit the source in Memory to resolve it.
+- **Add to profile** appends a fact found in at least three matching note occurrences to the profile notes. Pinecone mirrors share their original source.
+- **Mark stale** labels the line in place so the original text stays available.
+
+Use **Accept** or **Reject** on each proposal, or **Accept all** for the pending edits in the selected digest. Review contradictions individually. Hearth rechecks the cited lines at approval time. If an edit made a proposal outdated, reject it and run another pass. Accepted edits create a Timeline checkpoint with item-level Undo and Redo and trigger Pinecone sync through the normal memory write path. Permanent forget clears derived digests and continues to block matching information. [Run 43 verification](run-43.md)
+
 ## Long chats
 
 Hearth sends the latest 16 dialogue messages to the brain. With **Settings → Memory → Summarize long chats** enabled by default, Hearth folds older messages into a per-thread summary in the background after a reply is saved. Each update starts when at least eight messages have moved outside the window since the last fold. The summary uses the chat’s language and keeps decisions, facts, preferences, filenames, and open tasks in about 400 words. The summary goes into the brain’s context before the recent messages. Main can also use a short excerpt from each side chat’s summary.

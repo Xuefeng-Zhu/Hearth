@@ -12,6 +12,8 @@ The **Feed** is a Home panel. Use **Edit layout** to move it, remove it, or rest
 
 Cards show when they appeared, why Hearth surfaced them, and links to their sources. Scroll the panel to load older cards, or use **Show more**. Choose **Like**, **Dismiss**, or **Less like this** to adjust the topic’s weight for the next run. **Save** bookmarks a card under **Saved** and also adds a small positive weight. **Ask about this** opens a side chat with a draft question using the card as context. You can edit the draft before sending.
 
+**Memory review** cards link to pending consolidation proposals in Memory. Their appearance is deferred during **Settings → Action suggestions** quiet hours. [Memory review](memory.md#nightly-memory-review)
+
 ## Timing and steering
 
 **Settings → Feed** controls whether the Feed runs, how often it refreshes, and which topics to follow or mute. The default interval is four hours. The interest profile combines your explicit topics with interests derived from Memory and scores from card feedback. Edit the profile by following or muting topics. Set free-text steering here or at the top of the panel. For example, “AI and hackathon news in the morning, family weekend ideas on Fridays.”
