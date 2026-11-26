@@ -6,6 +6,7 @@ import shutil
 import threading
 import time
 from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,8 +23,24 @@ from .connectors import Gateway, read_config
 from .gateway_tools import redact_text, scrub
 from .memory_sync import MemorySync
 from .reminder_config import equal, saved
-from .storage import HearthError, ROOT, Storage, iso
+from .storage import HearthError, ROOT, Storage, iso, new_id
 from .threads import MAIN, Threads, compact
+
+
+class ChatStopped(Exception):
+    pass
+
+
+@dataclass
+class ReplyControl:
+    id: str = field(default_factory=new_id)
+    stopped: threading.Event = field(default_factory=threading.Event)
+    message_id: str | None = None
+    committing: bool = False
+
+    def check(self):
+        if self.stopped.is_set():
+            raise ChatStopped
 
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -445,7 +462,8 @@ class Application:
         self.call_check = (connection_id, {"at": iso(), "status": "passed", "kind": "token"})
         return reply
 
-    def enqueue(self, thread_id, prompt, *, source=None, approval=None, attachment_ids=None, task_run=None):
+    def enqueue(self, thread_id, prompt, *, source=None, approval=None, attachment_ids=None, task_run=None,
+                stoppable=False):
         command = (SIDE_COMMAND.fullmatch(prompt)
                    if thread_id == MAIN and source is None and not approval and not attachment_ids else None)
         if command:
@@ -455,11 +473,13 @@ class Application:
             attachments = self.uploads.validate(thread["id"], attachment_ids) if attachment_ids is not None else []
         thread_id = thread["id"]
         events = SimpleQueue()
+        control = ReplyControl() if stoppable else None
         events.put(("queued", {"thread": thread, "prompt": redact_text(prompt),
+                               **({"reply_id": control.id} if control else {}),
                                **({"attachments": attachments} if attachments else {})}))
         with self.turn_lock:
             pending = self.turns.get(thread_id)
-            queued = (prompt, events, source, approval, attachments, task_run)
+            queued = (prompt, events, source, approval, attachments, task_run, control)
             if pending is not None:
                 pending.append(queued)
             else:
@@ -467,13 +487,36 @@ class Application:
                 threading.Thread(target=self.run_turns, args=(thread_id,), daemon=True).start()
         return events
 
+    def stop_reply(self, thread_id, reply_id):
+        with self.turn_lock:
+            control = next((row[-1] for row in self.turns.get(thread_id, ())
+                            if row[-1] and row[-1].id == reply_id), None)
+            if not control or control.committing:
+                return {"stopped": False}
+            control.stopped.set()
+            message_id = control.message_id
+        if message_id:
+            self.workers.stop(message_id)
+        return {"stopped": True}
+
     def run_turns(self, thread_id):
         while True:
             with self.turn_lock:
-                prompt, events, source, approval, attachments, task_run = self.turns[thread_id][0]
+                prompt, events, source, approval, attachments, task_run, control = self.turns[thread_id][0]
             agent = self.agent
 
             def event(name, data):
+                if control and name not in {"worker", "error"}:
+                    control.check()
+                    if name in {"started", "committing"}:
+                        with self.turn_lock:
+                            control.check()
+                            if name == "started":
+                                control.message_id = data["message"]["id"]
+                            else:
+                                control.committing = True
+                if name == "committing":
+                    return
                 phase = {"started": "thinking", "tool_started": "working", "tool_finished": "thinking",
                          "token": "thinking" if source == voice_call.SOURCE else "speaking",
                          "reset": "thinking", "remembered": "remembering"}.get(name)
@@ -502,18 +545,29 @@ class Application:
                 events.put((name, data))
 
             try:
+                if control:
+                    control.check()
                 if approval:
                     agent.run_browse_approval(approval, thread_id, event)
                 else:
                     agent.chat(prompt, event, thread_id, source=source,
                                **({"task_run": task_run} if task_run else {}),
-                               **({"attachments": attachments} if attachments else {}))
+                               **({"attachments": attachments} if attachments else {}),
+                               **({"check": control.check} if control else {}))
                     if source is None and not task_run:
                         self.ideas.after_chat(thread_id)
-            except HearthError as error:
-                event("error", {"message": str(error)})
-            except Exception:
-                event("error", {"message": "Hearth could not finish this turn. Check Timeline for any completed actions."})
+            except Exception as error:
+                if control and control.stopped.is_set():
+                    self.workers.stop(control.message_id)
+                    try:
+                        timeline.record(self.storage, "tool", "Chat reply stopped", {"thread_id": thread_id})
+                    except OSError:
+                        pass
+                    events.put(("stopped", {}))
+                else:
+                    detail = str(error) if isinstance(error, HearthError) else (
+                        "Hearth could not finish this turn. Check Timeline for any completed actions.")
+                    event("error", {"message": detail})
             finally:
                 with self.turn_lock:
                     pending = self.turns[thread_id]
@@ -948,6 +1002,15 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 self.json({"error": "Hearth could not stop the worker."}, 500)
             return
+        if self.path == "/api/chat/stop":
+            try:
+                body = self.body()
+                thread = require_text(body.get("thread_id"), 40)
+                reply = require_text(body.get("reply_id"), 40)
+                self.json(self.app.stop_reply(thread, reply))
+            except HearthError as error:
+                self.json({"error": str(error)}, 400)
+            return
         if self.path.startswith("/api/goals/"):
             self.post_goal()
             return
@@ -1027,7 +1090,8 @@ class Handler(BaseHTTPRequestHandler):
                     identities = body.get("attachment_ids", [])
                     prompt = body.get("message", "")
                     prompt = "" if identities and isinstance(prompt, str) and not prompt.strip() else require_text(prompt, 4_000)
-                    stream = self.app.enqueue(body.get("thread_id", MAIN), prompt, attachment_ids=identities)
+                    stream = self.app.enqueue(body.get("thread_id", MAIN), prompt, attachment_ids=identities,
+                                              stoppable=True)
                 elif self.path == "/api/browse/approve" and body.keys() == {"id", "thread_id"}:
                     stream = self.app.enqueue(body["thread_id"], "", approval=require_text(body["id"], 40))
                 elif self.path == "/api/browse/settings":

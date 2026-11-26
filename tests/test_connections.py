@@ -74,7 +74,7 @@ class FakeGateway(Gateway):
             "usage_snippet": "upstream metadata that should never appear in the app or on disk",
         })
 
-    def completion(self, config, messages, tools, emit):
+    def completion(self, config, messages, tools, emit, *, check=None):
         self.completions.append(config["connection_id"])
         self.seen_tools = tools
         if {config["provider"], config["model"]} & self.failed_models:

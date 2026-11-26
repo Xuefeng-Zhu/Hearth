@@ -27,6 +27,7 @@ const nav = [...document.querySelectorAll("[data-view]")];
 const transcript = byId("transcript");
 const input = byId("message");
 const send = byId("send");
+const stopReply = byId("stop-reply");
 const notice = byId("notice");
 const chatScroll = byId("chat-scroll");
 const mobile = setupMobile({ nearBottom, scrollDown, refreshThreads: refreshDrawerThreads });
@@ -1097,11 +1098,34 @@ function workersCard(workers) {
   return widget.card;
 }
 
+const activeReply = () => [...turns].find((turn) =>
+  turn.threadId === currentThread && turn.id && !turn.finished && !turn.reply && !turn.stopped);
+
+stopReply.addEventListener("click", async () => {
+  const turn = activeReply();
+  if (!turn || turn.stopping) return;
+  turn.stopping = true;
+  stopReply.disabled = true;
+  try {
+    const result = await api("/api/chat/stop", { thread_id: turn.threadId, reply_id: turn.id });
+    if (!result.stopped && !turn.finished) showNotice("This reply has already finished.");
+  } catch (error) {
+    showNotice(error.message);
+  } finally {
+    turn.stopping = false;
+    stopReply.disabled = !!activeReply()?.stopping;
+  }
+});
+
 function renderChat(force = false) {
   renderThreads();
   const actions = new Map((state?.actions || []).map((action) => [action.id, action]));
   const messages = state?.thread_id === currentThread ? state.messages : [];
   const local = [...turns].filter((turn) => turn.threadId === currentThread);
+  const replyToStop = activeReply();
+  if (!replyToStop && document.activeElement === stopReply) input.focus({ preventScroll: true });
+  stopReply.hidden = !replyToStop;
+  stopReply.disabled = !!replyToStop?.stopping;
   const workers = new Map();
   for (const worker of state?.thread_id === currentThread ? state.workers || [] : []) {
     if (!workers.has(worker.turn_id)) workers.set(worker.turn_id, []);
@@ -1171,17 +1195,19 @@ function renderChat(force = false) {
         message: turn.user, status: turn.user ? undefined : "Queued", attachments: turn.attachments,
       }).item);
     }
-    if (saved.has(turn.reply?.id) || (!turn.user && !turn.approval && !turn.error)) continue;
-    const content = turn.reply ? turn.reply.content : turn.text || turn.error || (turn.browse ? "" : turnProgress(turn));
+    if (saved.has(turn.reply?.id) || (!turn.user && !turn.approval && !turn.error && !turn.stopped)) continue;
+    const content = turn.reply ? turn.reply.content
+      : turn.text || turn.error || (turn.stopped ? "Reply stopped." : turn.browse ? "" : turnProgress(turn));
     turn.bubble = messageBubble("assistant", content, {
       message: turn.reply, skill: turn.skill, prompt: { text: turn.prompt, attachments: turn.attachments },
-      working: !turn.reply && !turn.error && !turn.text && !turn.browse,
+      working: !turn.reply && !turn.error && !turn.text && !turn.browse && !turn.stopped,
     });
     turn.bubble.text.hidden = !content && !!turn.browse;
     rows.push(turn.bubble.item);
     const workerRows = turn.workers?.size ? [...turn.workers.values()] : workers.get(turn.user?.id);
     if (workerRows?.length) turn.bubble.cards.append(workersCard(workerRows));
     for (const warning of turn.warnings) turn.bubble.notices.append(node("p", "model-warning", warning));
+    if (turn.stopped && turn.text) turn.bubble.notices.append(node("p", "model-warning", "Reply stopped."));
     for (const action of turn.actions.values()) {
       const saved = actions.get(action.id);
       const current = action.worker_id && (action.status !== "pending" || saved?.status === "pending") ? action : saved;
@@ -2542,6 +2568,7 @@ function turnProgress(turn) {
 function readChatEvent(turn, name, payload) {
   if (name === "queued") {
     turn.threadId = payload.thread.id;
+    turn.id = payload.reply_id;
     turn.prompt = payload.prompt;
     if (payload.attachments) turn.attachments = payload.attachments;
     avatarSignal(turn.threadId, { type: "queued" });
@@ -2581,6 +2608,9 @@ function readChatEvent(turn, name, payload) {
   } else if (name === "done") {
     turn.reply = payload.message;
     avatarSignal(turn.threadId, { type: "done", remembered: !!turn.reply.remembered?.length });
+  } else if (name === "stopped") {
+    turn.stopped = true;
+    avatarSignal(turn.threadId, { type: "done" });
   } else if (name === "skill_loaded") {
     turn.skill = payload;
   } else if (name === "worker") {
@@ -2671,7 +2701,7 @@ async function chat(prompt, { keepDraft = false, approval, suggestion } = {}) {
         }
       }
     }
-    if (!turn.reply) throw new Error("The reply was interrupted. Check Timeline for any saved actions.");
+    if (!turn.reply && !turn.stopped) throw new Error("The reply was interrupted. Check Timeline for any saved actions.");
   } catch (error) {
     turn.error = error.message;
     avatarSignal(turn.threadId || source, { type: "error" });

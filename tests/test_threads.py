@@ -148,7 +148,7 @@ class ThreadTest(unittest.TestCase):
         self.storage.write("USER.md", "# Frank\n\nI keep a garden plan.")
 
         class Gateway:
-            def completion(self, model, messages, tools, emit):
+            def completion(self, model, messages, tools, emit, *, check=None):
                 calls.append(messages)
                 if messages[0]["content"].startswith("Summarize this side chat"):
                     answer = "The user chose a Saturday garden plan."
@@ -180,7 +180,7 @@ class ThreadTest(unittest.TestCase):
         reported_history = []
 
         class Gateway:
-            def completion(self, model, messages, tools, emit):
+            def completion(self, model, messages, tools, emit, *, check=None):
                 prompt = messages[-1]["content"]
                 if prompt == "Hold the Main stream":
                     emit("Main is mid-stream")
@@ -216,3 +216,50 @@ class ThreadTest(unittest.TestCase):
         self.assertEqual([item["content"] for item in reported_history[1:]],
                          ["Hold the Main stream", "Reply complete", "Queued follow-up"])
         self.assertFalse(self.state()["threads"][0]["busy"])
+
+    def test_stop_reply_midstream_leaves_queued_followup_intact(self):
+        release_model = threading.Event()
+
+        class Gateway:
+            def completion(self, model, messages, tools, emit, *, check):
+                if messages[-1]["content"] == "Start a long story":
+                    emit("The story begins. " * 12)
+                    if not release_model.wait(3):
+                        raise RuntimeError("The model was not released")
+                    check()
+                emit("Follow-up complete")
+                return {"role": "assistant", "content": "Follow-up complete"}
+
+        self.config["llm"][0]["connection_id"] = "test-connector"
+        self.app.agent = Agent(self.storage, self.checkpoints, self.config, Gateway())
+        reply_id = None
+        streaming = threading.Event()
+        waiting = threading.Event()
+
+        def observe(event, payload):
+            nonlocal reply_id
+            if event == "queued":
+                reply_id = payload["reply_id"]
+            elif event == "token":
+                streaming.set()
+
+        with ThreadPoolExecutor() as executor:
+            first = executor.submit(self.request, "/api/chat", {"message": "Start a long story"}, on_event=observe)
+            try:
+                self.assertTrue(streaming.wait(3))
+                followup = executor.submit(self.request, "/api/chat", {"message": "Follow up"},
+                                           on_event=lambda name, _: waiting.set() if name == "queued" else None)
+                self.assertTrue(waiting.wait(3))
+                self.assertEqual(self.request("/api/chat/stop", {"thread_id": "other", "reply_id": reply_id}),
+                                 {"stopped": False})
+                self.assertEqual(self.request("/api/chat/stop", {"thread_id": "main", "reply_id": reply_id}),
+                                 {"stopped": True})
+            finally:
+                release_model.set()
+            events = first.result(3)
+            self.assertEqual(followup.result(3)[-1][0], "done")
+        self.assertEqual(events[-1], ("stopped", {}))
+        self.assertNotIn("done", [name for name, _ in events])
+        self.assertEqual([row["content"] for row in self.state()["messages"]],
+                         ["Start a long story", "Follow up", "Follow-up complete"])
+        self.assertIn("Chat reply stopped", [row["title"] for row in self.storage.load()["activity"]])

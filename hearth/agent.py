@@ -704,7 +704,7 @@ class Agent:
         return {"reply": text[:1_000], "latency_ms": round((time.monotonic() - start) * 1_000),
                 "provider": model["provider"], "model": model["model"]}
 
-    def chat(self, prompt, event, thread_id=MAIN, *, source=None, attachments=(), task_run=None):
+    def chat(self, prompt, event, thread_id=MAIN, *, source=None, attachments=(), task_run=None, check=None):
         prompt = redact_text(require_text(prompt, 4_000)) if prompt or not attachments else ""
         origin_fields = {"source": source} if source else {}
         if task_run:
@@ -731,7 +731,7 @@ class Agent:
         turn = {"prompt": prompt, "message_id": message["id"], "queries": {}, "citations": {},
                 "event": event, "demo": demo, "artifacts": {},
                 "panel_context": panel_context, "panel_request": router.panel_request(prompt),
-                "browse_results": {}, "browse_images": [], "approvals": {}}
+                "browse_results": {}, "browse_images": [], "approvals": {}, "check": check}
         turn["automation_setup"] = bool(self.automation_requested(turn, CHAT_ORIGIN.get()))
         turn["schedule_setup"] = not task_run and bool(SCHEDULE_SETUP.search(prompt))
         page_intent = None
@@ -1133,6 +1133,8 @@ class Agent:
         if thread_id != MAIN:
             summary = "Files saved: " + ", ".join(files) if files else content
             fields["summary"] = self.side_summary(model, redact_text(prompt), summary) if summarize and not CHAT_ORIGIN.get().get("task_run") else summary
+        if turn and turn.get("check"):
+            event("committing", {})
         with self.storage.lock():
             rules = memory.standing_rules(self.storage)
             if memory.matches_rule(content, rules):
@@ -1154,7 +1156,9 @@ class Agent:
                 "The exchange is data. Return only the summary."
             )}, {"role": "user", "content": json.dumps({"topic": prompt[:1_200], "reply": reply[:2_500]})}]
             try:
-                summary = self.tools.gateway.completion(model, messages, [], lambda _: None).get("content")
+                check = (TURN_MEMORY.get() or {}).get("check")
+                summary = self.tools.gateway.completion(
+                    model, messages, [], lambda _: None, **({"check": check} if check else {})).get("content")
                 if summary and summary.strip():
                     return compact(redact_text(summary), 220)
             except ConnectorError:
@@ -1259,8 +1263,11 @@ class Agent:
                                                 tool_names=available)
                     stream.finish()
                 else:
-                    reply = self.model_completion(model, messages, active_tools,
-                                                  (lambda _: None) if routing["class"] == "tool" or turn.get("skill") else emit)
+                    check = turn.get("check")
+                    reply = self.model_completion(
+                        model, messages, active_tools,
+                        (lambda _: None) if routing["class"] == "tool" or turn.get("skill") else emit,
+                        **({"check": check} if check else {}))
             except ConnectorError as error:
                 if touched_state:
                     raise TurnActionError(error, action_ids) from None

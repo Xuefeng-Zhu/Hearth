@@ -413,7 +413,7 @@ class ArtifactTest(unittest.TestCase):
             {"provider": "huggingface", "model": name}, agent.config["brain_tags"])}
             for name in (router.KIMI, router.FLASH)]
 
-        def completion(model, messages, tools, emit):
+        def completion(model, messages, tools, emit, *, check=None):
             calls.append(model["model"])
             if len(calls) == 1:
                 for chunk in (leaked[:13], leaked[13:25], leaked[25:]):
@@ -437,7 +437,7 @@ class ArtifactTest(unittest.TestCase):
         agent.models = [{"provider": "test-brain", "model": "test"}]
         observed = []
 
-        def completion(model, messages, tools, emit):
+        def completion(model, messages, tools, emit, *, check=None):
             names = {tool["function"]["name"] for tool in tools} & FILE_TOOL_MODES.keys()
             prompt = next(message["content"] for message in reversed(messages) if message["role"] == "user")
             observed.append((prompt, names))

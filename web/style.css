@@ -470,6 +470,8 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 .avatar-color button { margin: 0; }
 
 .composer { display: grid; grid-template-columns: 38px minmax(0, 1fr) 38px 38px; }
+.composer:has(#stop-reply:not([hidden])) { grid-template-columns: 38px minmax(0, 1fr) 38px 38px 44px; }
+.composer #stop-reply { width: 44px; height: 44px; }
 .composer textarea { grid-column: 2; }
 .composer button { display: grid; place-items: center; padding: 0; }
 .composer #attach {
