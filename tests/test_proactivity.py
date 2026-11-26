@@ -20,6 +20,9 @@ class Disconnected:
     def discover(self):
         return {}, set()
 
+    def completion(self, *args, **kwargs):
+        raise AssertionError("Unexpected brain request")
+
 
 def offer(key="birthday-2030", *, kind="gifts", source=PERSON, action_type="chat", **action):
     return {
@@ -47,8 +50,8 @@ class ProactivityTest(unittest.TestCase):
             self.engine.save_settings(settings)
 
     def run_pass(self, now, *offers, force=False):
-        completion = {"content": json.dumps({"suggestions": offers}, ensure_ascii=False)}
-        with patch.object(self.agent, "model_completion", return_value=completion) as brain:
+        completion = {"content": "```json\n" + json.dumps({"suggestions": offers}, ensure_ascii=False) + "\n```"}
+        with patch.object(self.agent.tools.gateway, "completion", return_value=completion) as brain:
             result = self.engine.tick(now, force=force)
             self.assertEqual(brain.call_count, result["status"] == "complete" and "provider" in result)
         return result
@@ -131,7 +134,7 @@ class ProactivityTest(unittest.TestCase):
         unsafe = {**offer(), "why": "The yellow banner is kept beside the striped picnic basket."}
         safe = offer("park-weather", kind="weather")
         answer = {"content": json.dumps({"suggestions": [unsafe, safe]})}
-        with patch.object(self.agent, "model_completion", side_effect=[lookup, answer]) as brain, patch(
+        with patch.object(self.agent.tools.gateway, "completion", side_effect=[lookup, answer]) as brain, patch(
             "hearth.proactivity.search.search",
             return_value={"results": [{"title": "Local forecast", "snippet": "Dry conditions."}]},
         ) as search:
@@ -191,7 +194,7 @@ class ProactivityTest(unittest.TestCase):
             state = self.storage.load()
             state["actions"]["approval"] = {"status": "pending", "kind": "page_share", "title": "Share the sample Page?"}
             self.storage.save(state)
-        with patch.object(self.agent, "model_completion") as brain:
+        with patch.object(self.agent.tools.gateway, "completion") as brain:
             self.assertEqual(self.app.task_runner.tick(NOW), 1)
             brain.assert_not_called()
         state = self.storage.load()

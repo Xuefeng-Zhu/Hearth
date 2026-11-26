@@ -42,7 +42,7 @@ def fixture_completion(model, messages, tools, emit, **limits):
                      prompt="Send an email about birthday gift ideas, with approval."),
              "why": "A birthday is coming up, with time to plan something thoughtful."},
         ]
-        return {"content": json.dumps({"suggestions": candidates}, ensure_ascii=False)}
+        return {"content": "```json\n" + json.dumps({"suggestions": candidates}, ensure_ascii=False) + "\n```"}
     if messages[-1]["role"] == "tool":
         return {"content": "The draft is ready for your approval."}
     return tool_call("send_email", {"to": ["sample@example.invalid"], "subject": "Birthday gift ideas",
@@ -133,7 +133,7 @@ def main():
                     app.agent.models = [{"provider": "test-brain", "model": "fixture"}]
                     approvals.settings(storage, {"send": "allow"})
                     with (
-                        patch.object(app.agent, "model_completion", side_effect=fixture_completion),
+                        patch.object(app.gateway, "completion", side_effect=fixture_completion, create=True),
                         patch.object(app.agent, "side_summary", return_value="A birthday email draft awaits approval."),
                         patch.object(app.proactivity, "kick"),
                     ):

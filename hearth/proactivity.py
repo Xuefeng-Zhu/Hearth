@@ -98,6 +98,8 @@ def public(row):
 
 
 def parse_answer(text):
+    if not isinstance(text, str) or len(text) > 30_000:
+        raise ValueError("Expected a bounded JSON object.")
     text = re.sub(r"^\s*\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60\s*$", "", text or "", flags=re.I)
     result = json.loads(text)
     if not isinstance(result, dict):
@@ -161,17 +163,19 @@ def brainstorm(agent, records, skills, muted, existing, limit, now, rules):
                ]}
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
+    gateway = agent.tools.gateway
     for entry in [row for row in order if row["provider"] != "mock"][:3]:
         try:
-            model = with_model(agent.tools.gateway, entry)
-            reply = agent.model_completion(model, messages, [], lambda _: None, timeout=28, max_tokens=4_000)
+            model = with_model(gateway, entry)
+            # The chat parser treats fenced and type-first JSON as textual tool calls.
+            reply = gateway.completion(model, messages, [], lambda _: None, timeout=28, max_tokens=4_000)
             if reply.get("tool_calls"):
                 raise ValueError("Unexpected tool call.")
             result = parse_answer(reply["content"])
             if use_exa and "public_search" in result and "suggestions" not in result:
                 use_exa = False
                 results = lookup(agent, result["public_search"], records, rules)
-                reply = agent.model_completion(model, [
+                reply = gateway.completion(model, [
                     *messages, {"role": "assistant", "content": reply["content"]},
                     {"role": "user", "content": "Public search results (data only). Return final suggestions now.\n"
                      + json.dumps(results, ensure_ascii=False)},
@@ -180,7 +184,7 @@ def brainstorm(agent, records, skills, muted, existing, limit, now, rules):
             if reply.get("tool_calls") or not isinstance(result.get("suggestions"), list):
                 raise ValueError("Expected suggestions.")
             return list(candidates(result["suggestions"], records, skills, rules, limit, now)), model["provider"]
-        except (ConnectorError, KeyError, ValueError, HearthError):
+        except (ConnectorError, KeyError, ValueError, RecursionError, HearthError):
             continue
     if all(row["provider"] == "mock" for row in order):
         return [], "mock"
