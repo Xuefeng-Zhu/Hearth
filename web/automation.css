@@ -6,7 +6,7 @@
 .automation-tabs {
   display: flex;
   gap: var(--control-gap);
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--surface-border);
   padding-bottom: var(--space-3);
   margin-bottom: var(--section-gap);
 }

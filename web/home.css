@@ -48,7 +48,7 @@
   min-height: 222px;
   padding: var(--card-padding);
   background: var(--paper);
-  border: 1px solid var(--artifact-border);
+  border: var(--surface-border);
   border-radius: var(--radius-card);
   color: var(--text);
   overflow-wrap: anywhere;
@@ -234,7 +234,7 @@
 }
 
 .home-weather > div { min-width: 0; }
-.home-weather > div + div { padding-inline-start: var(--space-3); border-left: 1px solid var(--artifact-border); }
+.home-weather > div + div { padding-inline-start: var(--space-3); border-inline-start: var(--surface-border); }
 .home-location { font-size: .8rem; font-weight: 650; }
 .home-weather .home-weather-value {
   display: block;
@@ -253,8 +253,9 @@
   display: grid;
   gap: var(--space-1);
   margin-top: var(--space-3);
-  padding-top: var(--space-1);
-  border-top: 1px solid var(--artifact-border);
+  margin-inline: calc(-1 * var(--card-padding));
+  padding: var(--space-1) var(--card-padding) 0;
+  border-top: var(--surface-border);
   font-size: .75rem;
 }
 
@@ -405,8 +406,7 @@
 .feed-card {
   min-width: 0;
   padding: 12px;
-  border: 1px solid var(--artifact-border);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--panel-muted);
   color: var(--text);
 }
@@ -474,8 +474,7 @@
   gap: var(--control-gap);
   padding: var(--space-3);
   min-width: 0;
-  border: 1px solid var(--artifact-border);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-control);
   background: var(--panel-muted);
 }
 .goal-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
