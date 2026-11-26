@@ -17,6 +17,7 @@ from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import ConnectorError, Gateway, read_config
 from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage
+from hearth.threads import MAIN_ORIGIN
 
 MOCK_REPLY = "I didn't find a matching note. Try “Plan Thanksgiving dinner”, read a note, or ask me to set a reminder."
 
@@ -172,7 +173,130 @@ def expect_announcements(page, expected_count):
                and len(text) <= 116 for text in announcements), announcements
 
 
-def layout_smoke(browser, origin):
+def assert_column_edges(view, selectors):
+    boxes = []
+    for selector in selectors:
+        blocks = view.locator(f"{selector}:visible")
+        expect(blocks.first).to_be_visible()
+        boxes.extend(block.bounding_box() for block in blocks.all())
+    assert len(boxes) >= 2 and all(boxes), selectors
+    left = [box["x"] for box in boxes]
+    right = [box["x"] + box["width"] for box in boxes]
+    assert max(left) - min(left) <= 1 and max(right) - min(right) <= 1, (selectors, left, right)
+
+
+def artifact_layout(page, view, width):
+    cards = view.locator(".artifact-card")
+    expect(cards.first).to_be_visible()
+    grid = cards.evaluate_all("""cards => {
+      const rows = new Map();
+      for (const card of cards) {
+        const box = card.getBoundingClientRect();
+        const foot = card.querySelector('.artifact-card-foot').getBoundingClientRect();
+        const row = rows.get(box.y) || [];
+        row.push({ top: foot.y, left: foot.left - box.left, right: box.right - foot.right });
+        rows.set(box.y, row);
+      }
+      return [...rows.values()];
+    }""")
+    if width > 760:
+        assert len(grid[0]) > 1, (width, grid)
+    for row in grid:
+        assert max(foot["top"] for foot in row) - min(foot["top"] for foot in row) <= 1, (width, row)
+        assert all(abs(foot["left"] - 1) <= 1 and abs(foot["right"] - 1) <= 1 for foot in row), row
+    expect(view.get_by_role("button", name="Retry sync")).to_have_count(0)
+    view.get_by_role("button", name="List view").click()
+    expect(view.get_by_role("table", name="Artifacts")).to_be_visible()
+    expect(view.locator("#artifact-list")).to_have_attribute("aria-pressed", "true")
+    if width >= 1280:
+        expect(view.get_by_role("columnheader", name="Modified")).to_be_visible()
+        rows = cards.evaluate_all("""cards => cards.map(card => {
+          const rect = card.getBoundingClientRect();
+          const center = box => box.y + box.height / 2;
+          const actions = card.querySelectorAll('.artifact-row-action');
+          return {height: rect.height,
+            offsets: [...actions].map(el => center(el.getBoundingClientRect()) - center(rect))};
+        })""")
+        assert all(abs(offset) <= 1 for row in rows for offset in row["offsets"]), (width, rows)
+        assert max(row["height"] for row in rows) - min(row["height"] for row in rows) <= 1, (width, rows)
+        assert_column_edges(view, [".artifact-connection:not(.artifact-load-error)", ".artifact-toolbar", ".artifact-collection"])
+        view.evaluate("view => view.scrollTop = 450")
+        header_y = view.locator(".artifact-list-head").bounding_box()["y"]
+        view_y = view.bounding_box()["y"]
+        assert abs(header_y - view_y) <= 1, (width, header_y, view_y, view.evaluate("view => view.scrollTop"))
+        view.evaluate("view => view.scrollTop = 0")
+
+    view.get_by_role("button", name="Documents", exact=True).click()
+    plans = view.get_by_role("button", name="Plans", exact=True)
+    plans.press("Enter")
+    expect(plans).to_have_attribute("aria-pressed", "true")
+    expect(view.get_by_role("button", name="Documents", exact=True)).to_have_attribute("aria-pressed", "true")
+    assert page.url.endswith("#artifacts/documents/plan"), page.url
+    expect(cards.first).to_be_visible()
+    assert cards.locator(".artifact-badge.is-docx").count() == cards.count()
+    expect(view.locator('.artifact-card:not([data-kind="plan"])')).to_have_count(0)
+    view.locator("#artifact-sort").press("ArrowDown")
+    expect(view.locator("#artifact-sort")).to_have_value("name")
+    view.get_by_role("searchbox", name="Search artifacts").fill("No matching file 1234")
+    expect(view.get_by_role("heading", name="No matches")).to_be_visible()
+    view.get_by_role("button", name="Clear filters").click()
+    expect(view.locator("#artifact-search")).to_be_focused()
+    expect(view.get_by_role("button", name="All", exact=True)).to_have_attribute("aria-pressed", "true")
+
+
+def artifact_sync_smoke(page, view):
+    connected = False
+
+    def inventory(route):
+        response = route.fetch()
+        data = response.json()
+        data["connected"] = connected
+        failed = next(item for item in data["artifacts"] if item["format"] == "docx")
+        failed.update(sync="error", sync_message="Fixture sync failed.")
+        if connected:
+            eligible = [item for item in data["artifacts"] if item["sync"] == "local" and item["format"] == "docx"]
+            for item in eligible[:2]:
+                item["ask_filename"] = item["filename"]
+        route.fulfill(response=response, json=data)
+
+    page.route("**/api/artifacts?refresh=1", inventory)
+    status = view.locator("#artifact-box-status")
+    refresh = view.get_by_role("button", name="Refresh artifacts")
+    retry = view.get_by_role("button", name="Retry sync")
+    refresh.click()
+    expect(status).to_have_text("Box disconnected")
+    expect(view.get_by_text("Sync error", exact=True)).to_have_count(1)
+    expect(retry).to_have_count(0)
+    connected = True
+    refresh.click()
+    expect(status).to_have_text("Box connected")
+    expect(retry).to_have_count(1)
+    failed = view.locator(".artifact-card:has(.artifact-sync.is-error)")
+    expect(failed.get_by_role("button", name="Retry sync")).to_be_visible()
+    expect(failed.get_by_role("link", name="Download", exact=True)).to_be_visible()
+    page.route("**/api/artifacts/ask", lambda route: route.fulfill(json={"answer": "Fixture answer."}))
+    ask = view.get_by_role("button", name="Ask my files")
+    ask.click()
+    dialog = page.get_by_role("dialog", name="Ask my files")
+    dialog.get_by_role("radio", name="Select files").check()
+    expect(dialog.get_by_role("button", name="Ask Hearth")).to_be_disabled()
+    dialog.get_by_role("checkbox").first.check()
+    dialog.get_by_role("textbox", name="Question").fill("What does the fixture say?")
+    with page.expect_request("**/api/artifacts/ask") as query:
+        dialog.get_by_role("button", name="Ask Hearth").click()
+    assert len(query.value.post_data_json["artifact_ids"]) == 1
+    expect(dialog.get_by_text("Fixture answer.")).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(ask).to_be_focused()
+
+    page.route("**/api/artifacts/retry", lambda route: route.fulfill(json={"sync": "synced"}))
+    with page.expect_request("**/api/artifacts/retry") as request:
+        retry.click()
+    assert request.value.post_data_json["id"]
+    expect(retry).to_have_count(0)
+
+
+def layout_smoke(browser, app, origin):
     # Scrollable document previews can be wider than their own viewport.
     # The workspace and its page containers must still fit the screen.
     views = {
@@ -185,6 +309,20 @@ def layout_smoke(browser, origin):
         "Memory": ".memory-intro",
         "Skills": ".section-intro",
         "Settings": ".settings-sections",
+    }
+    for index in range(15):
+        title = f"File {index}" + (" · Coordination and contingencies for the Friday neighborhood market" if index % 2 else "")
+        app.artifacts.create("docx", {"title": title, "sections": [{"heading": title, "paragraphs": ["Fixture document"]}]},
+                             kind="plan" if index % 2 else "note")
+    app.pages.save("Fixture page", "<html><body><h1>Fixture page</h1></body></html>", "First version", MAIN_ORIGIN)
+    wide_groups = {
+        "Home": [".home-heading", ".home-grid"],
+        "Timeline": [".timeline-today", ".timeline-controls", ".timeline-entry"],
+        "Reminders": [".automation-tabs", "#reminder-create", ".delivery-empty"],
+        "Inbox": [".delivery-intro", "#inbox-address"],
+        "Memory": ["#memory-find", "#memory-tabs", "#memory-area"],
+        "Skills": [".section-intro", "#skill-list"],
+        "Settings": [".settings-entry"],
     }
     for width, height in ((390, 844), (768, 1024), (1440, 900), (1920, 1080)):
         mobile = width <= 760
@@ -215,6 +353,15 @@ def layout_smoke(browser, origin):
                 if name != "Chat":
                     edge = (menu if mobile else title).bounding_box()["x"]
                     assert abs(edge - anchor.bounding_box()["x"]) <= 1, (name, width)
+                if width >= 1440 and name in wide_groups:
+                    assert_column_edges(view, wide_groups[name])
+                    header = page.locator(".header").bounding_box()
+                    sidebar = page.locator(".sidebar").bounding_box()
+                    assert abs(sidebar["x"] + sidebar["width"] - header["x"]) <= 1
+                    if name == "Settings":
+                        view.locator('[data-settings="approvals"]').click()
+                        expect(view.locator("#approval-policies select").first).to_be_visible()
+                        assert_column_edges(view, [".settings-entry", "#settings-approvals"])
                 for row in view.locator(".split-heading:visible").all():
                     left, right = row.locator(":scope > *").all()
                     left_box, right_box, row_box = left.bounding_box(), right.bounding_box(), row.bounding_box()
@@ -242,9 +389,9 @@ def layout_smoke(browser, origin):
                         assert style["appearance"] == "none", (width, style)
                         assert style["chevron"].endswith('/icons/chevron.svg")'), (width, style)
                         assert style["end"] > style["start"] + 16, (width, style)
-                    kind = view.locator("#artifact-kind")
-                    kind.press("ArrowDown")
-                    expect(kind).to_have_value("plan")
+                    artifact_layout(page, view, width)
+                    if width == 1440:
+                        artifact_sync_smoke(page, view)
 
 
 def smoke(browser, origin):
@@ -534,7 +681,8 @@ def main():
             if args.disconnect:
                 disconnect(browser, app, origin)
             else:
-                layout_smoke(browser, origin)
+                with workspace() as (layout_app, layout_origin):
+                    layout_smoke(browser, layout_app, layout_origin)
                 smoke(browser, origin)
                 stale_refresh(browser, origin)
                 self_update_smoke(browser, app, origin)

@@ -6,6 +6,9 @@ import { fileAnswerSources } from "../web/file-questions.js";
 test("artifact route accepts type filters and the legacy Pages hash", () => {
   assert.equal(artifactFilterFromHash("#artifacts"), "all");
   assert.equal(artifactFilterFromHash("#artifacts/documents"), "documents");
+  assert.equal(artifactFilterFromHash("#artifacts/plan"), "plan");
+  assert.equal(artifactFilterFromHash("#artifacts/documents/plan"), "documents/plan");
+  assert.equal(artifactFilterFromHash("#artifacts/pages/plan"), undefined);
   assert.equal(artifactFilterFromHash("#artifacts/pages"), "pages");
   assert.equal(artifactFilterFromHash("#pages"), "pages");
   assert.equal(artifactFilterFromHash("#artifacts/unknown"), undefined);
