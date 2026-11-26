@@ -57,9 +57,10 @@
       <p class="notice" id="notice" role="status" hidden></p>
       <section class="view home-view" id="home-view" aria-labelledby="view-title">
         <div class="home-inner">
-          <div class="home-heading">
+          <div class="home-heading split-heading">
             <div class="home-date" id="home-date">
               <time id="home-date-full"></time><time id="home-date-compact"></time>
+              <p class="home-greeting">Happy Hacksgiving</p>
             </div>
             <button type="button" class="home-edit" id="home-edit" aria-pressed="false" disabled>
               <span data-icon="grid" data-icon-size="17"></span><span id="home-edit-label">Edit layout</span>
@@ -186,7 +187,7 @@
       </section>
       <section class="view panel" id="artifacts-view" aria-labelledby="view-title" hidden>
         <div class="artifact-library">
-          <div class="section-intro artifact-intro">
+          <div class="section-intro split-heading artifact-intro">
             <div><h2>Saved work</h2><p>Files and pages created by Hearth, plus files in your Box folder.</p></div>
             <div class="artifact-box-control">
               <span id="artifact-box-status" class="artifact-box-status" role="status">Checking Box…</span>
@@ -249,7 +250,7 @@
           <button type="button" role="tab" id="tasks-tab" aria-selected="false" aria-controls="tasks-panel" tabindex="-1">Recurring tasks</button>
         </div>
         <div id="reminders-panel" role="tabpanel" aria-labelledby="reminders-tab">
-        <div class="section-intro delivery-intro">
+        <div class="section-intro split-heading delivery-intro">
           <div><h2>Reminders</h2><p>See what’s coming up and what reached each channel.</p></div>
           <button type="button" id="open-reminder-settings">Reminder settings</button>
         </div>
@@ -268,7 +269,7 @@
         <div id="reminders-content"></div>
         </div>
         <div id="tasks-panel" role="tabpanel" aria-labelledby="tasks-tab" hidden>
-          <div class="section-intro delivery-intro">
+          <div class="section-intro split-heading delivery-intro">
             <div><h2>Recurring tasks</h2><p>Schedule Hearth to run a prompt and deliver the result.</p></div>
             <button type="button" class="primary-setting automation-button" id="new-task"><span data-icon="plus"></span>New task</button>
           </div>
@@ -278,7 +279,7 @@
         </div>
       </section>
       <section class="view panel" id="inbox-view" aria-labelledby="view-title" hidden>
-        <div class="section-intro delivery-intro">
+        <div class="section-intro split-heading delivery-intro">
           <div><h2>Email Inbox</h2><p>Review what Hearth found in your forwarded mail.</p></div>
           <button type="button" id="inbox-poll">Check mail</button>
         </div>
@@ -337,14 +338,14 @@
         <div class="timeline" id="timeline"></div>
       </section>
       <section class="view panel" id="skills-view" aria-labelledby="view-title" hidden>
-        <div class="section-intro">
-          <h2>Reusable playbooks</h2>
-          <p>Use a playbook in chat or create one for a routine of your own.</p>
-        </div>
-        <div class="settings-actions">
-          <p class="meta" id="skills-status" role="status"></p>
+        <div class="section-intro split-heading">
+          <div>
+            <h2>Reusable playbooks</h2>
+            <p>Use a playbook in chat or create one for a routine of your own.</p>
+          </div>
           <button type="button" class="settings-button primary-setting" id="skill-new"><span data-icon="plus" data-icon-size="17"></span> New skill</button>
         </div>
+        <p class="meta" id="skills-status" role="status"></p>
         <div id="skill-list" class="skill-list" aria-label="Playbooks"></div>
       </section>
       <section class="view panel" id="settings-view" aria-labelledby="view-title" hidden>
@@ -826,7 +827,7 @@
     </main>
   </div>
   <dialog class="mobile-only workspace-drawer" id="workspace-drawer" aria-labelledby="workspace-title">
-    <header class="workspace-drawer-header">
+    <header class="workspace-drawer-header split-heading">
       <h2 id="workspace-title">Hearth</h2>
       <form method="dialog"><button type="submit" aria-label="Close menu" autofocus><span data-icon="x"></span></button></form>
     </header>
@@ -859,10 +860,12 @@
     </form>
   </dialog>
   <dialog class="message-menu" id="thread-summary" aria-labelledby="thread-summary-title" aria-describedby="thread-summary-thread">
-    <h2 id="thread-summary-title">Chat summary</h2>
-    <form method="dialog">
-      <button type="submit" class="icon-button" aria-label="Close summary" title="Close summary" autofocus><span data-icon="x"></span></button>
-    </form>
+    <header class="message-menu-header split-heading">
+      <h2 id="thread-summary-title">Chat summary</h2>
+      <form method="dialog">
+        <button type="submit" class="icon-button" aria-label="Close summary" title="Close summary" autofocus><span data-icon="x"></span></button>
+      </form>
+    </header>
     <p class="meta" id="thread-summary-thread"></p>
     <p id="thread-summary-text" tabindex="0" hidden></p>
     <p class="meta" id="thread-summary-status" role="status"></p>
@@ -872,13 +875,15 @@
   </dialog>
   <div id="chat-toast" class="chat-toast" role="status" hidden></div>
   <dialog id="message-menu" class="message-menu" aria-labelledby="message-menu-title">
-    <h2 id="message-menu-title">Message actions</h2>
+    <header class="message-menu-header split-heading">
+      <h2 id="message-menu-title">Message actions</h2>
+      <button type="button" id="close-message-menu" class="icon-button" aria-label="Close message actions" title="Close message actions"><span data-icon="x"></span></button>
+    </header>
     <div id="message-menu-actions" class="message-menu-actions"></div>
-    <button type="button" id="close-message-menu" class="icon-button" aria-label="Close message actions" title="Close message actions"><span data-icon="x"></span></button>
   </dialog>
   <dialog id="call-sheet" class="call-sheet" aria-labelledby="call-title">
     <div class="call-sheet-body">
-      <header class="call-sheet-header">
+      <header class="call-sheet-header split-heading">
         <div>
           <h2 id="call-title">Call Hearth</h2>
           <p id="call-thread" class="meta"></p>
@@ -945,9 +950,13 @@
   <dialog class="artifact-drawer" id="artifact-drawer" aria-labelledby="artifact-drawer-title">
     <div class="artifact-drawer-shell">
       <header class="artifact-drawer-header">
-        <div id="artifact-detail-meta" class="artifact-badges"></div>
-        <button type="button" class="artifact-icon-button" id="artifact-close" aria-label="Close artifact" title="Close artifact"><span data-icon="x"></span></button>
-        <h2 id="artifact-drawer-title">Artifact</h2>
+        <div class="artifact-drawer-heading">
+          <div>
+            <div id="artifact-detail-meta" class="artifact-badges"></div>
+            <h2 id="artifact-drawer-title">Artifact</h2>
+          </div>
+          <button type="button" class="artifact-icon-button" id="artifact-close" aria-label="Close artifact" title="Close artifact"><span data-icon="x"></span></button>
+        </div>
         <p class="artifact-detail-filename" id="artifact-filename"></p>
         <div class="artifact-detail-actions" id="artifact-actions"></div>
         <p id="artifact-detail-status" class="artifact-detail-status" role="status"></p>
@@ -958,11 +967,15 @@
   <dialog class="artifact-drawer file-question-dialog" id="file-question-dialog" aria-labelledby="file-question-title">
     <div class="artifact-drawer-shell">
       <header class="artifact-drawer-header">
-        <button type="button" class="artifact-icon-button" id="file-question-close" aria-label="Close Ask my files">
-          <span data-icon="x"></span>
-        </button>
-        <h2 id="file-question-title">Ask my files</h2>
-        <p class="meta file-question-provider">Questions about your Box files</p>
+        <div class="artifact-drawer-heading">
+          <div>
+            <h2 id="file-question-title">Ask my files</h2>
+            <p class="meta file-question-provider">Questions about your Box files</p>
+          </div>
+          <button type="button" class="artifact-icon-button" id="file-question-close" aria-label="Close Ask my files">
+            <span data-icon="x"></span>
+          </button>
+        </div>
       </header>
       <div class="artifact-drawer-body">
         <form id="file-question-form" class="file-question-form">
@@ -989,7 +1002,7 @@
   </dialog>
   <dialog id="skill-editor" class="skill-editor" aria-labelledby="skill-title">
     <form id="skill-form">
-      <header class="skill-editor-header">
+      <header class="skill-editor-header split-heading">
         <div>
           <h2 id="skill-title">Skill</h2>
           <p class="meta" id="skill-description"></p>

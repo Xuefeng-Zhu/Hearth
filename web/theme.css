@@ -477,7 +477,7 @@
   /* Non-text edges identify controls against the app and their own surfaces. */
   .suggestion-card button.suggestion-primary, #memory-view button.memory-primary,
   #memory-view #memory-find button { border-color: var(--control-border); }
-  .composer, .prompts button, .remembered button, .artifact-icon-button, .artifact-layout-toggle,
+  .composer, .prompts button, .remembered button, .artifact-icon-button, .artifact-layout-toggle button,
   .avatar-choices button, .avatar-color input, .settings-disclosure, .workspace-drawer-header button,
   .query-form input, .delivery-intro > button,
   .connection-tabs button[aria-selected="true"], .artifact-layout-toggle button[aria-pressed="true"] {
@@ -488,7 +488,8 @@
   }
   .composer :is(#mic, #send, #start-call), .call-button, .call-end, .primary,
   .card button.primary-setting, .settings-button.primary-setting, .brain-controls #brain-save,
-  .timeline-undo, .timeline-confirm .timeline-restore { border: 1px solid var(--control-border); }
+  .timeline-undo, .timeline-confirm .timeline-restore,
+  .self-update-card button.self-update-approve { border: 1px solid var(--control-border); }
   :is(button, input, select, textarea):disabled, .settings-button[aria-disabled="true"] { opacity: 1; }
   button:disabled, .settings-button[aria-disabled="true"],
   #stop-reply[aria-disabled="true"] { cursor: default; border-style: dashed; }
