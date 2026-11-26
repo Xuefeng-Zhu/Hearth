@@ -13,6 +13,7 @@ from playwright.sync_api import expect, sync_playwright
 
 from combobox_smoke import combobox_smoke
 from chat_search_smoke import chat_search_smoke
+from list_search_smoke import list_search_smoke
 
 from hearth import browserbase
 from hearth.agent import Agent, mock_completion, mock_text, tool_call
@@ -1091,6 +1092,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--disconnect", action="store_true", help="Run the SSE disconnect regression.")
     parser.add_argument("--chat-search", action="store_true", help="Run only Chat search, including the width sweep.")
+    parser.add_argument("--list-search", action="store_true", help="Run Reminders, Inbox, and Skills search with the width sweep.")
     args = parser.parse_args()
     expect.set_options(timeout=5_000)
     with workspace() as (app, origin), sync_playwright() as playwright:
@@ -1100,6 +1102,8 @@ def main():
                 disconnect(browser, app, origin)
             elif args.chat_search:
                 chat_search_smoke(browser, app, origin, browser_page, sweep=True)
+            elif args.list_search:
+                list_search_smoke(browser, app, origin, browser_page, sweep=True)
             else:
                 with workspace() as (layout_app, layout_origin):
                     layout_smoke(browser, layout_app, layout_origin)
@@ -1114,11 +1118,14 @@ def main():
                     combobox_smoke(browser, combo_app, combo_origin, browser_page)
                 with workspace() as (search_app, search_origin):
                     chat_search_smoke(browser, search_app, search_origin, browser_page)
+                with workspace() as (list_app, list_origin):
+                    list_search_smoke(browser, list_app, list_origin, browser_page)
                 stale_refresh(browser, origin)
                 self_update_smoke(browser, app, origin)
         finally:
             browser.close()
-    check = "stream disconnect" if args.disconnect else "Chat search" if args.chat_search else "smoke"
+    check = ("stream disconnect" if args.disconnect else "Chat search" if args.chat_search
+             else "list search" if args.list_search else "smoke")
     print(f"Chromium {check} passed.")
 
 

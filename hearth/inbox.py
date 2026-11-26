@@ -6,9 +6,10 @@ from zoneinfo import ZoneInfo
 
 from . import approvals, artifacts, mail_content, office, scheduler, tasks, timeline
 from .connectors import ConnectorError
-from .reminder_config import KINDS, NOT_CONNECTED, saved
+from .reminder_config import KINDS, KIND_LABELS, NOT_CONNECTED, saved
 from .reminders import cancel, change_occurrence
 from .scheduler import can_cancel
+from .search_text import match_row
 from .storage import HearthError, iso, new_id
 from .threads import MAIN_ORIGIN
 
@@ -40,6 +41,21 @@ def public(card):
             if key not in {"message_id", "mailbox", "changes", "acknowledge", "fallback"}}
 
 
+def sender_display(card, key):
+    address = card.get(key)
+    name = card.get(f"{key}_name")
+    return f"{name} <{address}>" if name and address else address
+
+
+def search_card(card, query):
+    proposal = card["proposal"]
+    kind = proposal["kind"]
+    return match_row(card, query, {"title": card["title"], "sender": sender_display(card, "sender"),
+                                  "original_sender": sender_display(card, "original_sender"),
+                                  "summary": proposal["summary"], "category": KIND_LABELS.get(kind)},
+                     (card.get("body"), card.get("preview"), card.get("subject"), kind, *card.get("labels", [])))
+
+
 def times_for(proposal, now):
     kind = proposal["kind"]
     events = proposal["events"] or [{"title": proposal["title"], "at": proposal["at"]}]
@@ -64,11 +80,16 @@ class Inbox:
         self.storage = app.storage
         self.reminders = app.reminders
 
-    def list(self):
+    def list(self, query=None):
         with self.storage.lock():
             state = self.storage.load()
             cards = state.get("inbox", {}).values()
-            entries = sorted((public(card) for card in cards), key=lambda card: card["received_at"], reverse=True)
+        entries = []
+        for card in cards:
+            row = public(card)
+            if query is None or (row := search_card(row, query)) is not None:
+                entries.append(row)
+        entries.sort(key=lambda card: card["received_at"], reverse=True)
         now = datetime.now(timezone.utc)
         return {"cards": entries, "task_notifications": tasks.inbox_rows(state, now),
                 "approvals": approvals.records(self.storage, clock=now), **self.reminders.info()}
@@ -202,6 +223,10 @@ class Inbox:
                          agent.models[0])
             proposal = mail_content.brain_classify(self.app.gateway, model, forwarded, fallback, zone, reference)
         card = {"id": card_id, "message_id": message_id, "mailbox": mailbox["key"], "sender": sender,
+                "sender_name": mail_content.sender_name(message.get("from")),
+                "subject": mail_content.clean(message.get("subject"), 240),
+                "preview": mail_content.clean(message.get("preview"), 1000),
+                "labels": [value for label in sorted(labels)[:50] if (value := mail_content.clean(label, 120))],
                 **forwarded, "received_at": iso(received), "allowlisted": sender in selection["allowed_senders"],
                 "authenticated": verified, "suspicious": contains_instructions, "attachments": files,
                 "proposal": proposal, "fallback": fallback, "status": "review"}

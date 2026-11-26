@@ -74,7 +74,7 @@
   pointer-events: none;
   color: var(--search-icon);
 }
-#chat-search-query {
+.search-input {
   width: 100%;
   min-height: var(--control-height);
   padding-block: var(--space-2);
@@ -86,10 +86,10 @@
   font: inherit;
   font-size: max(16px, var(--control-font-size));
 }
-#chat-search-query:focus { outline: 2px solid var(--focus); outline-offset: -2px; }
-#chat-search-query::placeholder { color: var(--muted); opacity: 1; }
-#chat-search-query::-webkit-search-cancel-button { appearance: none; }
-#clear-chat-search {
+.search-input:focus { outline: 2px solid var(--focus); outline-offset: -2px; }
+.search-input::placeholder { color: var(--muted); opacity: 1; }
+.search-input::-webkit-search-cancel-button { appearance: none; }
+.search-clear {
   position: absolute;
   inset-block-start: 50%;
   inset-inline-end: 0;
@@ -97,7 +97,7 @@
   border-color: transparent;
   background: transparent;
 }
-#clear-chat-search:focus-visible { outline-offset: -4px; }
+.search-clear:focus-visible { outline-offset: -4px; }
 .chat-search-status { margin: var(--space-3) 0 var(--space-2); color: var(--muted); font-size: .8125rem; }
 .chat-search-results {
   min-height: 0;
@@ -126,7 +126,7 @@
 .chat-search-result:is(:hover, [aria-selected=true]) { background: var(--nav-hover); }
 .chat-search-result[aria-selected=true] { outline: 2px solid var(--focus); outline-offset: -2px; }
 .chat-search-snippet { font-size: .925rem; line-height: 1.45; }
-.chat-search-snippet mark {
+:is(.chat-search-snippet, .list-search-results) mark {
   padding: 0 1px;
   border-radius: 3px;
   color: var(--text);
@@ -184,7 +184,7 @@
       max(var(--space-4), env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left));
   }
   .chat-search-result, .chat-search-modes button, .chat-search-footer button,
-  .chat-search-icon, #chat-search-query, .chat-history-navigation button { min-height: 44px; }
+  .chat-search-icon, .search-input, .chat-history-navigation button { min-height: 44px; }
   .chat-search-icon { min-width: 44px; }
   .chat-find > section { grid-template-columns: minmax(0, 1fr) auto; }
   .chat-find .chat-search-modes, .chat-find .chat-search-status { grid-column: 1 / -1; }

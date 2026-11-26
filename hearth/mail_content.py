@@ -65,6 +65,10 @@ def sender(value):
     return address(parseaddr(value)[1])
 
 
+def sender_name(value):
+    return clean(parseaddr(value)[0], 160) if sender(value) else ""
+
+
 def plain(message, *, extracted=False):
     keys = ("extracted_text", "text", "extracted_html", "html") if extracted else ("text", "html", "extracted_text", "extracted_html")
     for key in keys:
@@ -132,7 +136,8 @@ def strip_forward(message, zone):
     date_text = fields.get("date") or fields.get("sent") or fields.get("日期") or fields.get("发送时间")
     original_date = parse_date(date_text, zone)
     return {"title": subject or "Untitled email", "body": clean("\n".join(body)),
-            "original_sender": sender(original), "original_date": iso(original_date) if original_date else clean(date_text, 160)}
+            "original_sender": sender(original), "original_sender_name": sender_name(original),
+            "original_date": iso(original_date) if original_date else clean(date_text, 160)}
 
 
 def parse_ics(text, zone):

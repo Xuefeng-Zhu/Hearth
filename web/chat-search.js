@@ -1,4 +1,5 @@
 import { threadMenuIndex } from "./thread-menu.js";
+import { appendHighlighted, slashSearchShortcut } from "./dom.js";
 
 const relativeDates = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
@@ -24,8 +25,7 @@ export function groupChatResults(results) {
 export function chatSearchShortcut(event) {
   if (event.defaultPrevented || event.repeat || event.isComposing || event.altKey || event.shiftKey) return false;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") return true;
-  const typing = event.target?.isContentEditable || event.target?.closest?.("input, textarea, select, [role=textbox]");
-  return event.key === "/" && !event.metaKey && !event.ctrlKey && !typing;
+  return slashSearchShortcut(event);
 }
 
 export function createChatSearch({ api, thread, jump, reveal, prepareFind }) {
@@ -160,13 +160,7 @@ export function createChatSearch({ api, thread, jump, reveal, prepareFind }) {
         item.id = `chat-search-option-${options.length}`;
         item.className = "chat-search-result";
         excerpt.className = "chat-search-snippet";
-        for (const { text, match } of row.snippet) {
-          if (match) {
-            const mark = document.createElement("mark");
-            mark.textContent = text;
-            excerpt.append(mark);
-          } else excerpt.append(text);
-        }
+        appendHighlighted(excerpt, row.snippet);
         meta.className = "chat-search-meta";
         meta.textContent = row.role === "user" ? "You" : "Ember";
         if (row.at) time.dateTime = row.at;

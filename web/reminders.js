@@ -1,6 +1,7 @@
 import { icon } from "./icons.js";
 import { localInputTime, localTimeToISO, setTimeZone, timeFormatter } from "./time.js";
-import { reconcileChildren } from "./dom.js";
+import { appendHighlighted, reconcileChildren } from "./dom.js";
+import { listSearchExcerpt, listSearchPath } from "./list-search.js";
 
 const channels = { app: "In app", email: "Email", both: "Both" };
 const icons = { app: ["bell"], email: ["mail"], both: ["bell", "mail"] };
@@ -36,9 +37,11 @@ function link(text, href) {
   return item;
 }
 
-export function channelChip(channel = "app", status) {
+export function channelChip(channel = "app", status, matches) {
   const chip = el("span", `delivery-chip${status ? ` delivery-${status}` : ""}`);
-  chip.append(...icons[channel].map((name) => icon(name, 14)), document.createTextNode(channels[channel] + (status ? ` · ${statuses[status]}` : "")));
+  const label = appendHighlighted(el("span"), matches, channels[channel]);
+  if (status) label.append(` · ${statuses[status]}`);
+  chip.append(...icons[channel].map((name) => icon(name, 14)), label);
   return chip;
 }
 
@@ -68,7 +71,8 @@ function option(label, value) {
   return item;
 }
 
-export function createReminders({ api, refreshAPI, openView, openSettings, startSending, stopSending, currentView, currentSettings, onInbox }) {
+export function createReminders({ api, refreshAPI, openView, openSettings, startSending, stopSending,
+  currentView, currentSettings, onInbox, reminderSearch, inboxSearch }) {
   const form = get("reminder-settings-form");
   const options = get("inbox-auto-kinds");
   let backgroundPoll;
@@ -236,18 +240,21 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
   }
 
   function reminderCard(row) {
+    const matches = row.search_matches;
     const card = el("article", "card delivery-card");
     card.dataset.reminder = row.job_id || row.id;
     const header = el("div", "delivery-card-head");
-    const title = el("h4", "", row.message);
-    const when = formatDate(row.next_at || row.scheduled_at);
-    header.append(title, el("span", "meta", when));
+    const title = appendHighlighted(el("h4"), matches?.title, row.message);
+    const when = row.due_text ?? formatDate(row.next_at || row.scheduled_at);
+    header.append(title, appendHighlighted(el("span", "meta"), matches?.due, when));
     const chips = el("div", "delivery-chips");
     for (const [channel, delivery] of Object.entries(row.delivery)) {
-      chips.append(channelChip(channel, delivery.status));
+      chips.append(channelChip(channel, delivery.status, matches?.[channel]));
     }
     card.append(header, chips);
-    if (row.note) card.append(el("p", "delivery-note", row.note));
+    if (row.note) card.append(appendHighlighted(el("p", "delivery-note"), matches?.note, row.note));
+    const excerpt = listSearchExcerpt(matches);
+    if (excerpt) card.append(excerpt);
     for (const [channel, delivery] of Object.entries(row.delivery)) {
       if (delivery.reason || delivery.sending) {
         const reason = el("p", "meta", `${channels[channel]} · ${delivery.sending ? "Sending reminder" : delivery.reason}`);
@@ -273,12 +280,20 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
   }
 
   let reminderSignature;
+  let reminderRequest = 0;
   async function reminders({ background } = {}) {
     const target = get("reminders-content");
+    const request = ++reminderRequest;
+    const { query } = reminderSearch;
     try {
-      const result = await refreshAPI("/api/reminders", { background, signal: AbortSignal.timeout(6000) });
+      const result = await refreshAPI(listSearchPath("/api/reminders", query),
+        { background, signal: AbortSignal.timeout(6000) });
+      if (request !== reminderRequest || query !== reminderSearch.query || currentView() !== "reminders") return;
       if (result.timezone) setTimeZone(result.timezone);
-      const signature = JSON.stringify(result);
+      const count = result.jobs.length + result.delivered.length + result.outbox.length;
+      reminderSearch.count(count);
+      target.hidden = !!query && !count;
+      const signature = JSON.stringify([query, result]);
       if (signature === reminderSignature) return;
       reminderSignature = signature;
       target.replaceChildren();
@@ -291,6 +306,7 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
         ["Delivered", result.delivered.filter((row) => row.delivery.email?.status !== "queued" || row.delivery.app)],
       ];
       for (const [name, entries] of groups) {
+        if (query && !entries.length) continue;
         const group = heading(target, name, entries.length);
         if (!entries.length) group.append(el("p", "delivery-empty", `No ${name.toLowerCase()} reminders.`));
         else group.append(...entries.map(reminderCard));
@@ -299,15 +315,24 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
         const outbox = heading(target, "Outbox", result.outbox.length);
         for (const row of result.outbox) {
           const card = el("article", "card delivery-card");
-          const title = link(row.subject, `/api/reminders/outbox?id=${encodeURIComponent(row.id)}`);
+          const matches = row.search_matches;
+          const title = link("", `/api/reminders/outbox?id=${encodeURIComponent(row.id)}`);
+          appendHighlighted(title, matches?.title, row.subject);
           title.target = "_blank";
           title.rel = "noopener";
-          card.append(title, el("p", "meta", `${formatDate(row.created_at)} · Demo copy`));
+          const date = appendHighlighted(el("p", "meta"), matches?.due, row.due_text ?? formatDate(row.created_at));
+          date.append(" · Demo copy");
+          card.append(title, date);
+          const excerpt = listSearchExcerpt(matches);
+          if (excerpt) card.append(excerpt);
           outbox.append(card);
         }
       }
     } catch (error) {
-      if (!background) get("reminders-feedback").textContent = error.message;
+      if (!background && request === reminderRequest && query === reminderSearch.query) {
+        reminderSearch.fail();
+        get("reminders-feedback").textContent = error.message;
+      }
     }
   }
 
@@ -382,18 +407,34 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
   }
 
   function inboxCard(card) {
+    const matches = card.search_matches;
     const article = el("article", "card delivery-card inbox-card");
     article.dataset.inbox = card.id;
     const header = el("div", "delivery-card-head");
-    header.append(el("h4", "", card.title), el("span", "meta", formatDate(card.received_at)));
+    header.append(appendHighlighted(el("h4"), matches?.title, card.title), el("span", "meta", formatDate(card.received_at)));
     const chips = el("div", "delivery-chips");
-    chips.append(el("span", "delivery-chip", kinds[card.proposal.kind]),
+    const category = appendHighlighted(el("span"), matches?.category, kinds[card.proposal.kind]);
+    const categoryChip = el("span", "delivery-chip");
+    categoryChip.append(category);
+    chips.append(categoryChip,
       el("span", `delivery-chip delivery-${card.status === "accepted" ? "sent" : "queued"}`, inboxStatuses[card.status]));
     if (card.automatic) chips.append(el("span", "delivery-chip", "Automatic"));
-    article.append(header, chips, el("p", "meta", [card.sender && `From ${card.sender}`,
-      card.original_sender && `Original sender ${card.original_sender}`, card.original_date && `Original date ${formatDate(card.original_date)}`]
-      .filter(Boolean).join(" · ")),
-    el("p", "", card.proposal.summary), el("p", "inbox-proposal", proposalText(card.proposal)));
+    const sender = el("p", "meta");
+    for (const [key, label] of [["sender", "From"], ["original_sender", "Original sender"]]) {
+      if (!card[key]) continue;
+      if (sender.hasChildNodes()) sender.append(" · ");
+      sender.append(`${label} `);
+      const name = card[`${key}_name`];
+      appendHighlighted(sender, matches?.[key], name ? `${name} <${card[key]}>` : card[key]);
+    }
+    if (card.original_date) {
+      if (sender.hasChildNodes()) sender.append(" · ");
+      sender.append(`Original date ${formatDate(card.original_date)}`);
+    }
+    article.append(header, chips, sender, appendHighlighted(el("p"), matches?.summary, card.proposal.summary),
+      el("p", "inbox-proposal", proposalText(card.proposal)));
+    const excerpt = listSearchExcerpt(matches);
+    if (excerpt) article.append(excerpt);
     if (card.suspicious) article.append(el("p", "meta", "Contains instruction-like text. Review required."));
     else if (!card.authenticated && card.status === "review") {
       article.append(el("p", "meta", card.allowlisted ? "Sender authentication could not be verified." : "Sender is outside your allowlist."));
@@ -425,9 +466,13 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
 
   async function inbox({ background } = {}) {
     const request = ++inboxRequest;
+    const { query } = inboxSearch;
     try {
-      const result = await refreshAPI("/api/inbox", { background, signal: AbortSignal.timeout(6000) });
-      if (request !== inboxRequest || currentView() !== "inbox") return;
+      const result = await refreshAPI(listSearchPath("/api/inbox", query),
+        { background, signal: AbortSignal.timeout(6000) });
+      if (request !== inboxRequest || query !== inboxSearch.query || currentView() !== "inbox") return;
+      inboxSearch.count(result.cards.length);
+      inboxTarget.hidden = !!query && !result.cards.length;
       onInbox(result.task_notifications || [], result.approvals || []);
       if (result.settings?.timezone) setTimeZone(result.settings.timezone);
       const connection = JSON.stringify([result.connected, result.inbox_address, result.inbox_error, result.connection_message]);
@@ -449,6 +494,7 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
       }
       for (const id of editing) if (!next.has(id)) editing.delete(id);
       inboxRows = next;
+      reviewGroup.hidden = !!query && !review.length;
       processedGroup.hidden = !processed.length;
       for (const [group, rows] of [[reviewGroup, review], [processedGroup, processed]]) {
         const title = group.firstElementChild;
@@ -456,7 +502,10 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
         reconcileChildren(group, [title, ...(group === reviewGroup && !rows.length ? [reviewEmpty] : rows)]);
       }
     } catch (error) {
-      if (!background && request === inboxRequest) get("inbox-feedback").textContent = error.message;
+      if (!background && request === inboxRequest && query === inboxSearch.query) {
+        inboxSearch.fail();
+        get("inbox-feedback").textContent = error.message;
+      }
     }
   }
 

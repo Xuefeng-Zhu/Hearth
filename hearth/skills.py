@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 
 from .gateway_tools import redact_text
+from .search_text import match_row
 from .storage import HearthError, atomic_write, iso, new_id
 from .threads import MAIN_ORIGIN
 
@@ -50,7 +51,7 @@ def parse(markdown, allowed):
         fields = yaml.safe_load(match[1])
     except (yaml.YAMLError, RecursionError):
         raise HearthError("Enter valid YAML front matter.") from None
-    if not isinstance(fields, dict) or fields.keys() != FIELDS:
+    if not isinstance(fields, dict) or not FIELDS <= fields.keys() <= FIELDS | {"tags"}:
         raise HearthError("Include name, description, when_to_use, and tools in the front matter.")
     tools = fields["tools"]
     if not isinstance(tools, list) or any(
@@ -60,15 +61,24 @@ def parse(markdown, allowed):
     body = redact_text(match[2].strip())
     if not body:
         raise HearthError("Add Markdown instructions below the front matter.")
-    return {"name": field(fields["name"], "a name", 80),
-            "description": field(fields["description"], "a description", 180),
-            "when_to_use": field(fields["when_to_use"], "when to use the skill", 500),
-            "tools": list(dict.fromkeys(tools)), "content": body}
+    result = {"name": field(fields["name"], "a name", 80),
+              "description": field(fields["description"], "a description", 180),
+              "when_to_use": field(fields["when_to_use"], "when to use the skill", 500),
+              "tools": list(dict.fromkeys(tools)), "content": body}
+    if "tags" in fields:
+        tags = fields["tags"]
+        if not isinstance(tags, list) or len(tags) > 20:
+            raise HearthError("Use a YAML list of up to 20 skill tags.")
+        result["tags"] = list(dict.fromkeys(field(tag, "a tag", 80) for tag in tags))
+    return result
 
 
 def format_skill(data):
+    keys = ("name", "description", "when_to_use", "tools")
+    if "tags" in data:
+        keys += ("tags",)
     front = "\n".join(f"{key}: {json.dumps(data[key], ensure_ascii=False)}" for key in
-                      ("name", "description", "when_to_use", "tools"))
+                      keys)
     return f"---\n{front}\n---\n\n{data['content']}\n"
 
 
@@ -122,8 +132,24 @@ class Skills:
                 "builtin": builtin, "revision": revision, "use_count": 0, "last_used": None,
                 **usage.get(identity, {})}
 
-    def list(self):
-        return sorted(self.listed(self.storage.load()), key=lambda row: (not row["builtin"], row["name"].casefold()))
+    def search(self, state, query):
+        if not query:
+            return
+        for row in self.listed(state):
+            fields = {key: row[key] for key in ("name", "description")}
+            if result := match_row(row, query, fields):
+                yield result
+                continue
+            identity = row["id"]
+            data = (self.builtins[identity] if row["builtin"]
+                    else parse(self.current(identity, state["skills"][identity]), self.allowed))
+            if result := match_row(row, query, {}, (data["when_to_use"], *data.get("tags", []), data["content"])):
+                yield result
+
+    def list(self, query=None):
+        state = self.storage.load()
+        rows = self.listed(state) if query is None else self.search(state, query)
+        return sorted(rows, key=lambda row: (not row["builtin"], row["name"].casefold()))
 
     def require(self, state, *, identity=None, name=None):
         for row in self.listed(state):

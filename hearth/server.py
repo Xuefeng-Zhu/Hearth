@@ -28,6 +28,7 @@ from .http_requests import Request, RequestError, body_length, read_json, receiv
 from .http_routes import route_for
 from .memory_sync import MemorySync
 from .reminder_config import equal, saved
+from .search_text import list_query
 from .storage import HearthError, ROOT, Storage, iso, new_id, revision
 from .subsystem_status import SubsystemStatus
 from .threads import MAIN, Threads, compact
@@ -115,6 +116,8 @@ STATIC = {
     "/chat-state.js": ("chat-state.js", "text/javascript; charset=utf-8"),
     "/chat-search.js": ("chat-search.js", "text/javascript; charset=utf-8"),
     "/chat-search.css": ("chat-search.css", "text/css; charset=utf-8"),
+    "/list-search.js": ("list-search.js", "text/javascript; charset=utf-8"),
+    "/list-search.css": ("list-search.css", "text/css; charset=utf-8"),
     "/self-update.js": ("self-update.js", "text/javascript; charset=utf-8"),
     "/self-update.css": ("self-update.css", "text/css; charset=utf-8"),
     "/sse.js": ("sse.js", "text/javascript; charset=utf-8"),
@@ -1050,7 +1053,7 @@ class Handler(BaseHTTPRequestHandler):
             self.stream_events(events)
 
     def get_skills(self, request):
-        self.json({"skills": self.app.agent.skills.list()})
+        self.json({"skills": self.app.agent.skills.list(list_query(request.query))})
 
     def get_skills_detail(self, request):
         params = request.query
@@ -1100,10 +1103,10 @@ class Handler(BaseHTTPRequestHandler):
         self.json(self.app.reminders.info())
 
     def get_reminders(self, request):
-        self.json(self.app.reminders.list())
+        self.json(self.app.reminders.list(list_query(request.query)))
 
     def get_inbox(self, request):
-        self.json(self.app.inbox.list())
+        self.json(self.app.inbox.list(list_query(request.query)))
 
     def get_reminders_outbox(self, request):
         identity = request.query.get("id", [""])[0]
@@ -1200,7 +1203,8 @@ class Handler(BaseHTTPRequestHandler):
             if not route.during_restore:
                 self.require_ready()
             body = self.read_body(route) if self.command == "POST" else None
-            request = Request(path, parse_qs(query), params, body, route.operation)
+            keep_blank = path in {"/api/reminders", "/api/inbox", "/api/skills"}
+            request = Request(path, parse_qs(query, keep_blank_values=keep_blank), params, body, route.operation)
             result = self.handle_route(route, request)
             if isinstance(result, ChatStream):
                 self.stream_chat(result.events)

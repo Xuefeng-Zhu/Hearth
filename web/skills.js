@@ -1,5 +1,7 @@
 import { markdown } from "./artifacts.js";
+import { appendHighlighted } from "./dom.js";
 import { icon } from "./icons.js";
+import { listSearchExcerpt, listSearchPath } from "./list-search.js";
 import { timeFormatter } from "./time.js";
 
 const get = (id) => document.getElementById(id);
@@ -28,7 +30,7 @@ export function skillChip(skill, label = "Using skill") {
   return chip;
 }
 
-export function createSkills({ api, openChat, onLinkedClose }) {
+export function createSkills({ api, openChat, onLinkedClose, search }) {
   const library = get("skill-list");
   const status = get("skills-status");
   const editor = get("skill-editor");
@@ -123,12 +125,14 @@ export function createSkills({ api, openChat, onLinkedClose }) {
   }
 
   function card(skill) {
+    const matches = skill.search_matches;
     const article = element("article", "skill-card");
     const mark = element("span", "skill-mark");
     mark.append(icon("skill", 21));
     const text = element("div", "skill-card-body");
     const heading = element("h3");
-    const link = element("button", "skill-card-link", skill.name);
+    const link = element("button", "skill-card-link");
+    link.append(appendHighlighted(element("span"), matches?.name, skill.name));
     link.type = "button";
     link.dataset.skill = skill.id;
     link.setAttribute("aria-haspopup", "dialog");
@@ -146,21 +150,29 @@ export function createSkills({ api, openChat, onLinkedClose }) {
     }
     stats.append(lastUsed, element("span", "", `${skill.use_count} ${skill.use_count === 1 ? "use" : "uses"}`));
     if (skill.builtin) stats.prepend(element("span", "skill-badge", "Built-in"));
-    text.append(heading, element("p", "", skill.description), stats);
+    text.append(heading, appendHighlighted(element("p"), matches?.description, skill.description));
+    const excerpt = listSearchExcerpt(matches);
+    if (excerpt) text.append(excerpt);
+    text.append(stats);
     article.append(mark, text);
     return article;
   }
 
   async function load() {
     const request = ++listRequest;
-    if (!library.childElementCount) status.textContent = "Loading skills…";
+    const { query } = search;
+    if (!query && !library.childElementCount) status.textContent = "Loading skills…";
     try {
-      const { skills } = await api("/api/skills");
-      if (request !== listRequest) return;
+      const { skills } = await api(listSearchPath("/api/skills", query));
+      if (request !== listRequest || query !== search.query) return;
       library.replaceChildren(...skills.map(card));
-      status.textContent = skills.length ? "" : "No skills yet.";
+      search.count(skills.length);
+      status.textContent = skills.length || query ? "" : "No skills yet.";
     } catch (error) {
-      if (request === listRequest) status.textContent = error.message;
+      if (request === listRequest && query === search.query) {
+        search.fail();
+        status.textContent = error.message;
+      }
     }
   }
 
@@ -258,5 +270,5 @@ export function createSkills({ api, openChat, onLinkedClose }) {
     editor.close();
     await openChat(thread);
   }));
-  return { loadLinked, clearLink };
+  return { load, loadLinked, clearLink };
 }

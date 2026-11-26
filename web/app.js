@@ -6,11 +6,12 @@ import { createTimeline } from "./timeline.js";
 import { artifactFilterFromHash, createArtifacts, markdown } from "./artifacts.js";
 import { fileAnswerSources } from "./file-questions.js";
 import { channelChip, createReminders } from "./reminders.js";
-import { reconcileChildren } from "./dom.js";
+import { reconcileChildren, slashSearchShortcut } from "./dom.js";
 import { setupMobile } from "./mobile.js";
 import { createThreadMenu } from "./thread-menu.js";
 import { setupSearchableSelects } from "./combobox.js";
 import { createChatSearch } from "./chat-search.js";
+import { createListSearch, listSearchHash, listSearchRoute } from "./list-search.js";
 import { createAttachments } from "./attachments.js";
 import { icon, iconButton, mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
@@ -125,6 +126,12 @@ let homeCache;
 let homeSequence = 0;
 let homeActive = false;
 let view = "home";
+const listSearches = Object.fromEntries(["reminders", "inbox", "skills"].map((name) =>
+  [name, createListSearch(name, (query) => {
+    const hash = listSearchHash(name, query, listSearchRoute(location.hash)?.target);
+    if (hash !== location.hash) history.pushState(history.state, "", hash);
+    void refreshView();
+  })]));
 const chatSearch = createChatSearch({
   api, thread: () => currentThread, jump: openChatSearchResult, reveal: revealChatSearchResult,
   prepareFind: () => { if (avatarMode === "face") chooseAvatarMode("beside"); },
@@ -184,10 +191,11 @@ const automation = createAutomation({
   },
 });
 const skills = createSkills({
-  api, openChat: openSkillChat,
+  api, openChat: openSkillChat, search: listSearches.skills,
   onLinkedClose(id) {
-    if (location.hash === skillHash(id)) {
-      history.replaceState(history.state, "", skillHash());
+    const route = listSearchRoute(location.hash);
+    if (route?.view === "skills" && route.target === id) {
+      history.replaceState(history.state, "", listSearchHash("skills", route.query));
     }
   },
 });
@@ -256,6 +264,7 @@ const homePage = createHome({
 });
 const delivery = createReminders({
   api, refreshAPI, openView, openSettings: openSettingsSection, onInbox: automation.inbox, currentView: () => view, currentSettings: () => settingsSection,
+  reminderSearch: listSearches.reminders, inboxSearch: listSearches.inbox,
   startSending: () => {
     sendingTestReminder = true;
     renderThreads();
@@ -605,7 +614,7 @@ async function readResponse(response) {
 }
 
 function refreshAPI(path, { background, signal } = {}) {
-  return trackRefresh(path, background, () => api(path, undefined, signal));
+  return trackRefresh(path.split("?")[0], background, () => api(path, undefined, signal));
 }
 
 async function trackRefresh(path, background, load) {
@@ -1828,10 +1837,6 @@ function settingsHash(section, target) {
   return "#settings" + (section ? `/${section}` : "") + (target ? `/${encodeURIComponent(target)}` : "");
 }
 
-function skillHash(id) {
-  return id ? `#skills/${encodeURIComponent(id)}` : "#skills";
-}
-
 function connectionHash(tab) {
   return settingsHash("connections", tab);
 }
@@ -1843,15 +1848,10 @@ function isSetting(section) {
 function workspaceRoute() {
   const hash = location.hash;
   if (hash === "#settings") return { view: "settings", hash };
+  const searchRoute = listSearchRoute(hash);
+  if (searchRoute) return searchRoute;
   const [root, ...path] = hash.slice(1).split("/");
   const [section, item, extra] = root === "settings" ? path : [root, ...path];
-  if (extra === undefined && section === "skills") {
-    let target;
-    if (item) {
-      try { target = decodeURIComponent(item); } catch { /* Open the library for a malformed skill link. */ }
-    }
-    return { view: "skills", target, hash: skillHash(target) };
-  }
   if (extra === undefined && (root === "settings" || root === "connections") && settingsDisclosures.has(section)) {
     const target = section === "connections" && configTabs.includes(item) ? item : undefined;
     return { view: "settings", section, target, hash: settingsHash(section, target) };
@@ -2700,6 +2700,7 @@ async function refreshView(options) {
   if (view === "home") return homePage.load(options);
   if (view === "timeline") return timeline.show(options);
   if (view === "artifacts") return artifactLibrary.show();
+  if (view === "skills") return skills.load();
   if (view === "reminders") return automation.tasksActive() ? automation.loadTasks(options) : delivery.reminders(options);
   if (view === "inbox") return delivery.inbox(options);
   if (isSetting("automations")) return automation.eventSettings(options);
@@ -2715,6 +2716,7 @@ async function openView(nextView, updateHistory = true, section, target) {
   const previousView = view;
   const fromDrawer = mobile.closeDrawer({ restoreFocus: false });
   if (nextView !== previousView) threadActions.close({ restoreFocus: false });
+  if (nextView !== previousView) listSearches[previousView]?.cancel();
   if (previousView === "home" && nextView !== "home") homePage.closeAdd({ restoreFocus: false });
   if (nextView !== previousView) showNotice();
   if (nextView !== "chat") {
@@ -2722,8 +2724,9 @@ async function openView(nextView, updateHistory = true, section, target) {
     voice.cancel();
   }
   if (updateHistory) {
+    const route = listSearchRoute(location.hash);
     const hash = nextView === "settings" ? settingsHash(section) : nextView === "artifacts" ? artifactHash()
-      : nextView === "skills" ? skillHash() : "";
+      : listSearches[nextView] ? listSearchHash(nextView, route?.view === nextView ? route.query : "") : "";
     const sameArtifactsView = nextView === "artifacts" && workspaceRoute()?.view === "artifacts";
     if (hash !== location.hash && !sameArtifactsView) {
       history.pushState({ hearthView: nextView }, "", hash || location.pathname + location.search);
@@ -2733,6 +2736,8 @@ async function openView(nextView, updateHistory = true, section, target) {
   if (view === "timeline" && nextView !== view) timeline.hide();
   if (nextView !== "skills") skills.clearLink();
   view = nextView;
+  const searchRoute = listSearchRoute(location.hash);
+  listSearches[view]?.sync(searchRoute?.view === view ? searchRoute.query : "");
   schedulePoll();
   byId("start-call").hidden = view !== "chat";
   byId("view-title").textContent = view[0].toUpperCase() + view.slice(1);
@@ -2765,7 +2770,9 @@ async function openView(nextView, updateHistory = true, section, target) {
     artifactLibrary.selectFormat(artifactFilterFromHash(location.hash) || "all");
     await artifactLibrary.show();
   } else if (view === "reminders" || view === "inbox") {
-    await refreshView();
+    if (view === "reminders" && !updateHistory && searchRoute?.query && automation.tasksActive()) {
+      await automation.openReminders();
+    } else await refreshView();
     if (view === "inbox") delivery.poll();
   } else if (!busy) {
     try {
@@ -3330,6 +3337,11 @@ byId("voice-settings-form").addEventListener("submit", (event) => {
 document.addEventListener("keydown", (event) => {
   if (voiceCall.open) return;
   if (chatSearch.shortcut(event, view === "chat" && !document.querySelector("dialog[open]:not(#chat-search-dialog)"))) return;
+  if (listSearches[view] && slashSearchShortcut(event) && !document.querySelector("dialog[open]")
+      && listSearches[view].focus()) {
+    event.preventDefault();
+    return;
+  }
   if (event.key === "Escape" && voice.active) {
     event.preventDefault();
     voice.cancel();

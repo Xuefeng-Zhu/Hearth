@@ -4,6 +4,7 @@ import os
 import re
 import threading
 import time
+from calendar import month_abbr
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from html import escape
@@ -13,8 +14,9 @@ from zoneinfo import ZoneInfo
 from . import delivery_journal, scheduler, timeline
 from .agentmail import AgentMail
 from .connectors import ConnectorError
-from .reminder_config import CHANNELS, NOT_CONNECTED, equal, public_url, saved, secret, settings
+from .reminder_config import CHANNELS, CHANNEL_LABELS, NOT_CONNECTED, equal, public_url, saved, secret, settings
 from .scheduler import can_cancel, pending_occurrences
+from .search_text import match_row
 from .storage import HearthError, iso, new_id
 from .threads import MAIN_ORIGIN
 
@@ -105,6 +107,33 @@ def public_delivery(delivery):
 
 def public_item(item):
     return {**item, "delivery": public_delivery(item.get("delivery", {"app": {"status": "sent"}}))}
+
+
+def due_text(value, zone):
+    try:
+        when = datetime.fromisoformat(value)
+        when = when.replace(tzinfo=when.tzinfo or timezone.utc).astimezone(zone)
+    except (TypeError, ValueError, OverflowError):
+        return "—"
+    return (f"{month_abbr[when.month]} {when.day}, {when.year}, "
+            f"{when.hour % 12 or 12}:{when.minute:02} {'PM' if when.hour >= 12 else 'AM'}")
+
+
+def search_reminders(rows, query, zone, *, outbox=False):
+    for row in rows:
+        due = row.get("created_at") if outbox else row.get("next_at") or row.get("scheduled_at")
+        row["due_text"] = due_text(due, zone)
+        if query is None:
+            yield row
+            continue
+        delivery = row.get("delivery", {})
+        channel = row.get("channel", "email" if outbox else "")
+        fields = {"title": row.get("subject" if outbox else "message"), "note": row.get("note"),
+                  "due": row["due_text"], **{key: CHANNEL_LABELS[key] for key in delivery}}
+        extra = (CHANNEL_LABELS.get(channel), due, row.get("cron"),
+                 *(due_text(info.get("next_at"), zone) for info in delivery.values() if info.get("next_at")))
+        if result := match_row(row, query, fields, extra):
+            yield result
 
 
 class Reminders:
@@ -206,7 +235,7 @@ class Reminders:
                 "last_poll": state.get("inbox_poll", {}).get("at"),
                 "last_tick": state.get("last_tick"), "next_due": scheduler.next_due(state)}
 
-    def list(self):
+    def list(self, query=None):
         with self.storage.lock():
             state = self.storage.load()
         jobs_by_id = {job["id"]: job for job in state["jobs"]}
@@ -218,8 +247,11 @@ class Reminders:
                      for item in scheduler.email_records(state)]
         outbox = [{key: entry[key] for key in ("id", "subject", "created_at", "reason")}
                   for entry in state["outbox"] if entry.get("kind") == "reminder"]
-        return {"jobs": jobs, "delivered": delivered[::-1], "outbox": outbox[::-1],
-                "timezone": saved(state)["timezone"]}
+        zone = ZoneInfo(saved(state)["timezone"])
+        return {"jobs": list(search_reminders(jobs, query, zone)),
+                "delivered": list(search_reminders(reversed(delivered), query, zone)),
+                "outbox": list(search_reminders(reversed(outbox), query, zone, outbox=True)),
+                "timezone": zone.key}
 
     def save(self, body):
         selection = settings(body)

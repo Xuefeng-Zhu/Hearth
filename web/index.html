@@ -23,6 +23,7 @@
   <link rel="stylesheet" href="/memory.css">
   <link rel="stylesheet" href="/combobox.css">
   <link rel="stylesheet" href="/chat-search.css">
+  <link rel="stylesheet" href="/list-search.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -289,6 +290,7 @@
           <div><h2>Reminders</h2><p>See what’s coming up and what reached each channel.</p></div>
           <button type="button" id="open-reminder-settings">Reminder settings</button>
         </div>
+        <div id="reminders-search" class="list-search"></div>
         <details class="card reminder-create" id="reminder-create">
           <summary>New reminder</summary>
           <form class="delivery-form" id="reminder-create-form">
@@ -301,7 +303,8 @@
           </form>
         </details>
         <p id="reminders-feedback" class="meta" role="status"></p>
-        <div id="reminders-content"></div>
+        <div id="reminders-search-empty" class="list-search-empty" hidden></div>
+        <div id="reminders-content" class="list-search-results"></div>
         </div>
         <div id="tasks-panel" role="tabpanel" aria-labelledby="tasks-tab" hidden>
           <div class="section-intro split-heading delivery-intro">
@@ -318,11 +321,13 @@
           <div><h2>Email Inbox</h2><p>Review what Hearth found in your forwarded mail.</p></div>
           <button type="button" id="inbox-poll">Check mail</button>
         </div>
+        <div id="inbox-search" class="list-search"></div>
         <div id="inbox-address" class="card email-hearth-card"></div>
         <p id="inbox-feedback" class="meta" role="status"></p>
         <section id="inbox-approvals" class="automation-section" aria-label="Approvals" hidden></section>
         <section id="inbox-runs" class="automation-section" aria-label="Recurring task results" hidden></section>
-        <div id="inbox-content"></div>
+        <div id="inbox-search-empty" class="list-search-empty" hidden></div>
+        <div id="inbox-content" class="list-search-results"></div>
       </section>
       <section class="view panel" id="timeline-view" aria-labelledby="view-title" hidden>
         <div class="section-intro timeline-intro">
@@ -382,8 +387,10 @@
           </div>
           <button type="button" class="settings-button primary-setting" id="skill-new"><span data-icon="plus" data-icon-size="17"></span> New skill</button>
         </div>
+        <div id="skills-search" class="list-search"></div>
         <p class="meta" id="skills-status" role="status"></p>
-        <div id="skill-list" class="skill-list" aria-label="Playbooks"></div>
+        <div id="skills-search-empty" class="list-search-empty" hidden></div>
+        <div id="skill-list" class="skill-list list-search-results" aria-label="Playbooks"></div>
       </section>
       <section class="view panel" id="settings-view" aria-labelledby="view-title" hidden>
         <div class="settings-sections" id="settings-sections">
@@ -917,9 +924,9 @@
       <div class="chat-search-field">
         <label class="visually-hidden" for="chat-search-query">Search messages</label>
         <span data-icon="search" data-icon-size="18"></span>
-        <input type="search" id="chat-search-query" placeholder="Search messages…" maxlength="400"
+        <input type="search" id="chat-search-query" class="search-input" placeholder="Search messages…" maxlength="400"
           autocomplete="off" spellcheck="false">
-        <button type="button" id="clear-chat-search" class="chat-search-icon" aria-label="Clear search"
+        <button type="button" id="clear-chat-search" class="chat-search-icon search-clear" aria-label="Clear search"
           title="Clear search" hidden><span data-icon="x" data-icon-size="16"></span></button>
       </div>
       <div class="chat-find-controls" id="chat-find-controls" hidden>

@@ -8,7 +8,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .storage import HearthError, atomic_write
 
 CHANNELS = {"app": ("app",), "email": ("email",), "both": ("app", "email")}
-KINDS = ("reminder", "event", "receipt", "person", "list", "other")
+CHANNEL_LABELS = {"app": "In app", "email": "Email", "both": "Both"}
+KIND_LABELS = {"reminder": "Reminder", "event": "Event or booking", "receipt": "Receipt or order",
+               "person": "Person or fact", "list": "List or plan", "other": "Note"}
+KINDS = tuple(KIND_LABELS)
 NOT_CONNECTED = "Not connected — add AgentMail in Fly connectors (Name Prefix hearth)"
 DEFAULTS = {"channel": "app", "recipient": "", "quiet_start": "22:00", "quiet_end": "07:00",
             "timezone": "America/Los_Angeles", "allowed_senders": [], "auto_accept": [], "acknowledge": False}

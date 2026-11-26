@@ -5,11 +5,11 @@ import binascii
 import json
 import re
 import sqlite3
-import unicodedata
 from datetime import datetime, timezone
 
 from .gateway_tools import redact_text
 from .reply_text import TOOL_MARKUP, clean_reply
+from .search_text import fold, snippet
 from .storage import HearthError, revision
 from .threads import MAIN, SIDE_TITLE, compact, record_id
 
@@ -27,46 +27,10 @@ PRIVATE_BLOCK = re.compile(
 )
 
 
-def fold(text):
-    return "".join(char for char in unicodedata.normalize("NFD", text.casefold())
-                   if not unicodedata.category(char).startswith("M"))
-
-
 def visible_text(row):
     text = TOOL_MARKUP.sub("", PRIVATE_BLOCK.sub("", row["content"]))
     text = clean_reply(text) if row["role"] == "assistant" else redact_text(text)
     return " ".join(text.replace("\x00", " ").split())
-
-
-def snippet(text, query):
-    folded = []
-    offsets = []
-    for index, char in enumerate(text):
-        piece = fold(char)
-        folded.append(piece)
-        offsets.extend([index] * len(piece))
-    normalized = "".join(folded)
-    first = normalized.index(query)
-    start = max(0, offsets[first] - 55)
-    end = min(len(text), max(start + 165, offsets[first + len(query) - 1] + 56))
-    parts = [{"text": "…"}] if start else []
-    tail = start
-    while first >= 0 and offsets[first] < end:
-        left = max(offsets[first], tail)
-        last = first + len(query)
-        right = offsets[last - 1] + 1
-        while right < len(text) and unicodedata.category(text[right]).startswith("M"):
-            right += 1
-        right = min(right, end)
-        if left > tail:
-            parts.append({"text": text[tail:left]})
-        if right > left:
-            parts.append({"text": text[left:right], "match": True})
-            tail = right
-        first = normalized.find(query, last)
-    if tail < end or end < len(text):
-        parts.append({"text": text[tail:end] + ("…" if end < len(text) else "")})
-    return parts
 
 
 def timestamp(value):
