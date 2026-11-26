@@ -1,6 +1,7 @@
 import json
 import tempfile
 import threading
+import time
 import unittest
 from concurrent.futures import Future
 from datetime import datetime
@@ -61,6 +62,11 @@ class SubsystemStatusTest(unittest.TestCase):
         self.assertEqual(self.status("http"), http)
         self.assertEqual(self.request("/api/state")[0], 200)
         recovered = self.status("http")
+        # The client can read the response just before the handler records completion.
+        deadline = time.monotonic() + 2
+        while recovered["last_success"] is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+            recovered = self.status("http")
         datetime.fromisoformat(recovered.pop("last_success"))
         self.assertEqual(recovered, {key: value for key, value in http.items() if key != "last_success"})
 
