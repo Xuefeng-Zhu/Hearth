@@ -1,5 +1,9 @@
 # Hearth QA
 
+## Run 39
+
+See the [UI/UX audit](UX-AUDIT.md) for findings, screenshot pairs, and verification.
+
 ## Run 38
 
 - **Mobile drawer.** Playwright WebKit 27.2 passed at 375×667 and 390×844 in light and dark. From a fresh Home load with 12 seeded side chats, all seven navigation links fit before scrolling. Thread titles ellipsized, the drawer had no horizontal overflow, and Settings stayed pinned while the list scrolled to the last chat.
@@ -7,7 +11,7 @@
 - **Regression and contrast.** 195 Python tests and 8 Node tests passed. The Chromium browser regressions passed, and the sampled WCAG AA contrast sweep found zero failures in 16,956 measurements. [Development commands](docs/development.md)
 - **Sprite.** `scripts/deploy.sh` completed and `/health` returned HTTP 200 with Sprite checkpoints. The deployed HTML, CSS, and JavaScript checked against the local release matched. On the deployed service, WebKit rendered Settings, Connections, and Skills at 390 and 1440 px in both themes.
 
-Fixture screenshots are in `/workspace/tmp/hearth-qa/run38/`. The README images of Connections, Skills, and the mobile drawer use the same synthetic workspace. [Screenshots](README.md#screenshots)
+Fixture screenshots are in `/workspace/tmp/hearth-qa/run38/`. That run used fictional workspace data. [Screenshots](README.md#screenshots)
 
 ## Run 34
 
@@ -51,7 +55,7 @@ Use a test workspace with a connected brain and Exa. Stage a For you offer, Engl
 
 | Time | Action |
 | --- | --- |
-| 0–12 s | Open **Home → For you**. Read the reason for one offer, then choose **Do it** and show the side chat. |
+| 0–12 s | Open **Home → For you**. Read the reason for one offer, then choose its primary action and show the side chat. |
 | 12–28 s | Open **Memory → Topics**. Search for the Chinese phrase in the staged note, open its source, then point out the English note beside it. |
 | 28–43 s | Open **Skills** and point out **Try it** on **Weekly family brief**. Switch to the staged chat to show **Using skill**, then open the pending skill approval and unfold the proposed Markdown. |
 | 43–62 s | Open the worker comparison. Expand a worker’s Exa step, point out the separate worker timings, and show the combined answer and its sources. |

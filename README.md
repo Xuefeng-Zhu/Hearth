@@ -8,13 +8,13 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 
 | Home | Chat approval | Artifacts and Pages |
 | --- | --- | --- |
-| [![Live Home showing a demo For you card, current weather, and healthy Pinecone and Browserbase connections](docs/screenshots/home.png)](docs/screenshots/home.png) | [![Ember beside an email approval card](docs/screenshots/chat-approval.png)](docs/screenshots/chat-approval.png) | [![HTML pages in the Artifacts library](docs/screenshots/artifacts-pages.png)](docs/screenshots/artifacts-pages.png) |
+| [![Home showing a For you suggestion, an active worker, and workspace panels](docs/screenshots/home.png)](docs/screenshots/home.png) | [![Ember beside an email approval card](docs/screenshots/chat-approval.png)](docs/screenshots/chat-approval.png) | [![HTML pages in the Artifacts library](docs/screenshots/artifacts-pages.png)](docs/screenshots/artifacts-pages.png) |
 | **Recurring tasks** | **Settings → Connections** | **Skills** |
 | [![Recurring task with schedule and run history](docs/screenshots/recurring-tasks.png)](docs/screenshots/recurring-tasks.png) | [![Connector catalog in Settings](docs/screenshots/connections.png)](docs/screenshots/connections.png) | [![Built-in playbooks in the Skills library](docs/screenshots/skills.png)](docs/screenshots/skills.png) |
 
 [<img src="docs/screenshots/mobile-dark-drawer.png" alt="Hearth’s dark mobile drawer with Settings pinned below the workspace links and chats" width="195">](docs/screenshots/mobile-dark-drawer.png)
 
-The Connections, Skills, and mobile drawer screenshots use local demo data. Home, Chat approval, Artifacts and Pages, and Recurring tasks were captured before the navigation update.
+The screenshots use fictional data from the workspace audit. [Run 39 UI/UX audit](UX-AUDIT.md)
 
 ## Navigation
 
