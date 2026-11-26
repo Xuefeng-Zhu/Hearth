@@ -672,6 +672,14 @@
           <div class="section-intro"><h2>Appearance</h2><p>Choose Hearth’s look in chat.</p></div>
           <div class="card appearance-card">
             <label class="appearance-toggle"><input type="checkbox" id="avatar-enabled" checked> Show avatar in chat</label>
+            <label class="mobile-only ember-view-setting" for="ember-view">
+              Ember view
+              <select class="avatar-view" id="ember-view">
+                <option value="off">Off</option>
+                <option value="beside">Beside chat</option>
+                <option value="face">Full screen</option>
+              </select>
+            </label>
             <fieldset class="avatar-looks">
               <legend>Avatar preset</legend>
               <div id="avatar-looks" class="avatar-choices"></div>
@@ -777,13 +785,19 @@
       </nav>
       <p class="notice" id="drawer-notice" role="status" hidden></p>
       <div id="mobile-thread-panel"></div>
-      <div id="mobile-thread-controls"></div>
-      <div id="mobile-avatar-options"><span aria-hidden="true">Ember view</span></div>
     </div>
     <nav class="workspace-settings" aria-label="Preferences">
       <p class="workspace-status" role="status" hidden><span class="dot" aria-hidden="true"></span><span data-workspace-status></span></p>
       <button type="button" class="nav-link" data-view="settings"><span data-icon="settings"></span> Settings</button>
     </nav>
+  </dialog>
+  <dialog class="mobile-only message-menu" id="thread-menu" aria-labelledby="thread-menu-title">
+    <h2 id="thread-menu-title"></h2>
+    <form method="dialog" class="message-menu-actions">
+      <button type="submit" value="rename"><span data-icon="edit" data-icon-size="18"></span> Rename</button>
+      <button type="submit" value="delete"><span data-icon="trash" data-icon-size="18"></span> Delete</button>
+      <button type="submit" value="" autofocus>Cancel</button>
+    </form>
   </dialog>
   <div id="chat-toast" class="chat-toast" role="status" hidden></div>
   <dialog id="message-menu" class="message-menu" aria-labelledby="message-menu-title">

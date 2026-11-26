@@ -322,12 +322,13 @@ function applyAppearance() {
   const hidden = avatarMode === "off";
   const full = avatarMode === "face";
   byId("avatar-view").value = avatarMode;
+  byId("ember-view").value = avatarMode;
   byId("avatar-enabled").checked = !hidden;
   byId("avatar-header").hidden = hidden;
   byId("face-stage").hidden = !full;
   byId("chat-view").classList.toggle("avatar-off", hidden);
   byId("chat-view").classList.toggle("face-view", full);
-  mobile.placeAvatarControl();
+  mobile.placeCallControls();
   if (hidden) {
     byId("avatar-caption").hidden = true;
     updateText(byId("avatar-status"), "");
@@ -875,6 +876,21 @@ function isWorking(thread) {
   return thread?.busy || [...turns].some((turn) => turn.threadId === thread?.id && !turn.finished);
 }
 
+const threadMenu = byId("thread-menu");
+let threadMenuId;
+
+function syncThreadMenu(thread) {
+  threadMenu.querySelector('[value="rename"]').disabled = busy || threadBusy || !thread;
+  threadMenu.querySelector('[value="delete"]').disabled = busy || threadBusy || !thread || !!thread.busy;
+}
+
+function openThreadMenu(thread) {
+  threadMenuId = thread.id;
+  byId("thread-menu-title").textContent = thread.title;
+  syncThreadMenu(thread);
+  threadMenu.showModal();
+}
+
 function renderThreads() {
   const entries = threadList.map((item) => ({ ...item, busy: isWorking(item) }));
   const active = entries.find((item) => item.id === currentThread);
@@ -882,7 +898,7 @@ function renderThreads() {
   if (signature === threadSignature) return;
   threadSignature = signature;
   const list = byId("threads");
-  const focused = list.contains(document.activeElement) && document.activeElement.dataset.thread;
+  const focused = list.contains(document.activeElement) ? document.activeElement : null;
   avatarThreads.clear();
   list.replaceChildren(...entries.map((thread) => {
     const item = button("", () => {
@@ -907,9 +923,20 @@ function renderThreads() {
       item.append(dot);
     }
     if (thread.busy) item.append(node("span", "visually-hidden", " · Replying"));
-    return item;
+    const row = node("div", "thread-row");
+    row.append(item);
+    if (thread.id !== mainThread.id) {
+      const more = iconButton("more", `Actions for ${thread.title}`, () => openThreadMenu(thread), "mobile-only thread-overflow");
+      more.dataset.thread = thread.id;
+      more.setAttribute("aria-haspopup", "dialog");
+      more.setAttribute("aria-controls", threadMenu.id);
+      row.append(more);
+    }
+    return row;
   }));
-  if (focused) [...list.children].find((item) => item.dataset.thread === focused)?.focus();
+  if (focused) [...list.querySelectorAll("button")].find((item) =>
+    item.dataset.thread === focused.dataset.thread && item.className === focused.className)?.focus({ preventScroll: true });
+  if (threadMenu.open) syncThreadMenu(entries.find((thread) => thread.id === threadMenuId));
   const select = byId("thread-select");
   select.replaceChildren(...entries.map((thread) => new Option(thread.busy ? `${thread.title} · Replying` : thread.title, thread.id)));
   select.value = currentThread;
@@ -2641,6 +2668,14 @@ for (const [preset, look] of Object.entries(looks)) {
   byId("avatar-looks").append(choice);
 }
 byId("avatar-view").addEventListener("change", (event) => chooseAvatarMode(event.target.value));
+byId("ember-view").addEventListener("change", (event) => {
+  const mode = event.target.value;
+  chooseAvatarMode(mode);
+  if (mode === "face") {
+    openView("chat");
+    byId("avatar-view").focus();
+  }
+});
 byId("avatar-enabled").addEventListener("change", (event) => chooseAvatarMode(event.target.checked ? "beside" : "off"));
 byId("avatar-color").addEventListener("input", (event) => {
   avatarColor = event.target.value;
@@ -2705,17 +2740,32 @@ byId("voice-cancel").addEventListener("click", () => {
 });
 byId("thread-select").addEventListener("change", (event) => selectThread(event.target.value));
 byId("new-thread").addEventListener("click", () => changeThread("create"));
-byId("rename-thread").addEventListener("click", () => {
-  const thread = threadList.find((item) => item.id === currentThread);
-  if (!thread) return;
+function renameThread(thread) {
+  if (!thread || busy || threadBusy) return;
   const title = window.prompt("Rename side chat", thread.title)?.trim();
   if (title && title !== thread.title) changeThread("rename", { thread_id: thread.id, title });
-});
-byId("delete-thread").addEventListener("click", () => {
-  const thread = threadList.find((item) => item.id === currentThread);
-  if (thread && window.confirm(`Delete “${thread.title}”? Hearth will save a checkpoint first.`)) {
+}
+function deleteThread(thread) {
+  if (thread && !busy && !threadBusy && !isWorking(thread) &&
+      window.confirm(`Delete “${thread.title}”? Hearth will save a checkpoint first.`)) {
     changeThread("delete", { thread_id: thread.id });
   }
+}
+byId("rename-thread").addEventListener("click", () => renameThread(threadList.find((item) => item.id === currentThread)));
+byId("delete-thread").addEventListener("click", () => deleteThread(threadList.find((item) => item.id === currentThread)));
+threadMenu.querySelector("form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const operation = event.submitter?.value;
+  const thread = threadList.find((item) => item.id === threadMenuId);
+  threadMenu.close();
+  if (operation === "rename") renameThread(thread);
+  if (operation === "delete") deleteThread(thread);
+});
+threadMenu.addEventListener("close", () => {
+  if (threadMenu.open || !byId("workspace-drawer").open) return;
+  const trigger = [...byId("threads").querySelectorAll(".thread-overflow")]
+    .find((item) => item.dataset.thread === threadMenuId);
+  (trigger || byId("new-thread")).focus({ preventScroll: true });
 });
 for (const tab of configTabs) {
   const panel = byId(`${tab}-panel`);

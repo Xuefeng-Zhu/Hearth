@@ -88,41 +88,49 @@
   .workspace-drawer-header button { padding: 0; font-size: 24px; line-height: 1; }
   .workspace-drawer .notice { width: 100%; max-width: none; margin: 0 0 8px; }
   .workspace-drawer nav { display: grid; gap: 2px; }
-  .workspace-drawer .nav-link { justify-content: start; width: 100%; padding: 8px; font-size: 15px; }
-  .workspace-drawer-body { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; }
-  .workspace-drawer-body > nav { flex: none; }
-  .workspace-drawer .workspace-settings { flex: none; padding-top: 8px; margin-top: 8px; border-top: 1px solid var(--border); }
-  .workspace-drawer .workspace-status { padding-inline: 8px; }
-  .workspace-drawer .nav-link > .line-icon { width: 21px; }
-  #mobile-thread-panel { display: flex; flex: 1; min-height: 8rem; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-  .workspace-drawer .thread-panel { width: 100%; padding: 0; border: 0; background: transparent; }
-  .workspace-drawer .thread-panel-header { display: block; padding: 0 0 7px; }
-  .workspace-drawer .thread-panel-header h2 { display: block; margin: 0 0 7px; }
-  .workspace-drawer .thread-select { display: none; }
-  .workspace-drawer .threads { display: grid; }
-  .workspace-drawer :is(.thread-link, .new-thread) { font-size: 15px; padding: 8px 10px; }
-  .workspace-drawer .new-thread { width: 100%; }
-  .workspace-drawer .thread-controls {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
-    justify-content: flex-end;
-  }
-  .workspace-drawer .thread-controls button { font-size: 14px; padding-inline: 12px; }
-  #mobile-avatar-options {
-    display: flex;
+  .workspace-drawer .nav-link { justify-content: start; gap: 8px; width: 100%; min-height: 44px; padding: 6px 8px; font-size: 14px; }
+  .workspace-drawer-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
+  .workspace-drawer-body > nav { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); row-gap: 0; }
+  .workspace-drawer .workspace-settings {
+    flex: none;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
-    gap: 8px;
-    margin-top: 8px;
-    padding: 8px 2px 0;
+    padding-top: 6px;
+    margin-top: 6px;
     border-top: 1px solid var(--border);
-    color: var(--muted);
-    font-size: 14px;
-    font-weight: 650;
   }
+  .workspace-drawer .workspace-settings button { grid-area: 1 / 1; }
+  .workspace-drawer .workspace-status { grid-area: 1 / 2; justify-self: end; padding-inline: 8px; }
+  .workspace-drawer .nav-link > .line-icon { width: 21px; }
+  #mobile-thread-panel { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .workspace-drawer .thread-panel { display: block; padding: 0; border: 0; background: transparent; }
+  .workspace-drawer .thread-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 0 3px 5px; }
+  .workspace-drawer .thread-panel-header h2 { display: block; font-size: 15px; }
+  .workspace-drawer .thread-select { display: none; }
+  .workspace-drawer .threads { display: grid; overflow: visible; }
+  .workspace-drawer :is(.thread-link, .new-thread) { font-size: 15px; min-height: 44px; }
+  .workspace-drawer .thread-row { display: flex; border-radius: 8px; }
+  .workspace-drawer .thread-row:has([aria-current]) { background: var(--thread-active); }
+  .workspace-drawer .thread-link[aria-current] { box-shadow: inset 3px 0 var(--accent); }
+  .workspace-drawer .thread-overflow {
+    display: grid;
+    place-items: center;
+    flex: 0 0 44px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+  }
+  .workspace-drawer .thread-overflow:hover { color: var(--selection-text); background: var(--nav-hover); }
+  .workspace-drawer .thread-overflow svg { stroke-width: 2.5px; }
+  #thread-menu[open] { display: block; }
+  #thread-menu-title { overflow-wrap: anywhere; }
+  #thread-menu button[value="delete"] { color: var(--thread-delete); }
+  .ember-view-setting { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #settings-appearance .appearance-toggle, .chat-view .thread-controls, .chat-view:not(.face-view) .avatar-view { display: none; }
 
   .chat-view, .chat-view.face-view { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
-  .thread-header, .thread-header:has(.thread-controls:not([hidden])) {
+  .thread-header {
     gap: 8px;
     flex-wrap: nowrap;
     min-height: 56px;

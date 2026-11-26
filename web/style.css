@@ -42,7 +42,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .thread-select { display: none; }
 .thread-link { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); padding: 9px; text-align: left; font-size: 13px; }
 .thread-link:hover, .thread-link[aria-current] { color: var(--selection-text); background: var(--thread-active); }
-.thread-link[aria-current], .thread-link:first-child { font-weight: 650; }
+.thread-link[aria-current], .thread-row:first-child .thread-link { font-weight: 650; }
 .thread-link span:first-child, .thread-header h2 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .thread-dot, .thread-activity::before { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--activity-dot); margin-left: auto; }
 .chat-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }

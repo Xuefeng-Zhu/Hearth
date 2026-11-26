@@ -5,16 +5,14 @@ export function setupMobile({ nearBottom, scrollDown }) {
   const drawer = get("workspace-drawer");
   const toggle = get("open-menu");
   const threadPanel = get("thread-panel");
-  const threadControls = get("thread-controls");
-  const avatarLabel = document.querySelector('label[for="avatar-view"]');
-  const avatarSelect = get("avatar-view");
   const threadHeader = get("thread-title").closest("header");
-  const avatarOptions = get("mobile-avatar-options");
+  const threadMenu = get("thread-menu");
   const call = get("start-call");
   const callResume = get("return-to-call");
   const workspaceHeader = call.parentElement;
 
   function closeDrawer() {
+    if (threadMenu.open) threadMenu.close();
     if (!drawer.open) return;
     toggle.setAttribute("aria-expanded", "false");
     drawer.close();
@@ -23,6 +21,7 @@ export function setupMobile({ nearBottom, scrollDown }) {
   toggle.addEventListener("click", () => {
     if (drawer.open) return;
     drawer.showModal();
+    drawer.querySelector(".workspace-drawer-body").scrollTop = 0;
     toggle.setAttribute("aria-expanded", "true");
   });
   drawer.addEventListener("close", () => {
@@ -92,12 +91,9 @@ export function setupMobile({ nearBottom, scrollDown }) {
     if (!frame) frame = requestAnimationFrame(fitViewport);
   }
 
-  function placeAvatarControl() {
+  function placeCallControls() {
     const face = get("chat-view").classList.contains("face-view");
     const callHost = face ? threadHeader : workspaceHeader;
-    const inline = !mobile.matches || face;
-    const host = inline ? threadHeader : avatarOptions;
-    if (avatarSelect.parentElement !== host) host.append(avatarLabel, avatarSelect);
     if (call.parentElement !== callHost) callHost.append(callResume, call);
   }
 
@@ -105,13 +101,11 @@ export function setupMobile({ nearBottom, scrollDown }) {
     get("new-thread-label").textContent = mobile.matches ? "New chat" : "New side chat";
     if (mobile.matches) {
       get("mobile-thread-panel").append(threadPanel);
-      get("mobile-thread-controls").append(threadControls);
     } else {
       closeDrawer();
       get("chat-view").prepend(threadPanel);
-      get("thread-activity").after(threadControls);
     }
-    placeAvatarControl();
+    placeCallControls();
     scheduleFit();
   }
 
@@ -122,6 +116,6 @@ export function setupMobile({ nearBottom, scrollDown }) {
   return {
     isMobile: () => mobile.matches,
     closeDrawer,
-    placeAvatarControl,
+    placeCallControls,
   };
 }
