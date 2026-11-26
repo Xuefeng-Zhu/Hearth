@@ -34,7 +34,7 @@ for run in 25 30 31 32 33; do
 done
 ```
 
-The fixtures exercise Home, attachments, Pages, Skills, parallel workers, structured Memory, and For you. [Live Sprite results](../QA-REPORT.md)
+The fixtures exercise Home, attachments, Pages, Settings → Connections and Skills, parallel workers, structured Memory, and For you. The navigation, Connections, and Skills checks include 375, 390, and 1440 px in light and dark themes. [Live Sprite results](../QA-REPORT.md)
 
 The contrast sweep uses Node Playwright. The following commands install it in a temporary directory and start an isolated fixture server.
 

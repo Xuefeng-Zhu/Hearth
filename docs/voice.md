@@ -10,7 +10,7 @@ Use the mic in Chat to record. Click again to finish, or hold **Space** in an em
 
 1. Create and deploy a Vocal Bridge voice agent. Set **AI Agent Integration** to the **client data channel**.
 2. Add the agent-scoped key to the Vocal Bridge connector in Fly and grant the Hearth Sprite access.
-3. Refresh **Connections** in Hearth. In a chat, select **Call**. The call sheet shows elapsed time, captions as they arrive, mute, minimize, and hang-up controls.
+3. Refresh **Settings → Connections** in Hearth. In a chat, select **Call**. The call sheet shows elapsed time, captions as they arrive, mute, minimize, and hang-up controls.
 
 [Vocal Bridge developer guide](https://vocalbridgeai.com/docs/overview), [Fly setup](connectors.md)
 

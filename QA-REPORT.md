@@ -42,7 +42,7 @@ Use a test workspace with a connected brain and Exa. Stage a For you offer, Engl
 | --- | --- |
 | 0–12 s | Open **Home → For you**. Read the reason for one offer, then choose **Do it** and show the side chat. |
 | 12–28 s | Open **Memory → Topics**. Search for the Chinese phrase in the staged note, open its source, then point out the English note beside it. |
-| 28–43 s | Open **Skills** and point out **Try it** on **Weekly family brief**. Switch to the staged chat to show **Using skill**, then open the pending skill approval and unfold the proposed Markdown. |
+| 28–43 s | Open **Settings → Skills** and point out **Try it** on **Weekly family brief**. Switch to the staged chat to show **Using skill**, then open the pending skill approval and unfold the proposed Markdown. |
 | 43–62 s | Open the worker comparison. Expand a worker’s Exa step, point out the separate worker timings, and show the combined answer and its sources. |
 | 62–78 s | Open **Artifacts**, preview the workbook, then open the private Page and switch from **Phone** to **Desktop**. |
 | 78–90 s | Open **Reminders → Recurring tasks → Morning brief** and show its run history. Finish on **Timeline** with the worker and approval activity. |

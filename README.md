@@ -9,10 +9,16 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 | Home | Chat approval | Artifacts and Pages |
 | --- | --- | --- |
 | [![Live Home showing a demo For you card, current weather, and healthy Pinecone and Browserbase connections](docs/screenshots/home.png)](docs/screenshots/home.png) | [![Ember beside an email approval card](docs/screenshots/chat-approval.png)](docs/screenshots/chat-approval.png) | [![HTML pages in the Artifacts library](docs/screenshots/artifacts-pages.png)](docs/screenshots/artifacts-pages.png) |
-| **Recurring tasks** | **Connections** | |
-| [![Recurring task with schedule and run history](docs/screenshots/recurring-tasks.png)](docs/screenshots/recurring-tasks.png) | [![Connections catalog and Browserbase setup](docs/screenshots/connections.png)](docs/screenshots/connections.png) | |
+| **Recurring tasks** | **Settings → Connections** | **Settings → Skills** |
+| [![Recurring task with schedule and run history](docs/screenshots/recurring-tasks.png)](docs/screenshots/recurring-tasks.png) | [![Connector catalog in Settings](docs/screenshots/connections.png)](docs/screenshots/connections.png) | [![Built-in playbooks in Settings](docs/screenshots/skills.png)](docs/screenshots/skills.png) |
 
-[<img src="docs/screenshots/mobile-dark-drawer.png" alt="Hearth's navigation drawer in dark mode on mobile" width="195">](docs/screenshots/mobile-dark-drawer.png)
+[<img src="docs/screenshots/mobile-dark-drawer.png" alt="Hearth’s dark mobile drawer with Settings pinned below the workspace links and chats" width="195">](docs/screenshots/mobile-dark-drawer.png)
+
+The Settings and mobile drawer screenshots use local demo data. Home, Chat approval, Artifacts and Pages, and Recurring tasks were captured before the navigation update.
+
+## Navigation
+
+The desktop sidebar and mobile drawer list **Home**, **Chat**, **Timeline**, **Artifacts**, **Reminders**, **Inbox**, and **Memory** in that order, with **Settings** pinned at the bottom. Open **Settings → Connections** to manage and test connectors or **Settings → Skills** to browse and edit playbooks. Existing `#connections` and `#skills` bookmarks redirect to these sections.
 
 ## What you can do
 
@@ -21,7 +27,7 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 - **Get timely suggestions.** A connected brain can put offers in **Home → For you** after a memory change, new forwarded mail, or a scheduled check. Choose **Do it** to start a side chat, snooze or dismiss a card, or mute its category. [Proactivity guide](docs/proactivity.md)
 - **Stay on top of work.** Home shows reminders, Inbox, recent files, memory, activity, connector health, and Open-Meteo weather. Add panels from chat and rearrange them on Home.
 - **Make files and pages.** Create and edit DOCX, PDF, XLSX, and PPTX from chat. Preview and download artifacts, keep versions locally, and sync to Box. Build single-file HTML pages with phone and desktop previews, version history, and optional approved snapshot sharing.
-- **Reuse skills in chat.** Start with four built-in Markdown playbooks or write your own. Use **Try it** to preload a skill in a side chat, see which skill Hearth loaded, and undo edits from Timeline. [Skills guide](docs/skills.md)
+- **Reuse skills in chat.** Start with four built-in Markdown playbooks or write your own. Use **Try it** to preload a skill in a side chat, select **Using skill** to open its playbook, and undo edits from Timeline. [Skills guide](docs/skills.md)
 - **Review actions.** Approve, edit supported fields, or decline proposed actions, including email. Timeline records tool activity and approvals. Supported changes offer item-level Undo or filesystem checkpoint restore.
 - **Review what Hearth remembers.** Edit your profile and browse linked People, Places, Topics, and Daily notes. Search uses local keyword matching in English and Chinese, with optional Pinecone recall. With Auto-remember enabled, chat can save durable facts to subject notes during the turn. In chat, ask Hearth to permanently forget a specific fact. [Memory guide](docs/memory.md)
 - **Run on a schedule.** Create reminders or recurring prompts with their own run history. AgentMail can import forwarded mail as proposals and deliver configured reminder or task email.
@@ -60,7 +66,7 @@ Connectors are enabled per Sprite. A fresh clone has empty connection settings a
 | Pinecone | Semantic recall, namespace sync, and optional reranking | Supported. Set up the index before syncing. Hearth falls back to local recall when Pinecone is unavailable. |
 | Box | Artifact upload, version writes, and reading files from the workspace folder | Supported. Box version history uses local receipts until the gateway supports `GET /2.0/files/{file_id}/versions` (the `GET /versions` route). |
 | Exa | Web search and source links in chat | Supported. Choose Exa under **Settings → Search**. |
-| AgentMail | Approved chat email, reminder and task delivery, and forwarded-mail imports | Supported. Select or provision an inbox in **Connections**. |
+| AgentMail | Approved chat email, reminder and task delivery, and forwarded-mail imports | Supported. Select or provision an inbox in **Settings → Connections**. |
 | Vocal Bridge | Live calls and chat queries from the voice agent | Supported. Requires a deployed voice agent and its connector. |
 | Browserbase | Search, fetch, and approval-gated browser sessions | The demo Sprite passed the read-only connection check in Run 34. Hearth allows two live sessions at a time. |
 | Ollama Cloud | Alternative chat brain through the gateway | Optional. Select it in **Settings → Brain** after connecting. |
@@ -90,7 +96,7 @@ The [GitHub Actions workflow](.github/workflows/deploy.yml) runs the tests first
 
 ## Configuration
 
-Use **Connections** to refresh discovery and **Settings** to configure the brain, recall, search, voice, reminders, proactivity, approvals, and artifacts. Recurring tasks can delegate through the same pool. A skill can delegate by including `spawn_workers` and the worker tools it allows. [Connector defaults](config/connectors.json) ship with blank connection IDs. Local settings are saved under the workspace by default. The Sprite service saves connector settings under `~/hearth/config/`.
+Use **Settings → Connections** to refresh discovery. Other Settings sections configure the brain, recall, search, voice, reminders, proactivity, approvals, and artifacts. Recurring tasks can delegate through the same pool. A skill can delegate by including `spawn_workers` and the worker tools it allows. [Connector defaults](config/connectors.json) ship with blank connection IDs. Local settings are saved under the workspace by default. The Sprite service saves connector settings under `~/hearth/config/`.
 
 | Setting | Use |
 | --- | --- |

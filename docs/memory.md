@@ -28,6 +28,8 @@ On first startup with legacy memory, Hearth adds front matter, preserves the old
 
 ## Pinecone
 
+Set up or test Pinecone in **Settings → Connections**. The Pinecone index card under **Settings → Memory** links to Connections when the provider is disconnected or reports an error.
+
 Under **Settings → Memory**, choose **Auto**, **Pinecone**, **Local**, **Hugging Face embeddings**, or **Keyword**. Set the result limit, similarity threshold, and library scope. Auto uses Pinecone when connected. Pinecone matches are supplemented by keyword hits, which can surface recent edits while sync is pending. If Pinecone is unavailable or exceeds the chat time budget, Hearth uses local keyword matching. Local and Keyword can find Chinese phrases inside longer saved sentences as well as English words. The Hugging Face backend keeps a local vector cache. Text artifacts can appear in search. Chat and voice transcript recall is opt-in.
 
 The demo Sprite uses a dedicated namespace and a **384-dimension cosine** index with Hugging Face’s `intfloat/multilingual-e5-small` embeddings. Fresh installations default to the `hearth` namespace. For installations that share an index, configure a distinct namespace in each workspace’s private connector settings. [Connector setup](connectors.md), [Pinecone adapter](../hearth/pinecone.py)
