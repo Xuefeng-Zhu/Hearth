@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from copy import deepcopy
+from unittest.mock import patch
 
 from hearth import approvals
 from hearth.agent import TURN_MEMORY, tool_call
@@ -29,12 +30,14 @@ class ScriptedGateway(WorkerGateway):
         self.script = iter(script)
         self.delegate = delegate is not None
         self.requests = []
+        self.payload_sizes = []
 
     def completion(self, model, messages, tools, emit, **limits):
         if self.delegate and not TURN_MEMORY.get().get("worker"):
             return super().completion(model, messages, tools, emit, **limits)
         self.requests.append(((model["provider"], model["model"]), list(messages),
                               [tool["function"]["name"] for tool in tools]))
+        self.payload_sizes.append(len(json.dumps({"messages": messages, "tools": tools})))
         reply = next(self.script)
         if isinstance(reply, ConnectorError):
             raise reply
@@ -178,12 +181,50 @@ class ToolLoopTest(unittest.TestCase):
                                            "content": message["content"]})
                 result = json.loads(message["content"])
                 self.assertIs(result["untrusted"], True)
-                if delegate:
-                    self.assertEqual(set(result), {"truncated", "preview", "untrusted"})
-                    self.assertIs(result["truncated"], True)
-                    self.assertEqual(len(result["preview"]), 12_000)
-                    self.assertIn("Café evidence.", result["preview"])
-                else:
-                    self.assertEqual(set(result), {"id", "path", "line", "end_line", "content", "citation", "untrusted"})
-                    self.assertEqual(result["content"], note)
-                    self.assertIn("Café evidence.", message["content"])
+                self.assertEqual(set(result), {"truncated", "preview", "untrusted"})
+                self.assertIs(result["truncated"], True)
+                self.assertEqual(len(result["preview"]), 12_000)
+                self.assertIn("Café evidence.", result["preview"])
+
+    def test_parent_caps_accumulated_tool_results_and_keeps_call_pairing(self):
+        rounds = [batch(*(tool_call("memory_read", {"path": "topics/fixture.md"}) for _ in range(8)))
+                  for _ in range(2)]
+        app, gateway = self.make_app([*rounds, self.DONE])
+        app.storage.write("topics/fixture.md", "# Fixture\n" + "Evidence.\n" * 2_000)
+        events = collect(app.enqueue("main", "Check the fixture."))
+        self.assertEqual(events[-1][0], "done")
+        self.assertLessEqual(max(gateway.payload_sizes), 128_000)
+        _, messages, _ = gateway.requests[-1]
+        tool_messages = [row for row in messages if row["role"] == "tool"]
+        self.assertEqual([row["tool_call_id"] for row in tool_messages],
+                         [call["id"] for reply in rounds for call in reply["tool_calls"]])
+        results = [json.loads(row["content"]) for row in tool_messages]
+        self.assertTrue(all(row["truncated"] and row["untrusted"] for row in results))
+        self.assertLess(len(results[0]["preview"]), len(results[-1]["preview"]))
+
+    def test_parent_budget_includes_previous_dialogue(self):
+        app, gateway = self.make_app([self.DONE])
+        with app.storage.lock():
+            for index in range(9):
+                app.threads.append("main", "assistant", f"Prior reply {index}. " + "Evidence. " * 2_000)
+        prompt = "Check the fixture."
+        events = collect(app.enqueue("main", prompt))
+        self.assertEqual(events[-1][0], "done")
+        self.assertLessEqual(max(gateway.payload_sizes), 128_000)
+        _, messages, _ = gateway.requests[-1]
+        self.assertTrue(messages[-2]["content"].startswith("Prior reply 8."))
+        self.assertEqual(messages[-1], {"role": "user", "content": prompt})
+
+    def test_parent_budget_caps_reference_data_without_moving_it_to_system(self):
+        app, gateway = self.make_app([self.DONE])
+        reference = "資料" * 12_000
+        with patch.object(app.agent, "memory_context", return_value=reference):
+            self.assertEqual(collect(app.enqueue("main", "Check the fixture."))[-1][0], "done")
+        self.assertLessEqual(max(gateway.payload_sizes), 128_000)
+        _, messages, _ = gateway.requests[-1]
+        self.assertEqual(messages[1]["role"], "user")
+        data = json.loads(messages[1]["content"])
+        self.assertIs(data["truncated"], True)
+        self.assertIn("untrusted_reference_data", data)
+        self.assertNotIn(reference, messages[0]["content"])
+        self.assertEqual(messages[-1]["content"], "Check the fixture.")

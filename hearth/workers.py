@@ -318,13 +318,3 @@ class Pool:
                     stopped.append(worker.row)
             self.queue = deque(item for item in self.queue if not item[0].terminal.is_set())
             return {"workers": stopped}
-
-
-def tool_text(result):
-    # Keep later model calls bounded even when a connector returns a large document.
-    text = json.dumps(result, ensure_ascii=False)
-    if len(text) <= 12_000:
-        return text
-    return json.dumps({"truncated": True, "preview": text[:12_000],
-                       **({"untrusted": True} if isinstance(result, dict) and result.get("untrusted") is True else {})},
-                      ensure_ascii=False)
