@@ -429,7 +429,9 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     if (!page && item.sync === "error" && snapshot.connected && !pending.has(item.id)) {
       actions.append(iconButton("retry", "Retry sync", () => retry(item), iconClass));
     }
-    if (page || fileTypes[item.format] || item.legacy) actions.append(fileLink(item, false, iconClass));
+    if (page || fileTypes[item.format] || item.format === "file" || item.legacy) {
+      actions.append(fileLink(item, false, iconClass));
+    }
     if (layout === "list") {
       panel.setAttribute("role", "row");
       for (const cell of [thumbnail, header, sync, timestamp, actions]) cell.setAttribute("role", "cell");
@@ -647,7 +649,8 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
   }
 
   function saveAttachment(item, compact = false, onSaved) {
-    if (item.box_url) return fileLink(item, true, compact);
+    const boxLinkStyle = compact ? "icon-button" : undefined;
+    if (item.box_url) return fileLink(item, true, boxLinkStyle);
     const label = "Save to Box";
     const save = compact ? iconButton("box", label, send) : control(label, send);
     async function send(event) {
@@ -655,7 +658,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
       target.disabled = true;
       try {
         const result = await api("/api/uploads/box", { id: item.id, thread_id: item.thread_id });
-        target.replaceWith(fileLink(result, true, compact));
+        target.replaceWith(fileLink(result, true, boxLinkStyle));
         onSaved?.(result);
         refreshChat().catch(() => {});
         if (!drawer.open) showNotice("Attachment saved to Box.");

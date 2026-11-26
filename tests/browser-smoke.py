@@ -188,6 +188,8 @@ def assert_column_edges(view, selectors):
 def artifact_layout(page, view, width):
     cards = view.locator(".artifact-card")
     expect(cards.first).to_be_visible()
+    imported = cards.filter(has_text="Fixture receipt.bin")
+    expect(imported.get_by_role("link", name="Download", exact=True)).to_be_visible()
     grid = cards.evaluate_all("""cards => {
       const rows = new Map();
       for (const card of cards) {
@@ -315,6 +317,7 @@ def layout_smoke(browser, app, origin):
         app.artifacts.create("docx", {"title": title, "sections": [{"heading": title, "paragraphs": ["Fixture document"]}]},
                              kind="plan" if index % 2 else "note")
     app.pages.save("Fixture page", "<html><body><h1>Fixture page</h1></body></html>", "First version", MAIN_ORIGIN)
+    app.artifacts.import_mail("Fixture receipt.bin", b"fixture", origin={}, sync=False)
     wide_groups = {
         "Home": [".home-heading", ".home-grid"],
         "Timeline": [".timeline-today", ".timeline-controls", ".timeline-entry"],
