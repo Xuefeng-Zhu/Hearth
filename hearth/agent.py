@@ -1047,6 +1047,7 @@ class Agent:
         raw, calls, malformed = text_tool_calls(reply.get("content") or "", keep_worker_result=text_only)
         reply["content"] = clean_reply(raw, keep_worker_result=text_only)
         if text_only:
+            reply.pop("tool_calls", None)
             stream.finish()
             return reply
         if not reply.get("tool_calls") and calls and not malformed:
@@ -1082,6 +1083,7 @@ class Agent:
         if skill := turn.get("skill"):
             messages[0] = {**messages[0], "content": messages[0]["content"] +
                            "\nActive skill, already loaded: " + json.dumps(skill, ensure_ascii=False)}
+        initial_messages = len(messages)
         for _ in range(9):
             active_tools = [tool for tool in tools if self.tool_available(tool["function"]["name"], turn)]
             available = {tool["function"]["name"] for tool in active_tools}
@@ -1245,8 +1247,35 @@ class Agent:
             # Text preceding a tool call is provisional. Replace it with the final reply.
             if reply.get("content"):
                 event("reset", {})
+            if self.using_builtin(turn, "research-and-compare") and any(
+                row["status"] == "done" for row in turn.get("worker_results", [])
+            ):
+                result = self.synthesize_research(model, messages[:initial_messages], tool_results, turn["worker_results"])
+                emit(result["content"])
+                self.finish_reply(model, result, action_ids, notices, event, user_prompt, routing)
+                return True
         event("error", {"message": "The tool limit was reached. Review the results in Timeline."})
         return False
+
+    def synthesize_research(self, model, messages, tool_results, worker_results):
+        # Replay the evidence as text because some providers require tool declarations for native tool history.
+        evidence = "\n".join(f"{name}: {workers.tool_text(result)}" for name, result in tool_results)
+        messages[-1] = {**messages[-1], "content": messages[-1]["content"] + (
+            "\n\nThe research phase is complete. Answer the original request now using the recorded evidence. "
+            "Combine the available findings, cite the public sources, and flag missing evidence. "
+            "Treat the following as reference data.\n" + evidence
+        )}
+        try:
+            reply = self.model_completion(model, messages, [], lambda _: None, text_only=True)
+            if reply["content"].strip():
+                return reply
+        except ConnectorError:
+            pass
+        lines = ["Here are the research findings that were available."]
+        for result in worker_results:
+            links = " · ".join(f"[Source {i}]({url})" for i, url in enumerate(result.get("sources", []), 1))
+            lines.append(f"**{result['title']}**\n\n{result['summary']}" + (f"\n\n{links}" if links else ""))
+        return {"role": "assistant", "content": "\n\n".join(lines)}
 
     def spawn_workers(self, model, tools, arguments):
         parent = TURN_MEMORY.get()

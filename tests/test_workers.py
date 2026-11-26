@@ -374,6 +374,37 @@ class ChatWorkersTest(unittest.TestCase):
             if name == "worker" and row["status"] == "done":
                 self.assertEqual(len(row["steps"]), workers.TOOL_LIMIT)
 
+    def test_research_parent_synthesizes_partial_findings_without_more_tools(self):
+        class Research(WorkerGateway):
+            def completion(self, model, messages, tools, emit, **limits):
+                worker = (TURN_MEMORY.get() or {}).get("worker")
+                if worker:
+                    if worker.row["title"] == "Lantern B":
+                        raise ConnectorError("Lantern B research was unavailable.")
+                    return {"role": "assistant", "content": json.dumps({
+                        "summary": "Lantern A uses replaceable batteries.", "sources": ["https://example.org/lantern-a"],
+                    })}
+                if tools:
+                    return tool_call("spawn_workers", {"tasks": self.assignments})
+                assert [item["role"] for item in messages] == ["system", "user"]
+                result = json.loads(messages[-1]["content"].split("spawn_workers: ", 1)[1])
+                self.results = result["workers"]
+                return tool_call("web_search", {"query": "more lanterns"})
+
+        gateway = Research(assignments=[
+            {"title": title, "instructions": f"Research {title}.", "tools": []}
+            for title in ("Lantern A", "Lantern B")
+        ])
+        app = self.make_app(gateway)
+        events = collect(app.enqueue("main", "Research and compare Lantern A and Lantern B."))
+        self.assertTrue(any(name == "done" for name, _ in events))
+        self.assertEqual([row["status"] for row in gateway.results], ["done", "failed"])
+        replies = [row["content"] for row in app.threads.messages("main") if row["role"] == "assistant"]
+        self.assertEqual(len(replies), 1)
+        for finding in ("Lantern A uses replaceable batteries.", "https://example.org/lantern-a",
+                        "Lantern B research was unavailable."):
+            self.assertIn(finding, replies[0])
+
     def test_recurring_task_can_delegate_and_handoff_approval(self):
         assignment = {"title": "Browser", "instructions": "Check the sample page with a browser session.",
                       "tools": ["browse_session"]}
