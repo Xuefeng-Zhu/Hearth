@@ -215,11 +215,15 @@ def artifact_layout(page, view, width):
         rows = cards.evaluate_all("""cards => cards.map(card => {
           const rect = card.getBoundingClientRect();
           const center = box => box.y + box.height / 2;
-          const actions = card.querySelectorAll('.artifact-row-action');
+          const cells = card.querySelectorAll('.artifact-card-header, .artifact-row-action');
+          const title = card.querySelector('.artifact-card-title span').getBoundingClientRect();
+          const meta = card.querySelector('.artifact-card-meta');
           return {height: rect.height,
-            offsets: [...actions].map(el => center(el.getBoundingClientRect()) - center(rect))};
+            offsets: [...cells].map(el => center(el.getBoundingClientRect()) - center(rect)),
+            extraGap: meta.getBoundingClientRect().top - title.bottom - parseFloat(getComputedStyle(meta).marginTop)};
         })""")
         assert all(abs(offset) <= 1 for row in rows for offset in row["offsets"]), (width, rows)
+        assert all(abs(row["extraGap"]) <= 1 for row in rows), (width, rows)
         assert max(row["height"] for row in rows) - min(row["height"] for row in rows) <= 1, (width, rows)
         assert_column_edges(view, [".artifact-connection:not(.artifact-load-error)", ".artifact-toolbar", ".artifact-collection"])
         view.evaluate("view => view.scrollTop = 450")

@@ -45,3 +45,11 @@ The comparison sheets contain 1440 light, 1440 dark, and 1920 light at their ori
 ## Deployment
 
 `scripts/deploy.sh` deployed `41c93bdeedf67d5e75e3148b39058772dce734a8`. The live smoke verified HTTP 200 from `/health` with that SHA, HTTP 200 and a valid Artifacts inventory from `/api/artifacts`, the workspace HTML and 19 assets against the release, and navigation order. The commits are local to `main`.
+
+## Run 74 · Artifacts list title spacing
+
+- Desktop list rows stay 76 px high and center the name cell vertically. Titles take their natural height, clamp at two lines, and leave 4 px between the last line and the chips. Grid tiles keep their two-line title area and aligned footers.
+- The Box status, Refresh, and Ask my files controls already share the vertical center of **Saved work** on desktop. At 390 and 768 px the controls stack below the intro. The 390 px list keeps its 44 px title touch target.
+- The Run 73 capture scripts were reused with the same stabilized fixture ordering. Both views were checked at 1280, 1440, 1920, 390, and 768 px in light and dark. The grid captures were pixel-identical to the baseline. [1440 light list](/workspace/tmp/hearth-qa/run74/artifacts-list-1440-light.png) · [1440 light grid](/workspace/tmp/hearth-qa/run74/artifacts-grid-1440-light.png) · [Full capture matrix](/workspace/tmp/hearth-qa/run74)
+- All 330 Python tests and 20 Node tests passed, along with JavaScript syntax checks and both Chromium suites. Chromium smoke now checks the gap between the rendered list title and the chips, and the vertical center of the name cell.
+- The release uses `scripts/deploy.sh`. The live smoke checks HTTP 200 and the release SHA from `/health` and compares the served assets against the commit. [Deployment verification](/workspace/tmp/hearth-qa/run74/live-smoke.log)
