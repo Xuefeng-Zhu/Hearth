@@ -172,6 +172,65 @@ def expect_announcements(page, expected_count):
                and len(text) <= 116 for text in announcements), announcements
 
 
+def layout_smoke(browser, origin):
+    # Scrollable document previews can be wider than their own viewport.
+    # The workspace and its page containers must still fit the screen.
+    views = {
+        "Home": ".home-heading",
+        "Chat": ".thread-header",
+        "Timeline": ".timeline-intro",
+        "Artifacts": ".artifact-intro",
+        "Reminders": ".automation-tabs",
+        "Inbox": ".delivery-intro",
+        "Memory": ".memory-intro",
+        "Skills": ".section-intro",
+        "Settings": ".settings-sections",
+    }
+    for width, height in ((390, 844), (768, 1024), (1440, 900)):
+        mobile = width <= 760
+        with browser_page(browser, origin, viewport={"width": width, "height": height},
+                          is_mobile=mobile, has_touch=mobile) as page:
+            assert page.goto("/").ok
+            title = page.locator("#view-title")
+            menu = page.locator("#open-menu")
+            assert menu.is_visible() == mobile, width
+            for name, content in views.items():
+                view = page.locator(f"#{name.lower()}-view")
+                if name != "Home":
+                    if mobile:
+                        menu.click()
+                    nav = page.locator("#workspace-drawer" if mobile else ".sidebar")
+                    nav.get_by_role("button", name=name, exact=True).click()
+                expect(title).to_have_text(name)
+                anchor = view.locator(content).first
+                expect(anchor).to_be_visible()
+                overflow = view.evaluate("""view => {
+                  const visible = el => el.getClientRects().length > 0;
+                  return [document.documentElement, document.querySelector('main'), view,
+                    ...view.querySelectorAll('.home-inner, .chat-scroll, .composer, .artifact-toolbar, .settings-sections')]
+                    .filter(el => visible(el) && el.scrollWidth > el.clientWidth + 1)
+                    .map(el => [el.id || el.className, el.clientWidth, el.scrollWidth]);
+                }""")
+                assert not overflow, (name, width, overflow)
+                if name != "Chat":
+                    edge = (menu if mobile else title).bounding_box()["x"]
+                    assert abs(edge - anchor.bounding_box()["x"]) <= 1, (name, width)
+                for row in view.locator(".split-heading:visible").all():
+                    left, right = row.locator(":scope > *").all()
+                    left_box, right_box, row_box = left.bounding_box(), right.bounding_box(), row.bounding_box()
+                    assert abs(right_box["x"] + right_box["width"] - row_box["x"] - row_box["width"]) <= 1, (name, width)
+                    if right_box["y"] < left_box["y"] + left_box["height"]:
+                        left_center = left_box["y"] + left_box["height"] / 2
+                        right_center = right_box["y"] + right_box["height"] / 2
+                        assert abs(left_center - right_center) <= 1, (name, width)
+                if name == "Artifacts":
+                    controls = view.locator(".artifact-toolbar :is(input, select, button)").all()
+                    heights = [control.bounding_box()["height"] for control in controls]
+                    assert max(heights) - min(heights) <= 1, (width, heights)
+                    if mobile:
+                        assert min(heights) >= 44, (width, heights)
+
+
 def smoke(browser, origin):
     with browser_page(browser, origin) as page:
         assert page.goto("/").ok
@@ -459,6 +518,7 @@ def main():
             if args.disconnect:
                 disconnect(browser, app, origin)
             else:
+                layout_smoke(browser, origin)
                 smoke(browser, origin)
                 stale_refresh(browser, origin)
                 self_update_smoke(browser, app, origin)
