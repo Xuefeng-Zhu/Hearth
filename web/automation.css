@@ -5,17 +5,17 @@
 
 .automation-tabs {
   display: flex;
-  gap: .5rem;
+  gap: var(--control-gap);
   border-bottom: 1px solid var(--border);
-  padding-bottom: .65rem;
-  margin-bottom: 1.25rem;
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--section-gap);
 }
 .automation-tabs button { min-height: 44px; }
 .automation-section { margin-block: 1rem; }
 .automation-section-heading, .automation-card-heading, .automation-controls, .automation-card-footer {
   display: flex;
   align-items: center;
-  gap: .6rem;
+  gap: var(--control-gap);
 }
 .automation-section-heading { margin-bottom: .7rem; }
 .automation-section-heading h2, .automation-section-heading h4, .automation-card-heading h3 {
@@ -24,19 +24,17 @@
 }
 .automation-section-heading h2 { font-size: 1rem; }
 .automation-section-heading h4 { font-size: 1rem; flex: 1; }
-.automation-approval-list { display: grid; gap: .65rem; }
+.automation-approval-list { display: grid; gap: var(--grid-gap); }
 .automation-approval {
-  padding: .9rem;
+  padding: var(--card-padding);
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.automation-card-heading { align-items: flex-start; }
 .automation-card-heading h3 {
   flex: 1;
   color: var(--text);
   font-size: .99rem;
   line-height: 1.4;
-  margin-block: .28rem;
 }
 .automation-mark {
   width: 2rem;
@@ -49,9 +47,11 @@
   background: var(--accent-light);
 }
 .automation-state {
-  display: inline-block;
-  padding: .19rem .5rem;
-  border-radius: .4rem;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-pill);
   color: var(--delivery-text);
   background: var(--delivery-bg);
   font-size: .75rem;
@@ -101,20 +101,22 @@
 .automation-times { padding-inline-start: 1.3rem; line-height: 1.65; }
 .automation-label { margin-bottom: 0; }
 .approval-settings #approval-policies, .automation-editor, .automation-editor label { display: grid; gap: .5rem; }
-.approval-settings #approval-policies { gap: .8rem; }
+.approval-settings #approval-policies { gap: var(--grid-gap); }
 .approval-settings #approval-policies label { display: flex; justify-content: space-between; gap: .75rem; align-items: center; }
 .automation-dialog {
   width: min(33rem, calc(100% - 2rem));
   max-height: calc(100dvh - 2rem);
   overflow: auto;
-  padding: 1rem;
+  padding: var(--dialog-gutter);
+  border-radius: var(--radius-dialog);
   color: var(--text);
   border-color: var(--automation-control-border);
 }
 .automation-dialog::backdrop { background: rgb(20 13 24 / 65%); }
-.automation-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .8rem; }
+.automation-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: var(--control-gap); margin-bottom: var(--space-3); }
+.automation-dialog-header button { border-color: var(--automation-control-border); }
 .automation-dialog-header h2 { margin: 0; font-size: 1.2rem; }
-.automation-editor { gap: .8rem; }
+.automation-editor { gap: var(--grid-gap); }
 .automation-editor input, .automation-editor textarea, .automation-editor select, .approval-settings select {
   min-height: 44px;
   min-width: 0;
@@ -122,7 +124,7 @@
   border-color: var(--automation-control-border);
 }
 .automation-editor textarea { min-height: 6rem; resize: vertical; }
-.automation-editor-fields { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; }
+.automation-editor-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--grid-gap); }
 .automation-editor-fields > *, .automation-schedule-fields > * { min-width: 0; }
 .automation-schedule-fields { grid-column: 1 / -1; display: grid; gap: .65rem; }
 .automation-editor .automation-enabled, .automation-editor .automation-weekdays label {
@@ -133,8 +135,8 @@
 }
 .automation-weekdays { display: flex; flex-wrap: wrap; gap: .2rem .75rem; border: 1px solid var(--automation-control-border); }
 .automation-weekdays input, .automation-enabled input { min-height: 0; width: 1.05rem; height: 1.05rem; }
-.automation-task-grid { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(0, 2.15fr); gap: .8rem; }
-.automation-task-list { display: flex; flex-direction: column; gap: .45rem; }
+.automation-task-grid { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(0, 2.15fr); gap: var(--grid-gap); }
+.automation-task-list { display: flex; flex-direction: column; gap: var(--control-gap); }
 .automation-task-selector {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -144,7 +146,7 @@
   overflow-wrap: anywhere;
 }
 .automation-task-selector small { grid-column: 2; }
-.automation-task-detail { padding: 1rem; min-width: 0; }
+.automation-task-detail { min-width: 0; }
 .automation-task-controls { margin-block: .65rem; }
 .automation-history { padding-top: .5rem; }
 .automation-run { border-top: 1px solid var(--automation-control-border); }
@@ -162,10 +164,8 @@
 #task-approval:not(:empty) { margin-bottom: .8rem; }
 @media (max-width: 650px) {
   .automation-task-grid { grid-template-columns: minmax(0, 1fr); }
-  .automation-approval, .automation-task-detail { padding: .68rem; }
   .automation-card-heading { flex-wrap: wrap; }
   .automation-card-heading h3 { min-width: 6rem; }
-  .automation-card-footer { gap: .4rem; }
   .automation-fields { gap: .35rem .5rem; }
   .approval-settings #approval-policies label { flex-wrap: wrap; }
 }

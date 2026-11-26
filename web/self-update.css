@@ -1,14 +1,10 @@
 .self-update-card,
 .self-update-settings {
   display: grid;
-  gap: 10px;
+  gap: var(--grid-gap);
   min-width: 0;
   color: var(--ink);
   overflow-wrap: anywhere;
-}
-
-.self-update-card {
-  padding: 14px;
 }
 
 .self-update-card [hidden] {
@@ -22,13 +18,12 @@
 
 .self-update-heading {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: center;
+  gap: var(--control-gap);
 }
 
 .self-update-heading svg {
   flex: none;
-  margin-top: 2px;
   color: var(--accent);
 }
 
@@ -62,18 +57,18 @@
 
 .self-update-files li {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 4px 12px;
+  gap: var(--space-1) var(--grid-gap);
   border-top: 1px solid var(--border);
-  padding-block: 6px;
+  padding-block: var(--space-2);
 }
 
 .self-update-counts {
   display: inline-flex;
-  gap: 8px;
-  align-items: baseline;
+  gap: var(--control-gap);
+  align-items: center;
   font-variant-numeric: tabular-nums;
 }
 
@@ -88,30 +83,32 @@
 .self-update-card details {
   min-width: 0;
   border: 1px solid var(--control-border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .self-update-card summary {
-  min-height: 44px;
-  padding: 11px 10px;
+  min-height: var(--touch-height);
+  align-content: center;
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
   font-weight: 600;
 }
 
 .self-update-card .self-update-diff {
-  padding: 10px;
+  padding: var(--space-3);
   max-block-size: 24rem;
   overflow: auto;
   overscroll-behavior: contain;
   white-space: pre;
   background: var(--field-surface);
-  border-radius: 0 0 8px 8px;
+  border-radius: 0 0 var(--radius-control) var(--radius-control);
 }
 
 .self-update-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: var(--control-gap);
   min-width: 0;
 }
 
@@ -129,10 +126,11 @@
 .self-update-card :is(button, a),
 .self-update-settings :is(button, input),
 .self-update-toggle {
-  min-height: 44px;
-  min-width: 44px;
+  min-height: var(--touch-height);
+  min-width: var(--touch-height);
 }
 .self-update-card button {
+  margin: 0;
   max-width: 100%;
   white-space: normal;
 }
@@ -141,18 +139,17 @@
   display: inline-flex;
   align-items: center;
   color: var(--accent);
-  padding-inline: 4px;
   text-underline-offset: 3px;
 }
 
 .self-update-feedback label,
 .self-update-settings label:not(.self-update-toggle) {
   display: grid;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .self-update-feedback .self-update-controls {
-  margin-top: 8px;
+  margin-top: var(--control-gap);
 }
 
 .self-update-feedback textarea,
@@ -162,8 +159,8 @@
   color: var(--ink);
   background: var(--field-surface);
   border: 1px solid var(--control-border);
-  border-radius: 7px;
-  padding: 8px;
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
   font: inherit;
 }
 
@@ -173,13 +170,13 @@
 
 .self-update-settings {
   border-top: 1px solid var(--border);
-  padding-top: 10px;
+  padding-top: var(--space-3);
 }
 
 .self-update-toggle {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--control-gap);
   cursor: pointer;
 }
 
