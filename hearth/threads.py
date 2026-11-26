@@ -28,6 +28,10 @@ def older_dialogue(dialogue, after=None):
     return dialogue[start:max(0, len(dialogue) - HISTORY_WINDOW)]
 
 
+class InvalidSummary(ValueError):
+    pass
+
+
 class Threads:
     """Thread files and their index are read and changed under Storage.lock()."""
 
@@ -56,9 +60,11 @@ class Threads:
             state = json.loads(self.summary_path(thread_id).read_text(encoding="utf-8"))
         except FileNotFoundError:
             return {}
+        except (ValueError, RecursionError):
+            raise InvalidSummary("Invalid thread summary.") from None
         if (not isinstance(state, dict) or not isinstance(state.get("text"), str)
                 or any(state.get(key) is not None and not isinstance(state[key], str) for key in ("cursor", "reset_after"))):
-            raise ValueError("Invalid thread summary.")
+            raise InvalidSummary("Invalid thread summary.")
         return state
 
     def save_summary(self, thread_id, state):

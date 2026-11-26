@@ -1,15 +1,18 @@
 import json
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from . import artifacts, memory, router, timeline
 from .connections import with_model
 from .connectors import ConnectorError
 from .reply_text import clean_reply
-from .storage import HearthError
-from .threads import SUMMARY_TRIGGER, older_dialogue
+from .storage import HearthError, atomic_write
+from .threads import SIDE_TITLE, SUMMARY_TRIGGER, InvalidSummary, older_dialogue
 
 BATCH_SIZE = 16
+SUMMARY_WORKERS = 2
+PENDING_FILE = "summary.pending"
 MAX_WORDS = 400
 MAX_CHARS = 2_400
 EMPTY = "NO_DURABLE_DETAILS"
@@ -32,6 +35,17 @@ MARKUP = re.compile(
     r"|<\s*/?\s*(?:think|analysis|tool_use|[|｜][^<>]*?)[^>]*>|```.*?(?:```|\Z)", re.I | re.S,
 )
 WORDS = re.compile(r"[\u3400-\u9fff]|[^\s\u3400-\u9fff]+")
+
+_EXECUTOR = ThreadPoolExecutor(max_workers=SUMMARY_WORKERS, thread_name_prefix="hearth-summary")
+_PENDING = {}
+
+
+def _submit(work, *args):
+    try:
+        _EXECUTOR.submit(work, *args)
+    except RuntimeError:
+        return False
+    return True
 
 
 def safe_text(text):
@@ -60,12 +74,12 @@ def bounded(text):
 
 
 class RollingSummaries:
+    lock = threading.Lock()
+
     def __init__(self, agent):
         self.agent = agent
         self.storage = agent.storage
         self.threads = agent.threads
-        self.lock = threading.Lock()
-        self.pending = {}
         self.models = []
         if agent.memory["summarize_long_chats"] and agent.brain_mode != "mock":
             if hf := agent.memory_index.hf_entry(agent.config):
@@ -75,55 +89,122 @@ class RollingSummaries:
                 router.model_key(model) != router.model_key(default) for model in self.models
             ):
                 self.models.append(default)
+        if self.models:
+            try:
+                markers = tuple(self.threads.root.glob(f"*/{PENDING_FILE}"))
+                if markers:
+                    _submit(self.resume, markers)
+            except OSError:
+                pass
+
+    @property
+    def pending(self):
+        return _PENDING.get(self.storage.root, {})
 
     def active(self):
         app = self.agent.application
         return app is None or (app.agent is self.agent and not app.restoring())
 
+    def marker(self, thread_id):
+        return self.threads.summary_path(thread_id).with_name(PENDING_FILE)
+
     def schedule(self, origin):
         if not self.models or not self.active():
             return
         thread_id = origin["thread_id"]
-        with self.lock:
-            if thread_id in self.pending:
-                self.pending[thread_id] = True
-                return
-            self.pending[thread_id] = False
         try:
-            threading.Thread(target=self.run, args=(origin,), daemon=True).start()
-        except RuntimeError:
-            with self.lock:
-                self.pending.pop(thread_id, None)
-
-    def run(self, origin):
-        thread_id = origin["thread_id"]
-        while True:
-            try:
-                self.update(thread_id)
-            except Exception:
-                # Background errors never reach chat or include provider responses or transcript text.
-                try:
-                    if self.active() and thread_id in self.threads.load_index():
-                        timeline.record(self.storage, "thread", "Thread summary update failed", origin,
-                                        diagnostic=True, data={"status": "failed"})
-                except (OSError, ValueError):
-                    pass
-            with self.lock:
-                if not self.pending[thread_id]:
-                    del self.pending[thread_id]
+            with self.storage.lock():
+                if not self.active() or thread_id not in self.threads.load_index():
                     return
-                self.pending[thread_id] = False
+                self.enqueue(origin)
+        except (OSError, ValueError):
+            self.record_failure(origin)
+
+    def resume(self, markers):
+        try:
+            with self.storage.lock():
+                if not self.active():
+                    return
+                index = self.threads.load_index()
+                for marker in markers:
+                    thread_id = marker.parent.name
+                    if thread_id in index:
+                        title = index[thread_id].get("title") or SIDE_TITLE
+                        self.enqueue({"thread_id": thread_id, "thread_title": title}, recover=True)
+        except (OSError, ValueError):
+            # Persisted markers remain available for the next startup or trigger.
+            pass
+
+    def enqueue(self, origin, *, recover=False):
+        # The workspace lock protects membership while the queue lock serializes marker changes.
+        thread_id = origin["thread_id"]
+        with self.lock:
+            marker = self.marker(thread_id)
+            if not marker.is_file():
+                if recover:
+                    return
+                atomic_write(marker, "")
+            pending = self.pending
+            if thread_id in pending or _submit(self.run, thread_id):
+                # None is a running job. A request replaces a queued job or adds one follow-up.
+                _PENDING.setdefault(self.storage.root, pending)[thread_id] = (self, origin)
+
+    def run(self, thread_id):
+        with self.lock:
+            summaries, origin = self.pending[thread_id]
+            self.pending[thread_id] = None
+        try:
+            if summaries.update(thread_id):
+                with self.lock:
+                    if summaries.active() and self.pending[thread_id] is None:
+                        self.marker(thread_id).unlink(missing_ok=True)
+        except Exception:
+            summaries.record_failure(origin)
+        finally:
+            with self.lock:
+                pending = self.pending
+                if pending[thread_id] is None or not _submit(self.run, thread_id):
+                    del pending[thread_id]
+                if not pending:
+                    del _PENDING[self.storage.root]
+
+    def record_failure(self, origin):
+        # Keep provider responses and transcript text out of diagnostics.
+        try:
+            if self.active() and origin["thread_id"] in self.threads.load_index():
+                timeline.record(self.storage, "thread", "Thread summary update failed", origin,
+                                diagnostic=True, data={"status": "failed"})
+        except (OSError, ValueError):
+            pass
+
+    def read_summary(self, thread_id):
+        try:
+            return self.threads.summary_state(thread_id)
+        except InvalidSummary:
+            with self.storage.lock():
+                if not self.active():
+                    return None
+                try:
+                    return self.threads.summary_state(thread_id)
+                except InvalidSummary:
+                    path = self.threads.summary_path(thread_id)
+                    # Quarantine without retaining text that permanent forget cannot scrub.
+                    atomic_write(path.with_name("summary.corrupt"), "Invalid thread summary.\n")
+                    path.unlink()
+                    return {}
 
     def update(self, thread_id):
         if not self.active():
-            return
+            return False
         # Thread files are atomically replaced. Snapshot reads and model calls stay off the reply lock.
         rules = memory.standing_rules(self.storage)
-        previous = self.threads.summary_state(thread_id)
+        previous = self.read_summary(thread_id)
+        if previous is None:
+            return False
         rows = self.threads.messages(thread_id, dialogue_only=True)
         older = older_dialogue(rows, previous.get("cursor") or previous.get("reset_after"))
         if len(older) < SUMMARY_TRIGGER:
-            return
+            return True
         files = artifacts.message_artifacts(self.storage.load(), thread_id)
         summary = previous.get("text", "")
         if memory.matches_rule(summary, rules):
@@ -145,9 +226,12 @@ class RollingSummaries:
             if batch:
                 summary = self.fold(summary, batch, rules)
         with self.storage.lock():
-            if (self.active() and rules == memory.standing_rules(self.storage)
+            if not self.active():
+                return False
+            if (rules == memory.standing_rules(self.storage)
                     and thread_id in self.threads.load_index() and previous == self.threads.summary_state(thread_id)):
                 self.threads.save_summary(thread_id, {"text": summary, "cursor": older[-1]["id"]})
+        return True
 
     def fold(self, previous, batch, rules):
         messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": json.dumps(
