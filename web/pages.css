@@ -72,7 +72,7 @@
 .page-dialog-head h2 { margin: var(--space-1) 0 0; font-size: clamp(1.22rem, 3vw, 1.8rem); overflow-wrap: anywhere; }
 .page-dialog-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--control-gap); }
 .page-dialog-version { margin: 0; color: var(--muted); font-size: .8rem; }
-.page-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--control-gap); }
+.page-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--control-gap); }
 .page-feedback { margin-block: 0 10px; color: var(--accent); font-size: .85rem; }
 .page-feedback:empty { display: none; }
 .page-approval {

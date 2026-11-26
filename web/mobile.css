@@ -149,7 +149,7 @@
   .thread-heading #avatar-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .avatar-header { width: 40px; margin: 0; }
   .thread-activity { font-size: 11px; }
-  :is(.layout, .workspace-drawer) .avatar-view { min-height: 44px; padding-inline: 9px; font-size: 16px; }
+  :is(.layout, .workspace-drawer) .avatar-view { min-height: var(--control-height); }
   .face-view {
     top: var(--keyboard-top, 0px);
     bottom: auto;
@@ -354,7 +354,7 @@
   #timeline-view .timeline-fields { flex-wrap: nowrap; max-width: none; gap: 8px; }
   #timeline-view .timeline-fields input { min-height: 44px; font-size: 16px; }
   #timeline-view .timeline-mobile-filter, #timeline-view .timeline-active-filter button,
-  .timeline-filter-sheet button, .timeline-filter-sheet select {
+  .timeline-filter-sheet button {
     display: inline-flex;
     align-items: center;
     justify-content: center;

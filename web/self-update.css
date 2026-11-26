@@ -87,7 +87,7 @@
 }
 
 .self-update-card summary {
-  min-height: var(--touch-height);
+  min-height: var(--control-height);
   align-content: center;
   padding: var(--space-2) var(--space-3);
   cursor: pointer;
@@ -108,6 +108,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--control-gap);
   min-width: 0;
 }
@@ -126,8 +127,8 @@
 .self-update-card :is(button, a),
 .self-update-settings :is(button, input),
 .self-update-toggle {
-  min-height: var(--touch-height);
-  min-width: var(--touch-height);
+  min-height: var(--control-height);
+  min-width: var(--control-height);
 }
 .self-update-card button {
   margin: 0;
@@ -136,6 +137,7 @@
 }
 
 .self-update-controls a:not([hidden]) {
+  margin-inline-end: auto;
   display: inline-flex;
   align-items: center;
   color: var(--accent);
@@ -189,7 +191,7 @@
 }
 
 .self-update-settings button {
-  justify-self: start;
+  justify-self: end;
 }
 
 .self-update-version {

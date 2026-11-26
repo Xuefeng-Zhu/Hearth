@@ -83,10 +83,10 @@
 .memory-review-source strong { color: var(--secondary-text); font-size: 12px; }
 .memory-review-source blockquote { margin: 2px 0 3px; color: var(--text); white-space: pre-wrap; }
 .memory-review .memory-actions { margin-top: 10px; }
-#memory-view .memory-review button, .memory-review-picker select, #memory-review-settings button,
-#memory-review-time, #memory-review-settings .check-label { min-height: 44px; }
+#memory-view .memory-review button, #memory-review-settings button,
+#memory-review-time, #memory-review-settings .check-label { min-height: var(--control-height); }
 .memory-review-picker { display: grid; gap: 4px; margin-bottom: 10px; color: var(--text); }
-.memory-review-picker select { width: 100%; color: var(--text); background: var(--field-surface); border: 1px solid var(--muted); }
+.memory-review-picker select { width: 100%; }
 .memory-review-settings { margin-bottom: 14px; }
 .memory-review-settings fieldset { display: grid; gap: 6px; min-width: 0; padding: 0; margin: 0; border: 0; }
 .memory-review-settings .memory-actions { margin-top: 3px; align-items: stretch; }

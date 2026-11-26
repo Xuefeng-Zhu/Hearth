@@ -10,7 +10,7 @@
   padding-bottom: var(--space-3);
   margin-bottom: var(--section-gap);
 }
-.automation-tabs button { min-height: 44px; }
+.automation-tabs button, #new-task { min-height: var(--control-height); font-size: var(--control-font-size); }
 .automation-section { margin-block: 1rem; }
 .automation-section-heading, .automation-card-heading, .automation-controls, .automation-card-footer {
   display: flex;
@@ -83,14 +83,15 @@
 .automation-fields dt, .automation-label { color: var(--secondary-text); font-weight: 650; }
 .automation-fields dt, .automation-fields dd, .automation-label, .automation-result { font-size: .86rem; }
 .automation-fields dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 10rem; overflow: auto; }
-.automation-card-footer { justify-content: space-between; flex-wrap: wrap; }
-.automation-controls { flex-wrap: wrap; }
+.automation-card-footer { flex-wrap: wrap; }
+.automation-card-footer .automation-controls { margin-inline-start: auto; }
+.automation-controls { flex-wrap: wrap; justify-content: flex-end; }
 .automation-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: .33rem;
-  min-height: 44px;
+  min-height: var(--control-height);
   border-color: var(--automation-control-border);
 }
 .automation-button svg { flex-shrink: 0; }
@@ -102,7 +103,7 @@
 .automation-label { margin-bottom: 0; }
 .approval-settings #approval-policies, .automation-editor, .automation-editor label { display: grid; gap: .5rem; }
 .approval-settings #approval-policies { gap: var(--grid-gap); }
-.approval-settings #approval-policies label { display: flex; justify-content: space-between; gap: .75rem; align-items: center; }
+.approval-settings #approval-policies label { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr); gap: var(--grid-gap); align-items: center; margin: 0; }
 .automation-dialog {
   width: min(33rem, calc(100% - 2rem));
   max-height: calc(100dvh - 2rem);
@@ -118,12 +119,13 @@
 .automation-dialog-header h2 { margin: 0; font-size: 1.2rem; }
 .automation-editor { gap: var(--grid-gap); }
 .automation-editor input, .automation-editor textarea, .automation-editor select, .approval-settings select {
-  min-height: 44px;
+  min-height: var(--control-height);
   min-width: 0;
   color: var(--text);
   border-color: var(--automation-control-border);
 }
 .automation-editor textarea { min-height: 6rem; resize: vertical; }
+.automation-editor > button[type="submit"], .event-action button { justify-self: end; }
 .automation-editor-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--grid-gap); }
 .automation-editor-fields > *, .automation-schedule-fields > * { min-width: 0; }
 .automation-schedule-fields { grid-column: 1 / -1; display: grid; gap: .65rem; }
@@ -167,7 +169,7 @@
   .automation-card-heading { flex-wrap: wrap; }
   .automation-card-heading h3 { min-width: 6rem; }
   .automation-fields { gap: .35rem .5rem; }
-  .approval-settings #approval-policies label { flex-wrap: wrap; }
+  .approval-settings #approval-policies label { grid-template-columns: minmax(6rem, 1fr) minmax(0, 1.5fr); }
 }
 .automation-tabs button, .automation-task-selector, #new-task {
   padding: .5rem .75rem;
@@ -187,7 +189,7 @@
   border-color: var(--accent-fill);
 }
 .card .automation-button, .automation-dialog .automation-editor button {
-  min-height: 44px;
+  min-height: var(--control-height);
   margin: 0;
 }
 .card .automation-button:not(.primary-setting) { border-color: var(--automation-control-border); }
@@ -215,7 +217,6 @@
   border-radius: .6rem;
 }
 .event-action legend { padding-inline: .3rem; color: var(--secondary-text); }
-.event-action button { justify-self: start; }
 .event-action .meta, .event-automation-card p { margin-block: .6rem; }
 .event-last-run { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .86rem; }
 .event-run-history > summary { min-height: 44px; padding-block: .7rem; cursor: pointer; }
@@ -229,8 +230,8 @@
   color: var(--delivery-queued-text);
   background: var(--delivery-queued-bg);
 }
-.automation-dialog:has(.event-automation-editor) .automation-dialog-header button {
-  min-width: 44px;
-  min-height: 44px;
+.automation-dialog .automation-dialog-header button {
+  min-width: var(--control-height);
+  min-height: var(--control-height);
   border-color: var(--automation-control-border);
 }

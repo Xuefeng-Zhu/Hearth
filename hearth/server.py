@@ -122,6 +122,7 @@ STATIC = {
     "/artifacts.js": ("artifacts.js", "text/javascript; charset=utf-8"),
     "/file-questions.js": ("file-questions.js", "text/javascript; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
+    "/icons/chevron.svg": ("icons/chevron.svg", "image/svg+xml"),
     "/icons/icon.svg": ("icons/icon.svg", "image/svg+xml"),
     "/icons/favicon.svg": ("icons/favicon.svg", "image/svg+xml"),
     "/icons/apple-touch-icon.png": ("icons/apple-touch-icon.png", "image/png"),
