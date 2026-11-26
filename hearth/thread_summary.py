@@ -105,6 +105,9 @@ class RollingSummaries:
         app = self.agent.application
         return app is None or (app.agent is self.agent and not app.restoring())
 
+    def schedule_side(self, model, thread_id, message, prompt, reply, rules):
+        _submit(self.agent.update_side_summary, model, thread_id, message, prompt[:1_200], reply[:2_500], rules)
+
     def marker(self, thread_id):
         return self.threads.summary_path(thread_id).with_name(PENDING_FILE)
 

@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
+from unittest.mock import patch
 
 from hearth.agent import Agent
 from hearth.checkpoints import LocalCheckpoints
@@ -161,6 +162,10 @@ class ThreadTest(unittest.TestCase):
         self.app.agent = Agent(self.storage, self.checkpoints, self.config, Gateway())
         self.chat("Main anchor reference")
         side_id = self.chat("/side Garden plan")[0][1]["thread"]["id"]
+        deadline = time.monotonic() + 3
+        while self.threads.messages(side_id)[-1].get("summary") != "The user chose a Saturday garden plan.":
+            self.assertLess(time.monotonic(), deadline, "The side summary was not persisted.")
+            time.sleep(0.01)
         self.chat("Check awareness in Main")
         side_prompt = calls[1][1]["content"]
         main_prompt = calls[-1][1]["content"]
@@ -172,6 +177,56 @@ class ThreadTest(unittest.TestCase):
         self.assertNotIn("DETAILS-ONLY", main_prompt)
         self.assertEqual(len(self.state(side_id)["messages"]), 2)
         self.assertNotIn("Garden plan", [message["content"] for message in self.state()["messages"]])
+
+    def test_side_reply_persists_and_stream_finishes_before_summary_returns(self):
+        summary_started = threading.Event()
+        release_summary = threading.Event()
+        summary_failed = threading.Event()
+        done_emitted = threading.Event()
+        thread = self.request("/api/threads/create", {})["id"]
+
+        class Gateway:
+            def completion(gateway, model, messages, tools, emit, **limits):
+                if messages[0]["content"].startswith("Summarize this side chat"):
+                    gateway.done_before_summary = done_emitted.is_set()
+                    with self.storage.lock():
+                        gateway.persisted = self.threads.messages(thread)[-1]
+                    summary_started.set()
+                    try:
+                        if not release_summary.wait(5):
+                            raise AssertionError("The test did not release the summary.")
+                        raise RuntimeError("Side summary failed.")
+                    finally:
+                        summary_failed.set()
+                emit("The fixture reply.")
+                return {"role": "assistant", "content": "The fixture reply."}
+
+        gateway = Gateway()
+        self.config["llm"][0]["connection_id"] = "test-connector"
+        self.app.agent = Agent(self.storage, self.checkpoints, self.config, gateway)
+        chat = self.app.agent.chat
+
+        def observe_chat(prompt, event, *args, **kwargs):
+            def observe_event(name, data):
+                event(name, data)
+                if name == "done":
+                    done_emitted.set()
+            return chat(prompt, observe_event, *args, **kwargs)
+
+        with patch.object(self.app.agent, "chat", side_effect=observe_chat), ThreadPoolExecutor() as executor:
+            response = executor.submit(self.chat, "A fixture topic", thread)
+            try:
+                self.assertTrue(summary_started.wait(3))
+                events = response.result(1)
+                self.assertTrue(gateway.done_before_summary)
+                self.assertEqual(events[-1][0], "done")
+                message = events[-1][1]["message"]
+                self.assertEqual(gateway.persisted["id"], message["id"])
+                self.assertEqual(gateway.persisted["content"], "The fixture reply.")
+            finally:
+                release_summary.set()
+                self.assertTrue(summary_failed.wait(3))
+        self.assertEqual(self.state(thread)["messages"][-1], message)
 
     def test_busy_main_queues_followup_while_a_side_chat_finishes(self):
         main_token = threading.Event()

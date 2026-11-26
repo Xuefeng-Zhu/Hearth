@@ -146,6 +146,21 @@ class Threads:
             self.storage.save(legacy)
         return message
 
+    def update_side_summary(self, thread_id, message, summary):
+        if thread_id not in self.load_index():
+            return
+        path = self.path(thread_id)
+        with path.open(encoding="utf-8") as stream:
+            lines = list(stream)
+        for index, line in enumerate(reversed(lines), 1):
+            row = json.loads(line)
+            if row.get("id") == message["id"]:
+                if row["content"] == message["content"] and row.get("summary") == message["summary"]:
+                    row["summary"] = summary
+                    lines[-index] = json.dumps(row, ensure_ascii=False) + "\n"
+                    atomic_write(path, "".join(lines))
+                return
+
     def describe(self, thread_id, index=None):
         thread = self.require(thread_id, index)
         title = thread.get("title")
