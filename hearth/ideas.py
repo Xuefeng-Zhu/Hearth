@@ -284,7 +284,8 @@ class Ideas:
         order = [model for model in order if model["provider"] != "mock"]
         if not order:
             return "offline"
-        items = feed.model_answer(agent, order, PROMPT, payload, "items", max_tokens=3500)
+        # Give reasoning models room to finish the JSON after their reasoning tokens.
+        items = feed.model_answer(agent, order, PROMPT, payload, "items", max_tokens=6000)
         with self.storage.lock():
             state = self.storage.load()
             data = state.get("ideas", {})
