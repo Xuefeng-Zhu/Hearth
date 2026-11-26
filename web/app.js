@@ -75,6 +75,13 @@ let currentThread = requestedThread || sessionStorage.getItem("hearth-thread") |
 let selectionVersion = 0;
 let stateRequest = 0;
 let threadSignature;
+let seenReplies;
+try {
+  seenReplies = new Map(JSON.parse(localStorage.getItem("hearth-seen-replies") || "[]"));
+} catch {
+  seenReplies = new Map();
+}
+let sendingTestReminder = false;
 let chatSignature;
 let chatRows = new Map();
 const workerCards = new Map();
@@ -171,8 +178,16 @@ const homePage = createHome({
 });
 const delivery = createReminders({
   api, openView, openSettings: openSettingsSection, onInbox: automation.inbox, currentView: () => view, currentSettings: () => settingsSection,
-  startSending: () => avatarSignal(currentThread, { type: "tool_started", title: "Sending reminder" }),
-  stopSending: () => avatarSignal(currentThread, { type: "tool_finished" }),
+  startSending: () => {
+    sendingTestReminder = true;
+    renderThreads();
+    avatarSignal(mainThread.id, { type: "tool_started", title: "Sending reminder" });
+  },
+  stopSending: () => {
+    sendingTestReminder = false;
+    renderThreads();
+    avatarSignal(mainThread.id, { type: "tool_finished" });
+  },
 });
 const memoryNames = { auto: "Auto", pinecone: "Pinecone", local: "Local", keyword: "Local", huggingface: "Local · Hugging Face embeddings" };
 const folderNames = { root: "Profile and approvals", people: "people/", locations: "locations/",
@@ -190,7 +205,6 @@ let avatarLook = Object.hasOwn(looks, savedLook) ? savedLook : "ember";
 let avatarColor = localStorage.getItem("hearth-avatar-color") || "";
 if (!/^#[0-9a-f]{6}$/i.test(avatarColor)) avatarColor = "";
 const avatarStates = new Map();
-const avatarThreads = new Map();
 const headerMascot = mascot(avatarLook, avatarColor);
 const portraitMascot = mascot(avatarLook, avatarColor);
 byId("avatar-header").append(headerMascot);
@@ -251,7 +265,7 @@ function avatarSignal(threadId, event) {
 function threadPose(thread, now) {
   const callPose = voiceCall.poseFor(thread.id);
   if (callPose) return callPose;
-  if (state?.reminder_sending?.includes(thread.id)) return { pose: "working", detail: "Sending reminder" };
+  if (isSendingReminder(thread.id)) return { pose: "working", detail: "Sending reminder" };
   const pose = avatarPose(avatarState(thread.id, now), now, isWorking(thread));
   const local = [...turns].some((turn) => turn.threadId === thread.id && turn.user && !turn.finished);
   if (pose.pose === "thinking" && !local && thread.activity) return thread.activity;
@@ -272,9 +286,6 @@ function paintAvatars() {
   byId("avatar-caption").hidden = current.pose === "idle";
   updateText(byId("face-status"), poseLabel(current));
   updateText(byId("avatar-status"), announcePose(current));
-  for (const thread of threadList) {
-    if (avatarThreads.has(thread.id)) setPose(avatarThreads.get(thread.id), threadPose(thread, now));
-  }
   for (const turn of turns) {
     if (turn.threadId === currentThread && turn.bubble?.avatar && !turn.finished) {
       setPose(turn.bubble.avatar, current);
@@ -928,15 +939,40 @@ function openThreadMenu(thread) {
   threadMenu.showModal();
 }
 
+function isSendingReminder(threadId) {
+  return state?.reminder_sending?.includes(threadId) || (threadId === mainThread.id && sendingTestReminder);
+}
+
+function markSeenReplies() {
+  if (!state) return;
+  let changed = false;
+  for (const thread of state.threads) {
+    const canRead = view === "chat" && !document.hidden && !byId("workspace-drawer").open
+      && state.thread_id === thread.id && currentThread === thread.id;
+    if ((!seenReplies.has(thread.id) || canRead) && seenReplies.get(thread.id) !== thread.last_reply) {
+      seenReplies.set(thread.id, thread.last_reply);
+      changed = true;
+    }
+  }
+  if (changed) localStorage.setItem("hearth-seen-replies", JSON.stringify([...seenReplies]));
+}
+
 function renderThreads() {
-  const entries = threadList.map((item) => ({ ...item, busy: isWorking(item) }));
+  const entries = threadList.map((thread) => {
+    const busy = isWorking(thread);
+    const unread = thread.last_reply && seenReplies.get(thread.id) !== thread.last_reply;
+    const status = isSendingReminder(thread.id) ? "Sending reminder"
+      : busy ? "Working" : unread ? "Unread reply" : "";
+    return { ...thread, busy, status };
+  });
   const active = entries.find((item) => item.id === currentThread);
-  const signature = JSON.stringify([entries, currentThread, busy, threadBusy, avatarMode, avatarLook, avatarColor]);
+  const signature = JSON.stringify([entries, currentThread, busy, threadBusy, avatarMode]);
   if (signature === threadSignature) return;
   threadSignature = signature;
   const list = byId("threads");
   const focused = list.contains(document.activeElement) ? document.activeElement : null;
-  avatarThreads.clear();
+  updateText(byId("thread-list-status"), entries.filter((thread) => thread.status)
+    .map((thread) => `${thread.title}: ${thread.status}`).join(". "));
   list.replaceChildren(...entries.map((thread) => {
     const item = button("", () => {
       mobile.closeDrawer();
@@ -949,21 +985,16 @@ function renderThreads() {
     item.title = thread.title;
     item.append(node("span", "thread-label", thread.title));
     if (thread.id === currentThread) item.setAttribute("aria-current", "true");
-    if (avatarMode !== "off") {
-      const avatar = mascot(avatarLook, avatarColor);
-      avatar.dataset.still = "";
-      avatarThreads.set(thread.id, avatar);
-      item.append(avatar);
-    } else if (thread.busy) {
+    if (thread.status) {
       const dot = node("span", "thread-dot");
+      dot.dataset.status = thread.status === "Unread reply" ? "unread" : "working";
       dot.setAttribute("aria-hidden", "true");
-      item.append(dot);
+      item.append(dot, node("span", "visually-hidden", ` · ${thread.status}`));
     }
-    if (thread.busy) item.append(node("span", "visually-hidden", " · Replying"));
     const row = node("div", "thread-row");
     row.append(item);
     if (thread.id !== mainThread.id) {
-      const more = iconButton("more", `Actions for ${thread.title}`, () => openThreadMenu(thread), "mobile-only thread-overflow");
+      const more = iconButton("more", `Actions for ${thread.title}`, () => openThreadMenu(thread), "thread-overflow");
       more.dataset.thread = thread.id;
       more.setAttribute("aria-haspopup", "dialog");
       more.setAttribute("aria-controls", threadMenu.id);
@@ -975,10 +1006,12 @@ function renderThreads() {
     item.dataset.thread === focused.dataset.thread && item.className === focused.className)?.focus({ preventScroll: true });
   if (threadMenu.open) syncThreadMenu(entries.find((thread) => thread.id === threadMenuId));
   const select = byId("thread-select");
-  select.replaceChildren(...entries.map((thread) => new Option(thread.busy ? `${thread.title} · Replying` : thread.title, thread.id)));
+  select.replaceChildren(...entries.map((thread) => new Option(thread.status ? `${thread.title} · ${thread.status}` : thread.title, thread.id)));
   select.value = currentThread;
   byId("thread-title").textContent = active?.title || (currentThread === mainThread.id ? "Main" : "Side chat");
-  byId("thread-activity").hidden = avatarMode !== "off" || !active?.busy;
+  const activity = byId("thread-activity");
+  activity.hidden = avatarMode !== "off" || !active?.status || active.status === "Unread reply";
+  updateText(activity, active?.status || "");
   byId("thread-controls").hidden = !active || active.id === mainThread.id;
   byId("new-thread").disabled = busy || threadBusy;
   byId("rename-thread").disabled = busy || threadBusy;
@@ -1151,7 +1184,11 @@ async function refreshState() {
   const response = await fetch(`/api/state?thread=${encodeURIComponent(thread)}`, {
     headers, signal: AbortSignal.timeout(6000),
   });
-  if (response.status === 304) return request === stateRequest && thread === currentThread;
+  if (response.status === 304) {
+    const current = request === stateRequest && thread === currentThread;
+    if (current) markSeenReplies();
+    return current;
+  }
   const next = await readResponse(response);
   if (request !== stateRequest || thread !== currentThread) return false;
   state = next;
@@ -1165,6 +1202,7 @@ async function refreshState() {
     }
   }
   threadList = state.threads;
+  markSeenReplies();
   renderThreads();
   if (state.thread_id !== currentThread) {
     const deleted = currentThread;
@@ -1183,7 +1221,7 @@ async function refreshState() {
 }
 
 function refreshDrawerThreads() {
-  if (view === "chat" || view === "memory" || busy || threadBusy) return;
+  if (busy || threadBusy) return;
   refreshState().catch((error) => {
     if (byId("workspace-drawer").open) showNotice(error.message);
   });
@@ -2847,7 +2885,7 @@ threadMenu.querySelector("form").addEventListener("submit", (event) => {
   if (operation === "delete") deleteThread(thread);
 });
 threadMenu.addEventListener("close", () => {
-  if (threadMenu.open || !byId("workspace-drawer").open) return;
+  if (threadMenu.open || (mobile.isMobile() && !byId("workspace-drawer").open)) return;
   const trigger = [...byId("threads").querySelectorAll(".thread-overflow")]
     .find((item) => item.dataset.thread === threadMenuId);
   (trigger || byId("new-thread")).focus({ preventScroll: true });
@@ -3016,12 +3054,13 @@ let polling = false;
 window.addEventListener("offline", renderWorkspaceStatus);
 window.addEventListener("online", renderWorkspaceStatus);
 setInterval(async () => {
-  if ((!isSetting("connections") && !["chat", "reminders", "home", "inbox"].includes(view))
+  if ((!byId("workspace-drawer").open && !isSetting("connections") && !["chat", "reminders", "home", "inbox"].includes(view))
       || busy || threadBusy || document.hidden || polling) return;
   polling = true;
   try {
     if (isSetting("connections")) await refreshPineconeHealth();
     else await refreshView();
+    if (byId("workspace-drawer").open && view !== "chat") await refreshState();
   } catch {
     // Leave the current view intact during a transient connection failure.
   } finally {

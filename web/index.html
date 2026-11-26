@@ -88,6 +88,7 @@
             <select id="thread-select" class="thread-select"><option value="main">Main</option></select>
             <button type="button" id="new-thread" class="new-thread"><span data-icon="plus" data-icon-size="18"></span> <span id="new-thread-label">New side chat</span></button>
           </div>
+          <p id="thread-list-status" role="status" class="visually-hidden"></p>
           <div id="threads" class="threads" aria-label="Thread list"></div>
         </aside>
         <div class="chat-pane">
@@ -763,7 +764,7 @@
       <button type="button" class="nav-link" data-view="settings"><span data-icon="settings"></span> Settings</button>
     </nav>
   </dialog>
-  <dialog class="mobile-only message-menu" id="thread-menu" aria-labelledby="thread-menu-title">
+  <dialog class="message-menu" id="thread-menu" aria-labelledby="thread-menu-title">
     <h2 id="thread-menu-title"></h2>
     <form method="dialog" class="message-menu-actions">
       <button type="submit" value="rename"><span data-icon="edit" data-icon-size="18"></span> Rename</button>

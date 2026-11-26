@@ -62,6 +62,28 @@ class Threads:
             message["content"] = clean(message["content"])
         return rows
 
+    def last_reply(self, thread_id, legacy=()):
+        """Read the newest assistant ID without loading every thread's history."""
+        path = self.path(thread_id)
+        if not path.is_file():
+            return next((row["id"] for row in reversed(legacy) if row["role"] == "assistant"), None)
+        with path.open("rb") as stream:
+            end = stream.seek(0, 2)
+            prefix = b""
+            while end:
+                start = max(0, end - 8192)
+                stream.seek(start)
+                prefix, *lines = (stream.read(end - start) + prefix).split(b"\n")
+                if not start:
+                    lines.insert(0, prefix)
+                for line in reversed(lines):
+                    if line:
+                        row = json.loads(line)
+                        if row["role"] == "assistant":
+                            return row["id"]
+                end = start
+        return None
+
     def append(self, thread_id, role, content, **fields):
         self.require(thread_id)
         message = {"id": new_id(), "role": role, "content": content, "at": iso(), **fields}

@@ -132,26 +132,7 @@
   .workspace-drawer .threads { grid-template-columns: minmax(0, 1fr); min-width: 0; overflow: visible; }
   .workspace-drawer :is(.thread-link, .new-thread) { font-size: 15px; min-height: 44px; }
   .workspace-drawer .new-thread { white-space: nowrap; }
-  .workspace-drawer .thread-row { display: flex; min-width: 0; border-radius: 8px; }
-  .workspace-drawer .thread-link { flex: 1; width: auto; min-width: 0; }
-  .workspace-drawer .thread-link .mascot { flex: none; margin: 0 0 0 auto; }
   .workspace-drawer-body button:focus-visible { outline-offset: -2px; }
-  .workspace-drawer .thread-row:has([aria-current]) { background: var(--thread-active); }
-  .workspace-drawer .thread-link[aria-current] { box-shadow: inset 3px 0 var(--accent); }
-  .workspace-drawer .thread-overflow {
-    display: grid;
-    place-items: center;
-    flex: 0 0 44px;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--muted);
-  }
-  .workspace-drawer .thread-overflow:hover { color: var(--selection-text); background: var(--nav-hover); }
-  .workspace-drawer .thread-overflow svg { stroke-width: 2.5px; }
-  #thread-menu[open] { display: block; }
-  #thread-menu-title { overflow-wrap: anywhere; }
-  #thread-menu button[value="delete"] { color: var(--thread-delete); }
   .ember-view-setting { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   #settings-appearance .appearance-toggle, .chat-view .thread-controls, .chat-view:not(.face-view) .avatar-view { display: none; }
 

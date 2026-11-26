@@ -327,6 +327,9 @@ class Application:
         with self.storage.lock():
             state = self.storage.load()
             threads = self.threads.list()
+            for thread in threads:
+                legacy = state.get("messages", []) if thread["id"] == MAIN else ()
+                thread["last_reply"] = self.threads.last_reply(thread["id"], legacy)
             if not any(thread["id"] == thread_id for thread in threads):
                 thread_id = MAIN
             if approvals.expire(state, datetime.now(timezone.utc)):

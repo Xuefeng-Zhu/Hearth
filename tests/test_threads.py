@@ -65,8 +65,8 @@ class ThreadTest(unittest.TestCase):
         self.assertEqual(events[-1][0], "done")
         self.assertEqual(self.state()["messages"], [legacy])
         self.assertEqual(self.state()["threads"], [
-            {"id": "main", "title": "Main", "busy": False},
-            {"id": side, "title": "Read USER.md", "busy": False},
+            {"id": "main", "title": "Main", "busy": False, "last_reply": None},
+            {"id": side, "title": "Read USER.md", "busy": False, "last_reply": events[-1][1]["message"]["id"]},
         ])
         self.request("/api/threads/rename", {"thread_id": side, "title": "Profile notes"})
         side_state = self.state(side)
@@ -96,6 +96,17 @@ class ThreadTest(unittest.TestCase):
         self.assertEqual(self.state(side)["messages"], side_state["messages"])
         resumed = Application(Storage(self.storage.root), self.checkpoints, self.config)
         self.assertEqual(resumed.info(side)["threads"][1]["title"], "Profile notes")
+
+    def test_last_reply_from_legacy_and_large_thread_messages(self):
+        legacy = {"id": "legacy-answer", "role": "assistant", "content": "A saved answer"}
+        state = self.storage.load()
+        self.storage.save({**state, "messages": [legacy]})
+        self.assertEqual(self.state()["threads"][0]["last_reply"], legacy["id"])
+        with self.storage.lock():
+            side = self.threads.create()["id"]
+            reply = self.threads.append(side, "assistant", "☕" * 8000)
+            self.threads.append(side, "user", "follow-up " * 1500)
+        self.assertEqual(self.state()["threads"][1]["last_reply"], reply["id"])
 
     def test_shared_actions_reminders_memory_and_deleted_source(self):
         side_id = self.chat("/btw Remember topics/garden.md: Grow late mint")[0][1]["thread"]["id"]
