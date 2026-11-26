@@ -5,7 +5,7 @@ import re
 import shutil
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -23,12 +23,33 @@ from .connectors import Gateway, read_config
 from .gateway_tools import redact_text, scrub
 from .memory_sync import MemorySync
 from .reminder_config import equal, saved
-from .storage import HearthError, ROOT, Storage, iso, new_id
+from .storage import HearthError, ROOT, Storage, iso, new_id, revision
 from .threads import MAIN, Threads, compact
 
 
 class ChatStopped(Exception):
     pass
+
+
+class PollCache:
+    def __init__(self, limit):
+        self.limit = limit
+        self.entries = OrderedDict()
+        self.lock = threading.Lock()
+
+    def get(self, variant, signature, build):
+        with self.lock:
+            stamp = signature()
+            now = datetime.now(timezone.utc)
+            cached = self.entries.get(variant)
+            if cached is None or cached[0] != stamp or (cached[1] and now >= cached[1]):
+                data, expires = build(now)
+                cached = stamp, expires, (data, f'"{new_id()}"')
+                self.entries[variant] = cached
+                if len(self.entries) > self.limit:
+                    self.entries.popitem(last=False)
+            self.entries.move_to_end(variant)
+            return cached[2]
 
 
 @dataclass
@@ -115,6 +136,8 @@ class Application:
         self.turns = {}
         self.turn_activity = {}
         self.restore = None
+        self.state_cache = PollCache(8)
+        self.home_cache = PollCache(1)
         self.reindex = None
         self.call_check = None
         self.memory_index = recall.Recall(storage, self.gateway)
@@ -355,48 +378,120 @@ class Application:
             self.storage.save(state)
             return action
 
-    def info(self, thread_id=MAIN):
+    def active_turns(self):
         with self.turn_lock:
-            active = {thread: self.turn_activity.get(thread) for thread in self.turns}
+            return {thread: self.turn_activity.get(thread) for thread in self.turns}
+
+    def history_revision(self):
+        live, rules = revision(self.storage.live, self.storage.root / "memory-forget.json")
+        return sha256(repr((live and live[0], rules)).encode()).hexdigest()[:24]
+
+    def sidebar_revision(self):
+        stamp = self.storage.revisions()[1], revision(self.threads.root, self.threads.index)
+        return sha256(repr((stamp, self.history_revision())).encode()).hexdigest()[:24]
+
+    def thread_page(self, offset):
+        active = self.active_turns()
+        with self.storage.lock():
+            index = self.threads.load_index()
+            threads, following = self.threads.sidebar(index, active, (), offset)
+            return {"threads": threads, "next_thread_offset": following,
+                    "thread_revision": self.sidebar_revision()}
+
+    def state_signature(self):
+        return (self.storage.revisions()[0], revision(*self.activity.paths, self.threads.index),
+                self.history_revision(), self.active_turns(), self.brain_status(),
+                self.restore, bool(self.memory_index.hf_entry(self.agent.config)),
+                voice_call.PROVIDER in self.connections.selected)
+
+    def state_poll(self, thread_id, action_id):
+        return self.state_cache.get((thread_id, action_id), self.state_signature,
+                                    lambda now: self.state_snapshot(thread_id, action_id, now))
+
+    def home_poll(self):
+        def build(now):
+            snapshot, expires = self.home.build_snapshot(now)
+            return {**snapshot, "checkpoints": self.checkpoints.mode}, expires
+
+        return self.home_cache.get(None, self.home.signature, build)
+
+    def info(self, thread_id=MAIN):
+        return self.state_snapshot(thread_id, None, datetime.now(timezone.utc))[0]
+
+    def state_snapshot(self, thread_id, action_id, now):
+        active = self.active_turns()
         with self.storage.lock():
             state = self.storage.load()
-            threads = self.threads.list()
-            for thread in threads:
-                legacy = state.get("messages", []) if thread["id"] == MAIN else ()
-                thread["last_reply"] = self.threads.last_reply(thread["id"], legacy)
-            if not any(thread["id"] == thread_id for thread in threads):
-                thread_id = MAIN
-            if approvals.expire(state, datetime.now(timezone.utc)):
+            index = self.threads.load_index()
+            selected = thread_id if thread_id in index else MAIN
+            threads, following = self.threads.sidebar(index, active, state.get("messages", ()), selected=selected)
+            if approvals.expire(state, now):
                 self.storage.save(state)
-            messages = self.threads.messages(thread_id)
-            message_uploads = self.uploads.for_messages(thread_id, messages)
+            transcript = self.transcript(state, selected, extra_action=action_id, include_recent=True)
+            thread_revision = self.sidebar_revision()
+        sending = {item["thread_id"] for item in scheduler.email_records(state)
+                   if item.get("delivery", {}).get("email", {}).get("sending")}
+        pending = [action for action in state["actions"].values() if action["status"] in {"pending", "changing"}]
+        expires = min((datetime.fromisoformat(row["expires_at"]) for row in pending
+                       if row.get("tool") and row["status"] == "pending"), default=None)
+        active_work = bool(active or pending or sending or any(
+            row["status"] in workers.ACTIVE for row in state.get("workers", {}).values()))
+        return ({"threads": threads, "next_thread_offset": following, "thread_revision": thread_revision,
+                 "thread_activity": active,
+                 **transcript, "timezone": saved(state)["timezone"],
+                 "jobs": state["jobs"][-25:], "reminders": [reminders.public_item(item) for item in state["reminders"][-25:]],
+                 "reminder_sending": sorted(sending), "active_work": active_work,
+                 "routing": state.get("routing", [])[-50:],
+                 "whisper_available": bool(self.memory_index.hf_entry(self.agent.config)),
+                 "voice_call_available": voice_call.PROVIDER in self.connections.selected,
+                 "restore": self.restore, "checkpoints": self.checkpoints.mode, **self.brain_status()}, expires)
+
+    def transcript_page(self, thread_id, before):
+        with self.storage.lock():
+            self.threads.require(thread_id)
+            return self.transcript(self.storage.load(), thread_id, before)
+
+    def transcript(self, state, thread_id, before=None, *, extra_action=None, include_recent=False):
+        messages, cursor, prompt = self.threads.page(thread_id, state, before)
+        message_ids = {row["id"] for row in messages}
+        turn_ids = message_ids | {row["worker_turn_id"] for row in messages if row.get("worker_turn_id")}
+        worker_rows = [row for row in state.get("workers", {}).values() if row["thread_id"] == thread_id
+                       and (row["turn_id"] in turn_ids or (before is None and row["status"] in workers.ACTIVE))]
+        worker_turns = {row["turn_id"] for row in worker_rows}
+        records = state["actions"]
+        linked = {identity for row in messages for identity in row.get("action_ids", ())}
+        linked.update(action["id"] for action in records.values() if action.get("worker_turn_id") in worker_turns)
+        if include_recent:
+            # Retain recent actions for consumers of /api/state, including actions without a chat card.
+            linked.update(list(records)[-32:])
+        if extra_action:
+            linked.add(extra_action)
+        linked.update(records[identity].get("effect_action") for identity in list(linked) if identity in records)
         jobs = {job["id"]: job for job in state["jobs"]}
         actions = []
-        for action in state["actions"].values():
+        for identity, action in records.items():
+            if identity not in linked:
+                continue
             if action["kind"] == "skill":
                 action = {**action, "undoable": skills.can_undo(state, action)}
             if (job := jobs.get(action.get("job", {}).get("id"))) is not None:
                 action = {**action, "job": {**job, "cancelable": reminders.can_cancel(state, job)}}
-            if effect := state["actions"].get(action.get("effect_action")):
+            if effect := records.get(action.get("effect_action")):
                 action = {**action, "effect_undone": bool(effect.get("undone"))}
             actions.append(action)
-        sending = {item["thread_id"] for item in scheduler.email_records(state)
-                   if item.get("delivery", {}).get("email", {}).get("sending")}
-        return {"thread_id": thread_id, "threads": [
-                    {**thread, "busy": thread["id"] in active,
-                     **({"activity": active[thread["id"]]} if active.get(thread["id"]) else {})}
-                    for thread in threads],
-                "messages": messages, "actions": actions,
-                "workers": [row for row in state.get("workers", {}).values() if row["thread_id"] == thread_id],
-                "message_artifacts": artifacts.message_artifacts(state, thread_id),
-                "message_uploads": message_uploads, "timezone": saved(state)["timezone"],
-                "jobs": state["jobs"], "reminders": [reminders.public_item(item) for item in state["reminders"]],
-                "reminder_sending": sorted(sending),
-                "routing": state.get("routing", [])[-50:],
-                "whisper_available": bool(self.memory_index.hf_entry(self.agent.config)),
-                "voice_call_available": voice_call.PROVIDER in self.connections.selected,
-                "restore": self.restore,
-                "checkpoints": self.checkpoints.mode, **self.brain_status()}
+        uploads_from = [*messages, prompt] if prompt else messages
+        return {"thread_id": thread_id, "messages": messages, "before": cursor, "actions": actions,
+                "workers": worker_rows, "history_revision": self.history_revision(),
+                "record_revision": sha256(repr(revision(self.storage.state)).encode()).hexdigest()[:24],
+                "previous_prompt": {"content": prompt["content"], "attachment_ids": prompt.get("attachment_ids", [])}
+                if prompt else None,
+                "message_artifacts": {identity: rows for identity, rows in artifacts.message_artifacts(state, thread_id).items()
+                                      if identity in message_ids},
+                "message_uploads": self.uploads.for_messages(thread_id, [
+                    {"attachment_ids": [*row.get("attachment_ids", ()), *row.get("attachment_citations", ())]}
+                    for row in uploads_from
+                    if row.get("attachment_ids") or row.get("attachment_citations")
+                ])}
 
     def timeline(self):
         with self.storage.lock():
@@ -757,13 +852,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
-    def json(self, data, status=200, *, conditional=False):
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        etag = f'"{sha256(body).hexdigest()}"' if conditional else None
+    def json(self, data, status=200, *, etag=None):
         content_type = "application/json; charset=utf-8"
-        if etag is not None and self.headers.get("If-None-Match") == etag:
+        candidates = self.headers.get("If-None-Match", "").split(",")
+        if etag is not None and any(tag.strip().removeprefix("W/") in (etag, "*") for tag in candidates):
             self.response_headers(304, content_type, etag=etag)
             return
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.response_headers(status, content_type, len(body), etag=etag)
         self.wfile.write(body)
 
@@ -778,15 +873,26 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/health":
                 self.json({"ok": True, "checkpoints": self.app.checkpoints.mode})
             elif url.path == "/api/state":
-                thread_id = parse_qs(url.query).get("thread", [MAIN])[0]
-                self.json(self.app.info(thread_id), conditional=True)
+                query = parse_qs(url.query)
+                thread_id = query.get("thread", [MAIN])[0]
+                data, etag = self.app.state_poll(thread_id, query.get("action", [None])[0])
+                self.json(data, etag=etag)
+            elif url.path == "/api/transcript":
+                query = parse_qs(url.query)
+                self.json(self.app.transcript_page(query.get("thread", [MAIN])[0], query.get("before", [None])[0]))
+            elif url.path == "/api/threads":
+                offset = parse_qs(url.query).get("offset", ["0"])[0]
+                if not offset.isascii() or not offset.isdigit() or len(offset) > 9:
+                    raise HearthError("Choose a valid thread list offset.")
+                self.json(self.app.thread_page(int(offset)))
             elif url.path == "/api/threads/summary":
                 thread_id = parse_qs(url.query).get("thread", [MAIN])[0]
                 with self.app.storage.lock():
                     summary = self.app.threads.summary(thread_id)
                 self.json({"summary": summary})
             elif url.path == "/api/home":
-                self.json({**self.app.home.snapshot(), "checkpoints": self.app.checkpoints.mode})
+                data, etag = self.app.home_poll()
+                self.json(data, etag=etag)
             elif url.path == "/api/goals/links":
                 self.json({"items": goals.link_options(self.app.storage.load())})
             elif url.path == "/api/feed":
