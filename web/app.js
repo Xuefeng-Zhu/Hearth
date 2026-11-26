@@ -95,6 +95,15 @@ const workerCards = new Map();
 let threadBusy = false;
 let state;
 let stateTag;
+let stateVariant;
+let olderPages = [];
+let olderRequest;
+let historyRefresh;
+let sidebarRequest;
+let sidebarTail = [];
+let homeCache;
+let homeSequence = 0;
+let homeActive = false;
 let view = "home";
 let memoryFindRequest = 0;
 let busy = false;
@@ -206,6 +215,8 @@ const homePage = createHome({
     if (feed.root.isConnected) feed.show();
     automation.home(data.approvals || []);
     const workers = data.workers || [];
+    homeActive = data.active_work;
+    schedulePoll();
     const target = byId("home-workers");
     homeWorkers.update(workers);
     if (!homeWorkers.card.isConnected) target.append(homeWorkers.card);
@@ -349,8 +360,8 @@ function updateFaceCaption(text) {
   captions.scrollTop = captions.scrollHeight;
 }
 
-function replyArtifacts(message) {
-  const linked = message?.artifacts || state?.message_artifacts?.[message?.id] || [];
+function replyArtifacts(message, linkedArtifacts = state?.message_artifacts?.[message?.id]) {
+  const linked = message?.artifacts || linkedArtifacts || [];
   const legacyPages = (message?.pages || []).map((page) => ({
     ...page, kind: "page", format: "html", version_number: page.version,
   }));
@@ -540,6 +551,15 @@ function showConnectionGuidance(target, message) {
 }
 
 async function api(path, data, signal) {
+  if (path === "/api/home" && data === undefined) {
+    const sequence = ++homeSequence;
+    const cached = homeCache;
+    const response = await fetch(path, { signal, headers: cached?.tag ? { "If-None-Match": cached.tag } : {} });
+    if (response.status === 304) return cached.data;
+    const snapshot = await readResponse(response);
+    if (sequence === homeSequence) homeCache = { data: snapshot, tag: response.headers.get("ETag") };
+    return snapshot;
+  }
   const options = data === undefined ? { signal } : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), signal,
   };
@@ -568,6 +588,7 @@ function setBusy(value) {
   timeline.setBusy();
   renderThreads();
   setBrainControls();
+  schedulePoll();
 }
 
 function scrollDown() {
@@ -736,7 +757,8 @@ function checkCollapsedReplies() {
 }
 window.addEventListener("resize", checkCollapsedReplies);
 
-function messageBubble(role, content, { message, status, prompt, working, attachments = [], skill = message?.skill } = {}) {
+function messageBubble(role, content, { message, status, prompt, working, attachments = [], skill = message?.skill,
+  linkedArtifacts, uploadMetadata = state?.message_uploads } = {}) {
   const item = node("article", `message ${role}`);
   let avatar;
   if (role === "assistant") {
@@ -801,7 +823,7 @@ function messageBubble(role, content, { message, status, prompt, working, attach
     sources.setAttribute("aria-label", "Attachment sources");
     sources.append(node("span", "", "Sources"));
     for (const id of message.attachment_citations) {
-      const file = state?.message_uploads?.[id] || [...turns].flatMap((turn) => turn.attachments || [])
+      const file = uploadMetadata?.[id] || [...turns].flatMap((turn) => turn.attachments || [])
         .find((item) => item.id === id);
       if (!file) continue;
       const source = button("", (event) => artifactLibrary.openAttachment(file, event.currentTarget));
@@ -814,7 +836,7 @@ function messageBubble(role, content, { message, status, prompt, working, attach
   }
   if (message?.id) item.dataset.messageId = message.id;
   if (role === "assistant" && message?.id) {
-    const linked = replyArtifacts(message);
+    const linked = replyArtifacts(message, linkedArtifacts);
     if (linked.length) body.append(artifactLibrary.chatActions(linked));
     if (message.browse_images?.length) body.append(...message.browse_images.map(browseScreenshot));
   }
@@ -982,7 +1004,7 @@ function isSendingReminder(threadId) {
 function markSeenReplies() {
   if (!state) return;
   let changed = false;
-  for (const thread of state.threads) {
+  for (const thread of threadList) {
     const canRead = view === "chat" && !document.hidden && !byId("workspace-drawer").open
       && state.thread_id === thread.id && currentThread === thread.id;
     if ((!seenReplies.has(thread.id) || canRead) && seenReplies.get(thread.id) !== thread.last_reply) {
@@ -1117,17 +1139,37 @@ stopReply.addEventListener("click", async () => {
   }
 });
 
-function renderChat(force = false) {
+function transcriptData() {
+  if (state?.thread_id !== currentThread) return {};
+  if (!olderPages.length) return state;
+  const messages = new Map(), actions = new Map(), workers = new Map();
+  const message_artifacts = {}, message_uploads = {};
+  for (const page of [...olderPages, state]) {
+    for (const message of page.messages) {
+      messages.set(message.id, message);
+      delete message_artifacts[message.id];
+    }
+    for (const action of page.actions) actions.set(action.id, action);
+    for (const worker of page.workers) workers.set(worker.id, worker);
+    Object.assign(message_artifacts, page.message_artifacts);
+    Object.assign(message_uploads, page.message_uploads);
+  }
+  return { messages: [...messages.values()], actions: [...actions.values()], workers: [...workers.values()],
+    message_artifacts, message_uploads, previous_prompt: olderPages[0].previous_prompt };
+}
+
+function renderChat(force = false, preserveScroll = false) {
   renderThreads();
-  const actions = new Map((state?.actions || []).map((action) => [action.id, action]));
-  const messages = state?.thread_id === currentThread ? state.messages : [];
+  const history = transcriptData();
+  const actions = new Map((history.actions || []).map((action) => [action.id, action]));
+  const messages = history.messages || [];
   const local = [...turns].filter((turn) => turn.threadId === currentThread);
   const replyToStop = activeReply();
   if (!replyToStop && document.activeElement === stopReply) input.focus({ preventScroll: true });
   stopReply.hidden = !replyToStop;
   stopReply.disabled = !!replyToStop?.stopping;
   const workers = new Map();
-  for (const worker of state?.thread_id === currentThread ? state.workers || [] : []) {
+  for (const worker of history.workers || []) {
     if (!workers.has(worker.turn_id)) workers.set(worker.turn_id, []);
     workers.get(worker.turn_id).push(worker);
   }
@@ -1138,12 +1180,12 @@ function renderChat(force = false) {
   const remoteSkill = thread?.activity?.skill;
   const signature = JSON.stringify([currentThread, messages, threadList.map((thread) => thread.title),
     avatarLook, avatarColor, busy,
-    state?.message_artifacts, state?.message_uploads, state?.timezone, state?.workers, remoteBrowse, remoteSkill, thread?.skill,
+    history.message_artifacts, history.message_uploads, state?.timezone, history.workers, remoteBrowse, remoteSkill, thread?.skill,
     local.map(({ approval, finished }) => [approval?.id, finished]),
     messages.flatMap((message) => (message.action_ids || []).map((id) => actions.get(id)))]);
   if (!force && signature === chatSignature) return;
   chatSignature = signature;
-  const follow = nearBottom();
+  const follow = !preserveScroll && nearBottom();
   const saved = new Set(messages.map((message) => message.id));
   const rows = [];
   const nextRows = new Map();
@@ -1151,21 +1193,28 @@ function renderChat(force = false) {
   byId("side-welcome").hidden = currentThread === mainThread.id || !!(messages.length || local.length);
   byId("side-skill").hidden = !thread?.skill;
   byId("side-skill").replaceChildren(...(thread?.skill ? [skillChip(thread.skill, "Skill ready")] : []));
-  let previousPrompt;
+  const context = history.previous_prompt;
+  let previousPrompt = context ? { text: context.content,
+    attachments: context.attachment_ids.map((id) => history.message_uploads?.[id]).filter(Boolean) } : undefined;
   for (const [index, stored] of messages.entries()) {
     const message = stored.id ? stored : { ...stored, id: `${currentThread}:${index + 1}` };
-    const attachments = (message.attachment_ids || []).map((id) => state?.message_uploads?.[id]).filter(Boolean);
+    const attachments = (message.attachment_ids || []).map((id) => history.message_uploads?.[id]).filter(Boolean);
     const cards = [...new Set(message.action_ids || [])].map((id) => actions.get(id)).filter(Boolean);
     const rowSignature = JSON.stringify([currentThread, message, cards, cards.map((action) => threadSource(action)),
       cards.length ? [busy, local.map(({ approval, finished }) => [approval?.id, finished])] : false,
-      state?.message_artifacts?.[message.id], attachments, state?.timezone, avatarLook, avatarColor]);
+      history.message_artifacts?.[message.id], attachments, state?.timezone, avatarLook, avatarColor,
+      message.attachment_citations?.map((id) => history.message_uploads?.[id]),
+      message.role === "assistant" ? previousPrompt : null]);
     let row = chatRows.get(message.id);
     if (row?.signature !== rowSignature) {
       let item, bubble;
       if (message.role === "call") {
         item = callCard(message);
       } else {
-        bubble = messageBubble(message.role, message.content, { message, prompt: previousPrompt, attachments });
+        bubble = messageBubble(message.role, message.content, {
+          message, prompt: previousPrompt, attachments, linkedArtifacts: history.message_artifacts?.[message.id],
+          uploadMetadata: history.message_uploads,
+        });
         for (const notice of message.notices || []) bubble.notices.append(node("p", "model-warning", notice));
         for (const action of cards) bubble.cards.append(actionCard(action));
         item = bubble.item;
@@ -1240,45 +1289,171 @@ function renderChat(force = false) {
   if (follow) scrollDown();
 }
 
-async function refreshState() {
+function installSidebar(complete) {
+  const entries = new Map();
+  for (const thread of [...state.threads.slice(0, state.next_thread_offset ?? undefined), ...sidebarTail]) {
+    entries.set(thread.id, thread);
+  }
+  for (const thread of state.threads) entries.set(thread.id, thread);
+  for (const [id, thread] of entries) {
+    const active = state.thread_activity;
+    entries.set(id, { ...thread, busy: Object.hasOwn(active, id), activity: Object.hasOwn(active, id) ? active[id] : undefined });
+  }
+  for (const thread of threadList) {
+    const browse = thread.activity?.browse;
+    if (browse && (complete || entries.has(thread.id)) && entries.get(thread.id)?.activity?.browse?.id !== browse.id) {
+      artifactLibrary.endBrowse(browse.id);
+    }
+  }
+  threadList = [...entries.values()];
+  markSeenReplies();
+  renderThreads();
+}
+
+async function extendSidebar() {
+  const revision = state.thread_revision;
+  if (sidebarRequest?.revision === revision) return;
+  const request = { revision };
+  sidebarRequest = request;
+  let offset = state.next_thread_offset;
+  if (offset == null) {
+    sidebarTail = [];
+    installSidebar(true);
+    return;
+  }
+  const tail = [];
+  try {
+    while (offset != null) {
+      const page = await api(`/api/threads?offset=${offset}`, undefined, AbortSignal.timeout(6000));
+      if (sidebarRequest !== request) return;
+      if (page.thread_revision !== revision) {
+        sidebarRequest = undefined;
+        return;
+      }
+      tail.push(...page.threads);
+      offset = page.next_thread_offset;
+    }
+    sidebarTail = tail;
+    installSidebar(true);
+    if (view === "chat") renderChat();
+  } catch {
+    if (sidebarRequest === request) sidebarRequest = undefined;
+  }
+}
+
+function updateHistory(next) {
+  if (!olderPages.length) return;
+  const oldest = next.messages[0]?.id;
+  const overlap = state?.messages.findIndex((message) => message.id === oldest);
+  if (next.history_revision !== state?.history_revision || overlap < 0) {
+    olderPages = [];
+    olderRequest = undefined;
+  } else if (overlap > 0) {
+    olderPages.push({ ...state, messages: state.messages.slice(0, overlap), cursor: next.before, archived: true });
+  }
+}
+
+async function loadOlderMessages() {
+  if (olderRequest || state?.thread_id !== currentThread) return false;
+  const before = (olderPages[0] || state).before;
+  if (!before) return false;
+  const thread = currentThread, version = selectionVersion;
+  const request = { before };
+  olderRequest = request;
+  try {
+    const page = await transcriptPage(thread, before);
+    if (olderRequest !== request || version !== selectionVersion || page.history_revision !== state?.history_revision) {
+      return false;
+    }
+    const anchor = transcript.firstElementChild;
+    const messageId = anchor?.dataset.messageId;
+    const top = anchor?.getBoundingClientRect().top;
+    olderPages.unshift({ ...page, cursor: before });
+    renderChat(true, true);
+    const retained = chatRows.get(messageId)?.item;
+    if (retained && top !== undefined) chatScroll.scrollTop += retained.getBoundingClientRect().top - top;
+    return true;
+  } catch (error) {
+    if (olderRequest === request) showNotice(error.message);
+    return false;
+  } finally {
+    if (olderRequest === request) olderRequest = undefined;
+  }
+}
+
+function transcriptPage(thread, before) {
+  return api(`/api/transcript?thread=${encodeURIComponent(thread)}&before=${encodeURIComponent(before)}`,
+    undefined, AbortSignal.timeout(6000));
+}
+
+async function refreshVisibleHistory() {
+  if (historyRefresh || view !== "chat" || document.hidden || !olderPages.length) return;
+  const viewport = chatScroll.getBoundingClientRect();
+  const page = olderPages.find(({ messages, cursor, record_revision: revision }) => {
+    if (!cursor || revision === state.record_revision) return false;
+    const first = chatRows.get(messages[0]?.id)?.item;
+    const last = chatRows.get(messages.at(-1)?.id)?.item;
+    return first && last && first.getBoundingClientRect().top < viewport.bottom &&
+      last.getBoundingClientRect().bottom > viewport.top;
+  });
+  if (!page) return;
+  historyRefresh = page;
+  try {
+    const latest = await transcriptPage(currentThread, page.cursor);
+    const index = olderPages.indexOf(page);
+    if (index < 0 || latest.history_revision !== state.history_revision) return;
+    olderPages[index] = { ...page, ...latest, ...(page.archived ? {
+      messages: page.messages, previous_prompt: page.previous_prompt,
+    } : {}) };
+    if (view === "chat") renderChat(true, true);
+  } catch {
+    // A changed or unavailable page can be retried on the next refresh.
+  } finally {
+    if (historyRefresh === page) historyRefresh = undefined;
+  }
+}
+
+async function refreshState(actionId) {
   const request = ++stateRequest;
   const thread = currentThread;
-  const headers = stateTag && state?.thread_id === thread ? { "If-None-Match": stateTag } : {};
-  const response = await fetch(`/api/state?thread=${encodeURIComponent(thread)}`, {
+  const params = new URLSearchParams({ thread });
+  if (actionId) params.set("action", actionId);
+  const variant = params.toString();
+  const headers = stateTag && stateVariant === variant ? { "If-None-Match": stateTag } : {};
+  const response = await fetch(`/api/state?${variant}`, {
     headers, signal: AbortSignal.timeout(6000),
   });
   if (response.status === 304) {
     const current = request === stateRequest && thread === currentThread;
-    if (current) markSeenReplies();
+    if (current) {
+      markSeenReplies();
+      void extendSidebar();
+    }
     return current;
   }
   const next = await readResponse(response);
   if (request !== stateRequest || thread !== currentThread) return false;
-  state = next;
-  setTimeZone(state.timezone);
-  stateTag = response.headers.get("ETag");
-  byId("start-call").disabled = typeof state.voice_call_available !== "boolean";
-  for (const thread of threadList) {
-    const browse = thread.activity?.browse;
-    if (browse && state.threads.find((item) => item.id === thread.id)?.activity?.browse?.id !== browse.id) {
-      artifactLibrary.endBrowse(browse.id);
-    }
-  }
-  threadList = state.threads;
-  markSeenReplies();
-  renderThreads();
-  if (state.thread_id !== currentThread) {
+  if (next.thread_id !== currentThread) {
     const deleted = currentThread;
-    activateThread(state.thread_id);
+    activateThread(next.thread_id);
     threadDrafts.delete(deleted);
     attachmentDraft.discard(deleted);
     avatarStates.delete(deleted);
     for (const turn of turns) if (turn.threadId === deleted) turns.delete(turn);
   }
+  updateHistory(next);
+  state = next;
+  setTimeZone(state.timezone);
+  stateTag = response.headers.get("ETag");
+  stateVariant = variant;
+  byId("start-call").disabled = typeof state.voice_call_available !== "boolean";
+  installSidebar(state.next_thread_offset == null || sidebarRequest?.revision === state.thread_revision);
+  void extendSidebar();
   const saved = new Set(state.messages.map((message) => message.id));
   for (const turn of turns) if (saved.has(turn.reply?.id)) turns.delete(turn);
   renderBrain(state);
   paintAvatars();
+  schedulePoll();
   if (view === "settings" && settingsSection === "voice") showVoiceEngine();
   return true;
 }
@@ -2084,7 +2259,7 @@ function renderMemoryPreferences(info) {
   settingOptions(byId("memory-model"), Object.entries(info.models), choice.model);
   settingOptions(byId("memory-test-kind"), [["", "All kinds"], ...info.kinds.map((kind) =>
     [kind, kind[0].toUpperCase() + kind.slice(1)])], byId("memory-test-kind").value);
-  settingOptions(byId("memory-test-thread"), [["", "All threads"], ...(state?.threads || []).map((thread) =>
+  settingOptions(byId("memory-test-thread"), [["", "All threads"], ...threadList.map((thread) =>
     [thread.id, thread.title])], byId("memory-test-thread").value);
   byId("memory-top-k").value = choice.top_k;
   byId("memory-similarity").value = choice.min_similarity;
@@ -2380,7 +2555,10 @@ async function refreshView() {
   if (view === "inbox") return delivery.inbox();
   if (isSetting("automations")) return automation.eventSettings();
   if (!await refreshState()) return;
-  if (view === "chat") renderChat();
+  if (view === "chat") {
+    renderChat();
+    await refreshVisibleHistory();
+  }
   else if (view === "memory") await renderMemory();
 }
 
@@ -2401,6 +2579,7 @@ async function openView(nextView, updateHistory = true, section, target) {
   if (view === "timeline" && nextView !== view) timeline.hide();
   if (nextView !== "skills") skills.clearLink();
   view = nextView;
+  schedulePoll();
   byId("start-call").hidden = view !== "chat";
   byId("view-title").textContent = view[0].toUpperCase() + view.slice(1);
   clearTimeout(reindexPoll);
@@ -2448,6 +2627,10 @@ function activateThread(threadId) {
   threadDrafts.set(currentThread, input.value);
   currentThread = threadId;
   selectionVersion++;
+  stateRequest++;
+  olderPages = [];
+  olderRequest = undefined;
+  historyRefresh = undefined;
   sessionStorage.setItem("hearth-thread", threadId);
   input.value = threadDrafts.get(threadId) || "";
   attachmentDraft.render();
@@ -2517,7 +2700,12 @@ async function openDemo(prompt) {
 async function openArtifactThread(threadId, messageId) {
   activateThread(threadId);
   await openView("chat");
-  const message = [...transcript.querySelectorAll("[data-message-id]")].find((item) => item.dataset.messageId === messageId);
+  const version = selectionVersion;
+  let message = chatRows.get(messageId)?.item;
+  while (!message && threadId === currentThread && view === "chat" && version === selectionVersion &&
+      await loadOlderMessages()) {
+    message = chatRows.get(messageId)?.item;
+  }
   if (message) {
     message.classList.add("artifact-anchor");
     message.tabIndex = -1;
@@ -2663,6 +2851,7 @@ async function chat(prompt, { keepDraft = false, approval, suggestion } = {}) {
     prompt, approval, suggestion, attachments, text: "", warnings: [], actions: new Map() };
   for (const previous of turns) if (previous.threadId === source && previous.error) turns.delete(previous);
   turns.add(turn);
+  schedulePoll();
   showNotice();
   if (!keepDraft) {
     input.value = "";
@@ -2827,7 +3016,7 @@ async function undo(action, { confirmed = false, timelineTitle, redo = false } =
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 850));
       try {
-        if (!await refreshState()) continue;
+        if (!await refreshState(action.id)) continue;
       } catch {
         continue;
       }
@@ -3184,30 +3373,72 @@ document.addEventListener("visibilitychange", () => {
     if (view === "timeline") timeline.hide();
   }
   if (!document.hidden) delivery.poll();
-  if (!document.hidden && (["home", "timeline", "reminders", "inbox"].includes(view) || (view === "chat" && !busy))) {
-    refreshView().catch((error) => showNotice(error.message));
-  }
+  schedulePoll(true);
 });
-let polling = false;
-window.addEventListener("offline", renderWorkspaceStatus);
-window.addEventListener("online", renderWorkspaceStatus);
-setInterval(async () => {
-  if ((!byId("workspace-drawer").open && !isSetting("connections") && !isSetting("automations") && !["chat", "reminders", "home", "inbox"].includes(view))
-      || busy || threadBusy || document.hidden || polling) return;
+let lastChatTop = 0;
+chatScroll.addEventListener("scroll", () => {
+  const top = chatScroll.scrollTop;
+  if (view === "chat" && top <= 64 && top < lastChatTop) void loadOlderMessages();
+  else void refreshVisibleHistory();
+  lastChatTop = top;
+}, { passive: true });
+let polling = false, pollTimer, pollDelay, resumePoll = false;
+function schedulePoll(immediate = false) {
+  if (document.hidden) {
+    clearTimeout(pollTimer);
+    pollTimer = undefined;
+    resumePoll = false;
+    return;
+  }
+  if (polling) {
+    resumePoll ||= immediate;
+    return;
+  }
+  const active = busy || threadBusy || [...turns].some((turn) => !turn.finished) ||
+    (view === "home" ? homeActive : view === "chat" ? state?.active_work : true);
+  const delay = immediate ? 0 : active ? 3000 : 12000;
+  if (pollTimer !== undefined && pollDelay <= delay) return;
+  clearTimeout(pollTimer);
+  pollDelay = delay;
+  pollTimer = setTimeout(() => pollForeground(immediate), delay);
+}
+
+async function pollForeground(immediate) {
+  pollTimer = undefined;
+  if (document.hidden) return;
   polling = true;
   try {
-    if (isSetting("connections")) await refreshPineconeHealth();
-    else await refreshView();
-    if (byId("workspace-drawer").open && view !== "chat") await refreshState();
+    const drawer = byId("workspace-drawer").open;
+    if (isSetting("connections")) {
+      if (!busy) await refreshPineconeHealth();
+    } else if (view === "chat" && !threadBusy) {
+      const previous = state;
+      if (await refreshState() && view === "chat") {
+        if (previous !== state) renderChat();
+        await refreshVisibleHistory();
+      }
+    } else if (!threadBusy && (view === "home" || (!busy && (["reminders", "inbox"].includes(view) ||
+        isSetting("automations") || (immediate && view === "timeline"))))) {
+      await refreshView();
+    }
+    if (drawer && view !== "chat" && !threadBusy) await refreshState();
   } catch {
     // Leave the current view intact during a transient connection failure.
   } finally {
     polling = false;
+    const again = resumePoll;
+    resumePoll = false;
+    schedulePoll(again);
   }
-}, 3_000);
+}
+
+window.addEventListener("focus", () => schedulePoll(true));
+window.addEventListener("offline", renderWorkspaceStatus);
+window.addEventListener("online", renderWorkspaceStatus);
 setInterval(() => { if (!document.hidden) delivery.poll(); }, 60_000);
 applyAppearance();
 renderWorkspaceStatus();
 syncWorkspaceRoute();
+schedulePoll();
 if (!document.hidden) delivery.poll();
 if (!isSetting("connections")) updateConnections("rescan");

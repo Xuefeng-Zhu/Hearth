@@ -2,27 +2,44 @@
 import json
 import math
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+from enum import IntEnum
+from heapq import nlargest
 from http.client import HTTPException
 from urllib.parse import urlencode
 from urllib.request import urlopen
 from zoneinfo import ZoneInfo
 
-from . import approvals, panels, timeline
+from . import approvals, panels, scheduler, timeline
 from .artifacts import page_artifacts
-from .gateway_tools import scrub
+from .connections import HEALTH_TTL
+from .gateway_tools import redact_text, scrub
 from .reminder_config import quiet_until, saved
-from .storage import HearthError, iso, new_id
+from .storage import HearthError, iso, new_id, revision
+from .threads import MAIN, compact
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 DEFAULT_LOCATION = "Redmond, WA"
 DEFAULT_PLACE = {"name": DEFAULT_LOCATION, "latitude": 47.674, "longitude": -122.1215}
 WEATHER_MINUTES = 30
 WEATHER_RETRY_MINUTES = 5
+ACTIVITY_SIZE = 5
 TITLES = {
     "today": "Today", "inbox": "Inbox to review", "weather": "Weather & clock", "files": "Recent files",
     "memory": "Memory", "activity": "Activity", "connections": "Connections health",
 }
+
+
+class ActivitySource(IntEnum):
+    EVENT = 0
+    CHAT = 1
+    WORKER = 2
+    AUTOMATION = 3
+    ACTION = 4
+    SCHEDULE = 5
+    ROUTING = 6
+    DELIVERY = 7
+    CHECKPOINT = 8
 
 
 def weather_state(state):
@@ -42,6 +59,134 @@ def recent_artifacts(state):
         if len(recent) == 4:
             break
     return list(recent.values())
+
+
+def chat_activity(messages, logged_recall):
+    """Project Timeline's chat turns using only the fields shown on Home."""
+    pending = None
+    for row in messages:
+        at, role = row.get("at"), row["role"]
+        if role == "call":
+            yield at, ActivitySource.CHAT, "voice", row["content"]
+        elif role == "user":
+            if pending:
+                yield pending.get("at"), ActivitySource.CHAT, "chat", pending
+            pending = row
+            if row.get("shared_from"):
+                yield at, ActivitySource.CHAT, "chat", "Shared a message to Main"
+                pending = None
+        elif role == "assistant":
+            at = at or (pending and pending.get("at"))
+            yield at, ActivitySource.CHAT, "chat", pending or "Hearth replied"
+            if row.get("remembered") and (pending or row).get("id") not in logged_recall:
+                yield at, ActivitySource.CHAT, "recall", "Memory recalled"
+            pending = None
+    if pending:
+        yield pending.get("at"), ActivitySource.CHAT, "chat", pending
+
+
+def activity_key(item):
+    return datetime.fromisoformat(item[0]), -item[1]
+
+
+def activity_title(title):
+    if isinstance(title, dict):
+        return compact(redact_text(title["content"]), 180) or "Chat message"
+    return title
+
+
+def activity_candidates(state, checkpoints):
+    activity = state.get("activity", [])
+    actions = state["actions"].values()
+    represented_jobs = {row["job"]["id"] for row in actions if row.get("job")}
+    represented_jobs.update(row["data"]["job"]["id"] for row in activity if row.get("data", {}).get("job"))
+    represented_checkpoints = {row["checkpoint"]["id"] for row in actions if row.get("checkpoint")}
+    for row in activity:
+        yield row.get("at"), ActivitySource.EVENT, row
+    for row in state.get("workers", {}).values():
+        yield row.get("finished_at") or row.get("started_at") or row["queued_at"], ActivitySource.WORKER, row
+    for row in state.get("event_runs", {}).values():
+        yield row.get("finished_at", row["at"]), ActivitySource.AUTOMATION, row
+    for row in actions:
+        yield row.get("updated_at", row["at"]), ActivitySource.ACTION, row
+    for row in state["jobs"]:
+        if row["status"] == "scheduled" and row["id"] not in represented_jobs:
+            yield row.get("created_at"), ActivitySource.SCHEDULE, row
+    for row in state.get("routing", []):
+        yield row["at"], ActivitySource.ROUTING, row
+    for row in scheduler.email_records(state):
+        yield row["delivered_at"], ActivitySource.DELIVERY, row
+    for row in checkpoints:
+        if row["id"] not in represented_checkpoints:
+            yield row["created_at"], ActivitySource.CHECKPOINT, row
+
+
+def activity_preview(group, row, state):
+    if group == ActivitySource.EVENT:
+        preview = {"data": {}, **row}
+        if preview["kind"] == "inbox" and preview["title"].startswith("Email accepted · "):
+            card = state.get("inbox", {}).get(preview["data"].get("inbox_id"))
+            if card:
+                preview["undone"] = card["status"] == "undone"
+        return preview
+    if group == ActivitySource.WORKER:
+        return {"kind": "worker", "title": row["title"], "error": row["status"] == "failed"}
+    if group == ActivitySource.AUTOMATION:
+        status = row["status"]
+        labels = {"approval_needed": "Needs approval", "complete": "Completed", "rate_limited": "Hourly limit reached",
+                  "cancelled": "Stopped", "request_unknown": "Outcome unconfirmed", "partial": "Partially applied"}
+        return {"kind": "automation", "title": f"{row['name']} · {labels.get(status, status.replace('_', ' ').capitalize())}",
+                "error": status in {"failed", "request_unknown", "rate_limited", "partial"}}
+    if group == ActivitySource.ACTION:
+        return timeline.action_entry(row, lambda _: False)
+    if group == ActivitySource.SCHEDULE:
+        return {"kind": "reminder", "title": f"Reminder scheduled · {row['message']}"}
+    if group == ActivitySource.ROUTING:
+        first = next(iter(row["order"]), {})
+        return {"kind": "routing", "title": f"Routed to {first.get('name', 'a model')} · {row['label']}"}
+    if group == ActivitySource.DELIVERY:
+        labels = {"app": "In app", "email": "Email"}
+        delivery = row.get("delivery", {"app": {"status": "sent"}})
+        status = " · ".join(f"{labels.get(channel, channel)} {info['status']}" for channel, info in delivery.items())
+        late = f" · Late by {row['late_minutes']}m" if row.get("late_minutes") else ""
+        title = "Reminder delivered" if delivery.get("app", {}).get("status") == "sent" else "Reminder"
+        return {"kind": "reminder", "title": f"{title} · {row['message']} · {status}{late}",
+                "error": any(info["status"] == "failed" for info in delivery.values())}
+    return {"kind": "checkpoint", "title": row["comment"]}
+
+
+def recent_activity(state, checkpoints, pinecone, mail_connected, since, until):
+    candidates = list(activity_candidates(state, checkpoints))
+    latest = {}
+    for _, group, row in candidates:
+        if group == ActivitySource.EVENT:
+            if timeline.pinecone_sync({"data": {}, **row}, pinecone):
+                latest["sync"] = row
+            elif row["kind"] == "inbox" and row["title"] == "AgentMail inbox poll failed":
+                latest["poll"] = row
+    count = errors = 0
+    items = []
+    for at, group, row in sorted((item for item in candidates if item[0]), key=activity_key, reverse=True):
+        parsed = datetime.fromisoformat(at)
+        if parsed < since and len(items) == ACTIVITY_SIZE:
+            break
+        preview = activity_preview(group, row, state)
+        if group in {ActivitySource.EVENT, ActivitySource.ACTION}:
+            # Include the current incident records when classifying historical errors.
+            context = [preview, *({"data": {}, **item} for item in latest.values() if item is not row)]
+            timeline.actionable(context, state, pinecone, mail_connected)
+        elif preview.get("error") and group == ActivitySource.AUTOMATION and row.get("undo_at"):
+            from .event_automations import undoable
+            if not undoable(state, row):
+                continue
+        if preview.get("diagnostic"):
+            continue
+        if since <= parsed < until:
+            count += 1
+            errors += bool(preview.get("error"))
+        if len(items) < ACTIVITY_SIZE:
+            items.append((at, group, preview["kind"], preview["title"]))
+    return count, errors, items
 
 
 def open_meteo(host, path, parameters):
@@ -87,6 +232,64 @@ class Home:
         self.panels = panels.Refreshes(app)
         self.weather_lock = threading.Lock()
         self.worker_lock = threading.Lock()
+        self.activity_lock = threading.Lock()
+        self.chat_activity_cache = {}
+        self.checkpoint_activity_cache = None
+
+    def signature(self):
+        connections = self.app.connections
+        memory = self.storage.memory
+        folders = ("people", "locations", "topics", "projects", "daily")
+        return (self.storage.revisions()[0], revision(*self.app.activity.paths, self.app.threads.index),
+                self.app.brain_status(), bool(self.app.active_turns()),
+                connections.scan_error, connections.found.copy(), connections.selected.copy(), connections.checks.copy(),
+                self.app.memory_index.pinecone_status(self.app.agent.config),
+                revision(memory, *(memory / name for name in folders)))
+
+    def recent_checkpoints(self, now):
+        checkpoints = self.app.checkpoints
+        stamp = revision(checkpoints.root) if checkpoints.mode == "local" else ()
+        cached = self.checkpoint_activity_cache
+        if not cached or cached[0] != stamp or now >= cached[1]:
+            try:
+                rows = checkpoints.list()
+            except HearthError:
+                rows = []
+            cached = stamp, now + timedelta(seconds=HEALTH_TTL), rows
+            self.checkpoint_activity_cache = cached
+        return cached[2]
+
+    def activity(self, state, index, now, zone, pinecone):
+        since = datetime.combine(now.astimezone(zone).date(), time.min, zone).astimezone(timezone.utc)
+        until = datetime.combine(now.astimezone(zone).date() + timedelta(days=1), time.min, zone)
+        logged = {row["message_id"] for row in state.get("activity", []) if row["kind"] == "recall" and row.get("message_id")}
+        threads = self.app.threads
+        with self.activity_lock:
+            checkpoints = self.recent_checkpoints(now)
+            count, errors, items = recent_activity(state, checkpoints, pinecone,
+                bool(self.app.agent.config.get("agentmail", {}).get("connection_id")), since, until)
+            cache = {}
+            for thread_id in index:
+                stamp = revision(threads.path(thread_id))
+                if thread_id == MAIN and stamp == (None,):
+                    stamp = revision(self.storage.state)
+                key = stamp, since
+                cached = self.chat_activity_cache.get(thread_id)
+                if not cached or key != cached[0] or logged.intersection(cached[3]) != cached[4]:
+                    messages = threads.recent_messages(thread_id, since, state.get("messages", ()))
+                    rows = [row for row in chat_activity(messages, logged) if row[0]]
+                    total = sum(since <= datetime.fromisoformat(row[0]) < until for row in rows)
+                    recent = [(at, group, kind, {"content": title["content"]} if isinstance(title, dict) else title)
+                              for at, group, kind, title in nlargest(ACTIVITY_SIZE, rows, key=activity_key)]
+                    ids = {row["id"] for row in messages if row.get("id")}
+                    cached = key, total, recent, ids, logged.intersection(ids)
+                cache[thread_id] = cached
+                count += cached[1]
+                items.extend(cached[2])
+            self.chat_activity_cache = cache
+        return {"count": count, "errors": errors,
+                "items": [{"at": at, "title": activity_title(title), "kind": kind}
+                          for at, _, kind, title in nlargest(ACTIVITY_SIZE, items, key=activity_key)]}
 
     def settings(self):
         row = weather_state(self.storage.load())
@@ -151,8 +354,16 @@ class Home:
             threading.Thread(target=self.run_due, daemon=True, name="hearth-home-refresh").start()
 
     def snapshot(self, clock=None):
-        now = clock or datetime.now(timezone.utc)
-        state = self.storage.load()
+        if clock is None:
+            return self.app.home_poll()[0]
+        return self.build_snapshot(clock)[0]
+
+    def build_snapshot(self, now):
+        with self.storage.lock():
+            state = self.storage.load()
+            if approvals.expire(state, now):
+                self.storage.save(state)
+            index = self.app.threads.load_index()
         config = saved(state)
         quiet = quiet_until(now, config)
         jobs = sorted((item for item in state["jobs"] if item["status"] == "scheduled"),
@@ -160,12 +371,7 @@ class Home:
         inbox = sorted((card for card in state.get("inbox", {}).values() if card["status"] == "review"),
                        key=lambda card: card["received_at"], reverse=True)
         pinecone = self.app.memory_index.pinecone_status(self.app.agent.config)
-        rows = sorted((entry for entry in self.app.timeline_info(pinecone)["entries"]
-                       if entry.get("at") and not entry.get("diagnostic")),
-                      key=lambda entry: datetime.fromisoformat(entry["at"]), reverse=True)
         zone = ZoneInfo(config["timezone"])
-        today = now.astimezone(zone).date()
-        rows_today = [row for row in rows if datetime.fromisoformat(row["at"]).astimezone(zone).date() == today]
         weather = weather_state(state)
         built = {
             "today": {"quiet_until": iso(quiet) if quiet else None,
@@ -179,8 +385,7 @@ class Home:
             "files": {"items": recent_artifacts(state)},
             "memory": {"count": len(self.storage.files()), "last_sync": pinecone["last_sync"],
                        "pinecone": pinecone["state"], "record_count": pinecone["record_count"]},
-            "activity": {"count": len(rows_today), "errors": sum(bool(row.get("error")) for row in rows_today),
-                         "items": [{key: row[key] for key in ("at", "title", "kind")} for row in rows[:5]]},
+            "activity": self.activity(state, index, now, zone, pinecone),
             "connections": self.app.connections.health(pinecone),
             "weather": {key: weather[key] for key in ("location", "value", "updated_at", "attempted_at", "error")}
                        | {"name": (weather["place"] or {}).get("name", weather["location"])},
@@ -190,10 +395,17 @@ class Home:
 
         built["goals"] = {"items": list_goals(state)}
 
-        return scrub({"layout": panels.layout(state), "builtin": built, "panels": state.get("panels", {}),
-                      "workers": [row for row in state.get("workers", {}).values() if row["status"] in ACTIVE],
+        pending = [row for row in reversed(state["actions"].values()) if row.get("tool") and row["status"] == "pending"]
+        active_workers = [row for row in state.get("workers", {}).values() if row["status"] in ACTIVE]
+        active_work = bool(active_workers or self.app.active_turns() or any(
+            row["status"] in {"pending", "changing"} for row in state["actions"].values()))
+        # Quiet hours and the daily activity count can change without a storage write.
+        minute = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        expires = min([minute, *(datetime.fromisoformat(row["expires_at"]) for row in pending)])
+        return (scrub({"layout": panels.layout(state), "builtin": built, "panels": state.get("panels", {}),
+                      "workers": active_workers, "active_work": active_work,
                       "timezone": config["timezone"], "clock_zone": str(PACIFIC), **self.app.brain_status()}) | {
-                          "approvals": approvals.records(self.storage, pending=True, clock=now)}
+                          "approvals": pending}, expires)
 
     def adjust(self, body):
         with self.storage.lock():

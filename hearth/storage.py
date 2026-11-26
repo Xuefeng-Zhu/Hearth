@@ -27,6 +27,18 @@ def new_id():
     return uuid4().hex
 
 
+def revision(*paths):
+    """Identify changes to atomically replaced files and their directories."""
+    result = []
+    for path in paths:
+        try:
+            stat = path.stat()
+            result.append((stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size))
+        except FileNotFoundError:
+            result.append(None)
+    return tuple(result)
+
+
 def atomic_write(path, content):
     path.parent.mkdir(parents=True, exist_ok=True)
     options = {"mode": "wb"} if isinstance(content, bytes) else {"mode": "w", "encoding": "utf-8"}
@@ -51,6 +63,7 @@ class Storage:
         self.live = self.root / "live"
         self.memory = self.live / "memory"
         self.state = self.live / "state.json"
+        self.revision_file = self.root / "workspace.revision"
         self.root.mkdir(parents=True, exist_ok=True)
         with self.lock():
             fresh = not self.memory.is_dir()
@@ -79,8 +92,24 @@ class Storage:
             return json.loads(self.state.read_text(encoding="utf-8"))
         return {"actions": {}, "jobs": [], "reminders": [], "outbox": [], "indexed": []}
 
+    def revisions(self):
+        try:
+            workspace, threads = self.revision_file.read_text(encoding="ascii").split()
+        except FileNotFoundError:
+            return 0, 0
+        return int(workspace), int(threads)
+
+    def bump_revision(self, *, threads=False):
+        # Writers already hold state.lock. Publish before mutating so a poll
+        # that sees the new revision waits for that write on a cache miss.
+        workspace, sidebar = self.revisions()
+        workspace += 1
+        atomic_write(self.revision_file, f"{workspace} {workspace if threads else sidebar}\n")
+
     def save(self, state):
-        atomic_write(self.state, json.dumps(state, ensure_ascii=False))
+        body = json.dumps(state, ensure_ascii=False)
+        self.bump_revision()
+        atomic_write(self.state, body)
 
     def memory_path(self, name):
         if not isinstance(name, str) or not MEMORY_PATH.fullmatch(name):
