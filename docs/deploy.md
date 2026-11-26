@@ -14,7 +14,7 @@ The deploy script uploads runtime files and seed memory. The installer extracts 
 
 ## GitHub Actions
 
-Set the repository secret `SPRITES_TOKEN` to a Sprites token authorized for the deployment organization. If the CLI needs explicit organization selection, set the repository variable `HEARTH_SPRITE_ORG`. The workflow runs on pushes to `main` and on manual dispatch. Its deploy job depends on the test job and skips deployment when the secret is empty. [Deploy workflow](../.github/workflows/deploy.yml)
+Set the repository secret `SPRITES_TOKEN` to a Sprites token authorized for the deployment organization. If the CLI needs explicit organization selection, set the repository variable `HEARTH_SPRITE_ORG`. The workflow runs on pushes to `main` and on manual dispatch. Its deploy job depends on the unit tests and the offline Chromium smoke, and skips deployment when the secret is empty. [Deploy workflow](../.github/workflows/deploy.yml)
 
 ## Wake the scheduler
 

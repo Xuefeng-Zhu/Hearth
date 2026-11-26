@@ -22,6 +22,8 @@ for file in web/*.js; do node --check "$file" || exit; done
 
 The Python requirements include Playwright. Install Chromium with `python -m playwright install chromium` to run the Python browser fixtures. Use `--with-deps` on a Linux host that needs browser system libraries. Browser fixtures exercise desktop and touch layouts in light and dark themes.
 
+See [Testing Hearth](testing.md) for the Chromium smoke that gates deploy and the manual edge authorization check.
+
 Run the browser regressions from the repository root. The first two scripts use `--shots` and the remaining scripts use `--output`. Each script accepts `--chromium` to use an existing browser binary.
 
 ```sh
