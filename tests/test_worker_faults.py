@@ -39,9 +39,9 @@ class WorkerStorageTest(unittest.TestCase):
         restored = threading.Event()
         restore_checkpoint = self.app.restore_checkpoint
 
-        def restore(action):
+        def restore(action, barrier):
             try:
-                restore_checkpoint(action)
+                restore_checkpoint(action, barrier)
             finally:
                 restored.set()
 
