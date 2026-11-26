@@ -8,14 +8,14 @@ from http.client import HTTPException
 from urllib.parse import urlsplit
 
 from . import approvals, box, browserbase, event_automations, file_intent, goals, memory, memory_edits, office, page_agent, panels, recall, router, search, skills, tasks, timeline, uploads, workers
-from . import file_questions
+from . import file_questions, tool_calls
 from .connections import catalog_entry, with_model
 from .proactivity import SOURCE as PROACTIVE_SOURCE
 from .connectors import ConnectorError, Integrations, model_error
 from .gateway_tools import METHODS, gateway_read, gateway_result, redact_text, validate_request
 from .reply_text import ReplyStream, clean_reply, text_tool_calls
 from .scheduler import add_job
-from .reminder_config import channel_from_prompt, saved as reminder_settings
+from .reminder_config import saved as reminder_settings
 from .storage import HearthError, MAX_NOTE, MEMORY_PATH, atomic_write, iso, new_id
 from .thread_summary import RollingSummaries
 from .threads import HISTORY_WINDOW, MAIN, MAIN_ORIGIN, Threads, compact
@@ -103,8 +103,6 @@ THANKSGIVING_DEMO = file_intent.DEMO
 DEMO_GUEST_NOTES = ("people/maya.md", "people/daniel.md")
 DEMO_ADDRESS = re.compile(r"(?im)^Demo email: *([a-z0-9._+-]+@example\.invalid) *$")
 READ_ONLY_TOOLS = approvals.READ_TOOLS
-UNTRUSTED_RESULT_TOOLS = {"memory_read", "memory_search", "web_search", "gateway_request", "read_artifact",
-                          "spawn_workers", *browserbase.TOOL_NAMES}
 AUTOMATION_SETUP_TOOLS = {"create_event_automation", "list_reminders", "memory_read", "memory_search"}
 TOOL_TITLES = {
     "memory_read": "Reading a note", "memory_search": "Searching memory", "memory_write": "Saving memory",
@@ -376,13 +374,6 @@ def tool_call(name, arguments):
     return {"role": "assistant", "content": None, "tool_calls": [{
         "type": "function", "id": new_id(), "function": {"name": name, "arguments": json.dumps(arguments)},
     }]}
-
-
-def model_tool_data(name, result, turn):
-    if name in UNTRUSTED_RESULT_TOOLS and not result.get("error"):
-        turn["untrusted_evidence"] = True
-        return {**result, "untrusted": True}
-    return result
 
 
 def gateway_command(prompt):
@@ -1227,8 +1218,6 @@ class Agent:
     def run_model(self, model, messages, tools, event, clock, notices, demo_addresses, routing):
         action_ids = []
         user_prompt = next(message["content"] for message in reversed(messages) if message["role"] == "user")
-        requested_channel = channel_from_prompt(user_prompt)
-        requested_urgency = bool(re.search(r"\b(?:urgent|urgently|even during quiet hours)\b", user_prompt, re.I))
         turn = TURN_MEMORY.get()
         browse_intent = turn.get("browse_intent")
         parallel_requested = bool(PARALLEL_REQUEST.search(user_prompt))
@@ -1351,7 +1340,7 @@ class Agent:
                 if function["name"] != "create_panel":
                     continue
                 try:
-                    arguments = json.loads(function["arguments"])
+                    arguments = tool_calls.decode_arguments(function, user_prompt)
                     if isinstance(arguments, dict):
                         batch = arguments.get("panels")
                         requested += len(batch) if isinstance(batch, list) else 1
@@ -1365,16 +1354,12 @@ class Agent:
                 try:
                     if demo:
                         time.sleep(1 if name != "memory_read" else 2)
-                    arguments = json.loads(function["arguments"])
-                    if name == "schedule" and isinstance(arguments, dict):
-                        arguments["channel"] = requested_channel
-                        arguments["urgent"] = requested_urgency
+                    # Chat reports malformed arguments before checking availability.
+                    arguments = tool_calls.decode_arguments(function, user_prompt)
                     if name == "send_email" and demo_addresses is not None and isinstance(arguments, dict):
                         arguments["to"] = demo_addresses
-                    if name not in available:
-                        raise HearthError("This tool is unavailable for the current request.")
-                    if loading_skill and name != "skill_load":
-                        raise HearthError("Read the loaded skill before requesting other tools.")
+                    tool_calls.check_available(name, available, loading_skill,
+                                               unavailable="This tool is unavailable for the current request.")
                     touched_state |= name not in READ_ONLY_TOOLS and not (
                         name == "gateway_request" and isinstance(arguments, dict) and arguments.get("method") == "GET"
                     )
@@ -1386,7 +1371,7 @@ class Agent:
                 except HearthError as error:
                     result = {"error": str(error)}
                 except (TypeError, ValueError, RecursionError):
-                    result = {"error": "The tool received invalid arguments."}
+                    result = {"error": tool_calls.INVALID_ARGUMENTS}
                 finally:
                     event("tool_finished", {})
                 if name == "memory_search" and result.get("backend") == "pinecone" and result["results"]:
@@ -1418,8 +1403,7 @@ class Agent:
                     turn.setdefault("task_tools", []).append(tool_summary)
                     event("tool_result", tool_summary)
                 tool_results.append((name, result))
-                messages.append({"role": "tool", "tool_call_id": call["id"],
-                                 "content": json.dumps(model_tool_data(name, result, turn), ensure_ascii=False)})
+                messages.append(tool_calls.result_message(call, result, turn))
             # Text preceding a tool call is provisional. Replace it with the final reply.
             if reply.get("content"):
                 event("reset", {})
@@ -1577,21 +1561,16 @@ class Agent:
                     label = TOOL_TITLES.get(name, name.replace("_", " ").capitalize())
                     worker.step("running", label=label)
                     try:
-                        if name not in available:
-                            raise HearthError("This tool was not delegated to this worker.")
-                        if loading_skill and name != "skill_load":
-                            raise HearthError("Read the loaded skill before requesting other tools.")
-                        arguments = json.loads(function["arguments"])
-                        if name == "schedule" and isinstance(arguments, dict):
-                            arguments["channel"] = channel_from_prompt(turn["prompt"])
-                            arguments["urgent"] = bool(re.search(r"\b(?:urgent|urgently|even during quiet hours)\b",
-                                                                 turn["prompt"], re.I))
+                        # Workers check delegation before decoding the request.
+                        tool_calls.check_available(name, available, loading_skill,
+                                                   unavailable="This tool was not delegated to this worker.")
+                        arguments = tool_calls.decode_arguments(function, turn["prompt"])
                         value = self.execute(name, arguments)
                         used_tools.add(name)
                     except HearthError as error:
                         value = {"error": str(error)}
                     except (TypeError, ValueError, RecursionError):
-                        value = {"error": "The tool received invalid arguments."}
+                        value = {"error": tool_calls.INVALID_ARGUMENTS}
                     if action := value.get("action"):
                         if action["status"] == "pending":
                             label = action["title"]
@@ -1611,8 +1590,7 @@ class Agent:
                     worker.step(step_status, detail=failure)
                     if not failure:
                         findings.append(value)
-                    messages.append({"role": "tool", "tool_call_id": call["id"],
-                                     "content": workers.tool_text(model_tool_data(name, value, turn))})
+                    messages.append(tool_calls.result_message(call, value, turn, serialize=workers.tool_text))
             else:
                 result = self.worker_evidence_result(findings)
             return {"result": result, "used_tools": used_tools,
@@ -1673,8 +1651,7 @@ class Agent:
                 and event_automations.INTENT.search(turn.get("prompt", "")))
 
     def execute(self, name, arguments):
-        if not isinstance(arguments, dict):
-            raise HearthError("Tool arguments must be an object.")
+        tool_calls.require_argument_object(arguments)
         if name == "spawn_workers":
             raise HearthError("Delegate workers from the current agent turn.")
         origin = CHAT_ORIGIN.get()
