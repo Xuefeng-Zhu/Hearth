@@ -115,6 +115,7 @@ class Application:
         self.turns = {}
         self.turn_activity = {}
         self.restore = None
+        self.artifacts.restoring = self.restoring
         self.reindex = None
         self.call_check = None
         self.memory_index = recall.Recall(storage, self.gateway)
@@ -684,6 +685,7 @@ class Application:
             ):
                 raise HearthError("This checkpoint predates a permanent forget request and cannot be restored.")
         self.restore = {"action_id": action_id, "status": "restoring"}
+        self.artifacts.reset()
         threading.Thread(target=self.restore_checkpoint, args=(action,), daemon=True).start()
 
     def restore_checkpoint(self, action):
@@ -890,7 +892,8 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path.startswith(("/pages/", "/p/")):
                 self.get_page(url)
             elif url.path == "/api/artifacts":
-                self.json(self.artifact_times(self.app.artifacts.list()))
+                force = parse_qs(url.query).get("refresh") == ["1"]
+                self.json(self.artifact_times(self.app.artifacts.list(force=force)))
             elif url.path in {"/api/uploads/detail", "/api/uploads/file"}:
                 self.get_upload(url)
             elif url.path == "/api/artifacts/settings":
@@ -902,16 +905,18 @@ class Handler(BaseHTTPRequestHandler):
                 params = parse_qs(url.query)
                 identity = params.get("id", [None])[0]
                 inline = params.get("inline") == ["1"]
-                item, raw = self.app.artifacts.download(identity, inline=inline)
-                page = item["kind"] == "page"
-                content_type = "text/html; charset=utf-8" if page else box.FORMATS.get(
-                    item["format"], "application/octet-stream")
-                mode = "inline" if inline else "attachment"
-                filename = quote(item["filename"], safe="")
-                self.response_headers(200, content_type, len(raw), inline_pdf=inline,
-                                      disposition=f"{mode}; filename*=UTF-8''{filename}",
-                                      page_csp=page_policy.CSP if page else None)
-                self.wfile.write(raw)
+                with self.app.artifacts.download(identity, inline=inline) as (item, stream):
+                    page = item["kind"] == "page"
+                    content_type = "text/html; charset=utf-8" if page else box.FORMATS.get(
+                        item["format"], "application/octet-stream")
+                    mode = "inline" if inline else "attachment"
+                    filename = quote(item["filename"], safe="")
+                    size = stream.seek(0, 2)
+                    stream.seek(0)
+                    self.response_headers(200, content_type, size, inline_pdf=inline,
+                                          disposition=f"{mode}; filename*=UTF-8''{filename}",
+                                          page_csp=page_policy.CSP if page else None)
+                    shutil.copyfileobj(stream, self.wfile, box.TRANSFER_CHUNK)
             elif url.path == "/api/memory/reindex":
                 self.json(self.app.memory_sync_info())
             elif url.path == "/api/memory/chat":
@@ -1473,12 +1478,17 @@ class Handler(BaseHTTPRequestHandler):
                     timeline.record(self.app.storage, "artifact", "Answered a question about Box files",
                                     {"thread_id": "", "thread_title": "Workspace"},
                                     provider="box", data={"citation_count": len(result["citations"])})
-            else:
+            elif operation == "settings":
                 with self.app.operation:
                     if self.app.restore and self.app.restore["status"] == "restoring":
                         self.json({"error": "A checkpoint is being restored."}, 409)
                         return
                     result = self.update_artifacts(operation, body)
+            elif self.app.restoring():
+                self.json({"error": "A checkpoint is being restored."}, 409)
+                return
+            else:
+                result = self.update_artifacts(operation, body)
         except HearthError as error:
             self.json({"error": str(error)}, 400)
         except TimeoutError:

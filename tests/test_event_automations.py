@@ -213,8 +213,9 @@ class EventAutomationTests(unittest.TestCase):
             self.drain()
             run = self.run_row(rule)
             identity, = run["steps"][0]["artifact_ids"]
-            row, raw = self.app.artifacts.download(identity)
-            self.assertEqual((row["filename"], raw, row["sync"]), ("seeds.png", b"Seed inventory", "local"))
+            with self.app.artifacts.download(identity) as (row, stream):
+                self.assertEqual((row["filename"], stream.read(), row["sync"]),
+                                 ("seeds.png", b"Seed inventory", "local"))
             approval_id = run["steps"][1]["approval_id"]
             automations.mutate(self.app, "update", {"id": rule["id"], "enabled": False}, clock=NOW + timedelta(seconds=3))
             self.assertEqual(self.run_row(rule)["status"], "cancelled")
@@ -226,7 +227,12 @@ class EventAutomationTests(unittest.TestCase):
         client = Mock()
         client.attachment_bytes.return_value = b"Seed inventory"
         box_client = Mock()
-        box_client.upload.return_value = {"id": "123", "file_version": {"id": "456"}}
+
+        def upload(row, stream, folder):
+            self.assertEqual((stream.read(), folder), (b"Seed inventory", "789"))
+            return {"id": "123", "file_version": {"id": "456"}}
+
+        box_client.upload.side_effect = upload
         rule = self.create({"type": "email"}, {"type": "save_attachments", "destination": "box"})
         with (patch.object(self.app.reminders, "client", return_value=client),
               patch.object(self.app.reminders, "mailbox", return_value=MAILBOX),
@@ -246,7 +252,7 @@ class EventAutomationTests(unittest.TestCase):
             self.assertEqual(decision["status"], "complete")
             self.assertEqual(self.run_row(rule)["status"], "complete")
             box_client.upload.assert_called_once()
-            self.assertEqual(box_client.upload.call_args.args[1:], (b"Seed inventory", "789"))
+            box_client.upload.assert_called_once()
             self.assertEqual(box_client.upload.call_args.args[0]["mime"], "application/octet-stream")
 
     def test_model_prompt_receives_event_as_data_and_has_no_tools(self):

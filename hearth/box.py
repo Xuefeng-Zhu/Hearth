@@ -3,6 +3,9 @@
 import json
 import re
 from http.client import HTTPException
+from io import BytesIO
+from itertools import chain
+from tempfile import TemporaryFile
 from urllib.error import URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener
@@ -19,6 +22,7 @@ FORMATS = {**TEXT_TYPES, **MIME_TYPES}
 DEFAULTS = {"auto_save": True, "folder_name": "Hearth"}
 MAX_BYTES = 128 * 1024
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+TRANSFER_CHUNK = 64 * 1024
 UNAVAILABLE = "Saved locally — Box upload unavailable"
 FIELDS = "id,type,name,size,modified_at,created_at,file_version,version_number,etag,sha1"
 BOX_ID = re.compile(r"[0-9]{1,30}")
@@ -118,18 +122,29 @@ class Box:
         attrs = {} if file_id else {"name": row["filename"], "parent": {"id": folder_id}}
         boundary = new_id()
         content_type = row.get("mime") or FORMATS[row["format"]]
-        if len(content) > MAX_UPLOAD_BYTES:
-            raise HearthError("Box uploads must be at most 50 MiB.")
-        multipart = (
+        prefix = (
             f'--{boundary}\r\nContent-Disposition: form-data; name="attributes"\r\n'
             f'Content-Type: application/json\r\n\r\n{json.dumps(attrs)}\r\n'
             f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{row["filename"]}"\r\n'
             f'Content-Type: {content_type}\r\n\r\n'
-        ).encode("utf-8") + content + f"\r\n--{boundary}--\r\n".encode("ascii")
+        ).encode("utf-8")
+        suffix = f"\r\n--{boundary}--\r\n".encode("ascii")
         headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
         if file_id and row.get("etag"):
             headers["If-Match"] = row["etag"]
         path = f"upload/files/{file_id}/content" if file_id else "upload/files/content"
+        if isinstance(content, bytes):
+            size = len(content)
+            chunks = (content[i:i + TRANSFER_CHUNK] for i in range(0, size, TRANSFER_CHUNK))
+        else:
+            start = content.tell()
+            size = content.seek(0, 2) - start
+            content.seek(start)
+            chunks = iter(lambda: content.read(TRANSFER_CHUNK), b"")
+        if size > MAX_UPLOAD_BYTES:
+            raise HearthError("Box uploads must be at most 50 MiB.")
+        headers["Content-Length"] = str(len(prefix) + size + len(suffix))
+        multipart = chain((prefix,), chunks, (suffix,))
         data = self.gateway.json(self.connection, f"{path}?{urlencode({'fields': FIELDS})}",
                                  multipart, headers, timeout=8)
         entries = data.get("entries")
@@ -154,7 +169,7 @@ class Box:
             if not isinstance(count, int) or offset + limit >= count:
                 return
 
-    def download(self, identity, version=None, *, limit=MAX_UPLOAD_BYTES):
+    def download_to(self, identity, target, version=None, *, limit=MAX_UPLOAD_BYTES):
         path = f"2.0/files/{identity}/content"
         if version:
             path += "?" + urlencode({"version": version})
@@ -174,15 +189,31 @@ class Box:
                 raise ConnectorError("Box could not open the download.") from None
         try:
             with response:
-                raw = response.read(limit + 1)
+                remaining = limit
+                while chunk := response.read(min(TRANSFER_CHUNK, remaining + 1)):
+                    remaining -= len(chunk)
+                    if remaining < 0:
+                        raise HearthError("This file is too large to preview in Hearth.")
+                    target.write(chunk)
+                if getattr(response, "length", None):
+                    raise HTTPException("Incomplete download")
         except (OSError, HTTPException, URLError):
             raise ConnectorError("The Box download was interrupted.") from None
-        if len(raw) > limit:
-            raise HearthError("This file is too large to preview in Hearth.")
-        return raw
+
+    def download_file(self, identity, version=None, *, limit=MAX_UPLOAD_BYTES):
+        target = TemporaryFile()
+        try:
+            self.download_to(identity, target, version, limit=limit)
+            target.seek(0)
+            return target
+        except BaseException:
+            target.close()
+            raise
 
     def content(self, identity, version=None):
-        raw = self.download(identity, version, limit=MAX_BYTES)
+        with BytesIO() as target:
+            self.download_to(identity, target, version, limit=MAX_BYTES)
+            raw = target.getvalue()
         try:
             return redact_text(raw.decode("utf-8-sig"))
         except UnicodeError:
