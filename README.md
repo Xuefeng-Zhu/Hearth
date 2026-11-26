@@ -26,7 +26,7 @@ The desktop sidebar and mobile drawer list **Home**, **Chat**, **Timeline**, **A
 
 - **Chat with Ember.** Stream replies in Main or in separate side chats. Attach images, audio, PDFs, spreadsheets, and other supported files. Use a connected model, Smart routing across a model pool, or the local Mock brain.
 - **Delegate independent work.** Ask a connected brain to use parallel workers for a comparison or several sources. Hearth shows progress, tool steps, and Stop controls in chat, shows active workers under **Running now** on Home, and combines their findings into one reply. Set the workspace limit from 1 to 6 in **Settings → Brain → Parallel workers**. The default is 4.
-- **Get timely suggestions.** A connected brain can put offers in **Home → For you** after a memory change, new forwarded mail, or a scheduled check. Choose the offered action to start a side chat, snooze or dismiss a card, or mute its category. [Proactivity guide](docs/proactivity.md)
+- **Get timely suggestions.** **Home → Feed** combines Exa articles, topic digests, ideas from Memory, reminder prep, and timely Action suggestions. Follow or mute topics, steer what shows up, save cards, or take a card into Chat. [Proactivity guide](docs/proactivity.md)
 - **Stay on top of work.** Home shows reminders, Inbox, recent files, memory, activity, connector health, and Open-Meteo weather. Add panels from chat and rearrange them on Home.
 - **Make files and pages.** Create and edit DOCX, PDF, XLSX, and PPTX from chat. Preview and download artifacts, keep versions locally, and sync to Box. Build single-file HTML pages with phone and desktop previews, version history, and optional approved snapshot sharing.
 - **Reuse skills in chat.** Start with four built-in Markdown playbooks or write your own. Use **Try it** to preload a skill in a side chat, select **Using skill** to open its playbook, and undo edits from Timeline. [Skills guide](docs/skills.md)
@@ -142,7 +142,7 @@ Keep the workspace URL behind Sprite authentication. Provider API keys stay with
 - [Connectors](docs/connectors.md)
 - [Deploy](docs/deploy.md)
 - [Approvals and tasks](docs/approvals-and-tasks.md)
-- [Proactivity and the Morning brief](docs/proactivity.md)
+- [Feed, Action suggestions, and the Morning brief](docs/proactivity.md)
 - [Memory](docs/memory.md)
 - [Skills](docs/skills.md)
 - [Voice](docs/voice.md)

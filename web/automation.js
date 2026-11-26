@@ -523,7 +523,7 @@ export function createAutomation({ api, refresh, openThread, undo }) {
       get(`${name}-panel`).hidden = name !== tab;
       if (focus && name === tab) control.focus();
     }
-    refresh();
+    return refresh();
   }
 
   for (const name of ["reminders", "tasks"]) {
@@ -538,5 +538,10 @@ export function createAutomation({ api, refresh, openThread, undo }) {
     });
   }
   get("new-task").addEventListener("click", (event) => editor(null, event.currentTarget));
-  return { approvalCard, home, inbox, settings, loadTasks, tasksActive: () => activeTab === "tasks" };
+  function openTask(id) {
+    selected = id;
+    return chooseTab("tasks");
+  }
+
+  return { approvalCard, home, inbox, settings, loadTasks, openTask, openReminders: () => chooseTab("reminders"), tasksActive: () => activeTab === "tasks" };
 }

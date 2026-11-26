@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import approvals, artifacts, box, browserbase, home, inbox, memory, memory_edits, memory_purge, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
+from . import approvals, artifacts, box, browserbase, feed, home, inbox, memory, memory_edits, memory_purge, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -28,6 +28,7 @@ STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/memory.js": ("memory.js", "text/javascript; charset=utf-8"),
     "/memory.css": ("memory.css", "text/css; charset=utf-8"),
+    "/feed.js": ("feed.js", "text/javascript; charset=utf-8"),
     "/proactivity.js": ("proactivity.js", "text/javascript; charset=utf-8"),
     "/home.js": ("home.js", "text/javascript; charset=utf-8"),
     "/home.css": ("home.css", "text/css; charset=utf-8"),
@@ -104,6 +105,7 @@ class Application:
         self.inbox = inbox.Inbox(self)
         self.home = home.Home(self)
         self.proactivity = proactivity.Proactivity(self)
+        self.feed = feed.Feed(self)
         self.task_runner = tasks.Runner(self)
         approvals.upgrade_legacy(self.agent)
 
@@ -112,6 +114,7 @@ class Application:
         self.reminders.deliver(wait=True)
         polled = self.inbox.poll(force=True)
         self.proactivity.kick()
+        self.feed.kick()
         task_runs = self.task_runner.tick()
         info = self.reminders.info()
         return {"fired": fired, "processed": polled, "last_tick": info["last_tick"], "next_due": info["next_due"],
@@ -138,6 +141,7 @@ class Application:
                     if woke or now >= next_home:
                         self.home.kick()
                         self.proactivity.kick()
+                        self.feed.kick()
                         next_home = now + 10
             except (HearthError, OSError):
                 pass
@@ -702,6 +706,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"summary": summary})
             elif url.path == "/api/home":
                 self.json({**self.app.home.snapshot(), "checkpoints": self.app.checkpoints.mode})
+            elif url.path == "/api/feed":
+                query = parse_qs(url.query)
+                try:
+                    limit = int(query.get("limit", ["4"])[0])
+                except ValueError:
+                    raise HearthError("Choose a valid Feed page size.") from None
+                self.json(self.app.feed.list(cursor=query.get("cursor", [""])[0], limit=limit,
+                                             saved=query.get("saved", ["0"])[0] == "1"))
+            elif url.path == "/api/feed/settings":
+                self.json(self.app.feed.get_settings())
             elif url.path == "/api/proactivity/settings":
                 self.json(self.app.proactivity.get_settings())
             elif url.path == "/api/proactivity/pass":
@@ -896,6 +910,9 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 self.json({"error": "Hearth could not stop the worker."}, 500)
             return
+        if self.path.startswith("/api/feed/"):
+            self.post_feed()
+            return
         if self.path.startswith("/api/proactivity/"):
             self.post_proactivity()
             return
@@ -1056,6 +1073,28 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"error": str(error)}, error.status if isinstance(error, pages.PageError) else 400)
         except OSError:
             self.json({"error": "Hearth could not update the page."}, 500)
+
+    def post_feed(self):
+        operations = {"/api/feed/settings": self.app.feed.save_settings, "/api/feed/feedback": self.app.feed.feedback,
+                      "/api/feed/chat": self.app.feed.chat}
+        try:
+            if self.path == "/api/feed/refresh":
+                if self.body():
+                    raise HearthError("A Feed refresh takes no settings.")
+                self.json(self.app.feed.tick(force=True))
+            elif handler := operations.get(self.path):
+                with self.app.operation:
+                    if self.app.restoring():
+                        self.json({"error": "A checkpoint is being restored."}, 409)
+                        return
+                    result = handler(self.body())
+                self.json(result)
+            else:
+                self.json({"error": "Page not found."}, 404)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+        except OSError:
+            self.json({"error": "Hearth could not update the Feed."}, 500)
 
     def post_proactivity(self):
         operation = self.path.rsplit("/", 1)[-1]

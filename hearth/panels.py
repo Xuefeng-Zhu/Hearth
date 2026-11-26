@@ -20,7 +20,7 @@ from .reply_text import clean_reply
 from .storage import HearthError, iso, new_id
 
 KINDS = ("stat", "list", "checklist", "countdown", "note", "web-summary")
-BUILT_INS = ("today", "inbox", "weather", "files", "memory", "activity", "connections")
+BUILT_INS = ("today", "feed", "inbox", "weather", "files", "memory", "activity", "connections")
 TOOL_NAMES = {"create_panel", "update_panel", "delete_panel"}
 FIELDS = {"title", "kind", "source", "refresh_minutes"}
 SOURCE_TYPES = {"static": {"value"}, "brain": {"query"}, "connector": {"provider", "path", "pointer"}, "url": {"url"}}
@@ -150,6 +150,8 @@ def layout(state):
     saved = state.get("panel_layout", {})
     identities = dict.fromkeys((*BUILT_INS, *state.get("panels", {})))
     order = [key for key in dict.fromkeys(saved.get("order", [])) if key in identities]
+    if order and "feed" not in order:
+        order.insert(1, "feed")
     order.extend(key for key in identities if key not in order)
     return {"order": order, "hidden": [key for key in saved.get("hidden", []) if key in identities]}
 

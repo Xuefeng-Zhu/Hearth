@@ -185,15 +185,12 @@ class Home:
             "weather": {key: weather[key] for key in ("location", "value", "updated_at", "attempted_at", "error")}
                        | {"name": (weather["place"] or {}).get("name", weather["location"])},
         }
-        from .proactivity import settings as proactivity_settings
         from .workers import ACTIVE
 
         return scrub({"layout": panels.layout(state), "builtin": built, "panels": state.get("panels", {}),
                       "workers": [row for row in state.get("workers", {}).values() if row["status"] in ACTIVE],
                       "timezone": config["timezone"], "clock_zone": str(PACIFIC), **self.app.brain_status()}) | {
-                          "approvals": approvals.records(self.storage, pending=True, clock=now),
-                          "suggestions": self.app.proactivity.list(now),
-                          "proactivity_enabled": proactivity_settings(state)["enabled"]}
+                          "approvals": approvals.records(self.storage, pending=True, clock=now)}
 
     def adjust(self, body):
         with self.storage.lock():

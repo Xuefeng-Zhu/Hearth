@@ -353,106 +353,112 @@
   .home-weather .home-weather-value { font-size: 1.76rem; }
 }
 
-.for-you { margin-bottom: 24px; }
-.for-you h2 {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: fit-content;
-  margin: 0 0 12px;
-  color: var(--text);
-  font: 600 1.42rem/1.2 Georgia, serif;
+@media (max-width: 700px) {
+  .home-date { font-size: clamp(22px, 6vw, 29px); }
+  #home-date-full { display: none; }
+  #home-date-compact { display: inline; }
 }
-.for-you h2 svg { color: var(--accent); }
-.for-you > p { margin: 8px 0 0; }
-.for-you > p:empty { margin: 0; }
-.suggestion-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-.suggestion-card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 15px 14px 10px;
-  border: 1px solid var(--control-border);
-  border-top: 3px solid var(--accent);
-  border-radius: 12px;
-  background: var(--paper);
-  overflow-wrap: anywhere;
-}
-.suggestion-card h3 {
-  margin: 10px 0 0;
-  color: var(--text);
-  font-size: 1.01rem;
-  line-height: 1.3;
-}
-.suggestion-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 9px;
-  color: var(--muted);
-  font-size: .72rem;
-}
-.suggestion-urgency {
-  padding: 3px 7px;
-  border: 1px solid var(--artifact-border);
-  border-radius: 6px;
-  color: var(--secondary-text);
-  font-weight: 650;
-}
-.suggestion-urgency.is-soon {
-  border-color: var(--control-border);
-  background: var(--accent-light);
-  color: var(--accent);
-}
-.suggestion-why {
-  margin: 6px 0 12px;
-  color: var(--secondary-text);
-  font-size: .84rem;
-  line-height: 1.48;
-}
-.suggestion-actions, .suggestion-snooze {
+
+.home-card-feed { min-height: 0; }
+.feed-widget { display: grid; min-width: 0; gap: 10px; }
+.feed-toolbar, .feed-actions, .feed-feedback-actions, .feed-sources {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
-.suggestion-snooze:not([hidden]) { margin-top: 6px; }
-.suggestion-primary, .suggestion-secondary {
-  min-height: 36px;
-  border: 1px solid var(--control-border);
-  border-radius: 7px;
+.feed-toolbar .feed-icon { margin-inline-start: auto; }
+.feed-button, .feed-icon, .feed-options summary, .feed-source {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 5px 9px;
-  font-size: .78rem;
+  border: 1px solid var(--field-edge);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--accent);
+  font-size: .82rem;
   font-weight: 650;
+  line-height: 1.25;
+  text-align: start;
 }
-.suggestion-primary { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-solid); }
-.suggestion-secondary, .suggestion-mute { background: transparent; color: var(--accent); }
-.suggestion-secondary:hover, .suggestion-mute:hover { background: var(--accent-light); }
-.suggestion-mute {
-  align-self: flex-start;
-  min-height: 32px;
-  margin-top: 3px;
-  margin-left: -4px;
-  padding: 3px 4px;
+.feed-icon { flex: none; padding: 0; }
+.feed-icon[aria-pressed="true"], .feed-button[aria-pressed="true"],
+.feed-button:hover, .feed-icon:hover, .feed-options summary:hover, .feed-source:hover {
+  background: var(--accent-light);
+}
+.feed-button.feed-primary { background: var(--accent-fill); border-color: var(--accent); color: var(--on-solid); }
+.feed-steering { display: grid; gap: 6px; }
+.feed-steering label { color: var(--secondary-text); font-size: .82rem; font-weight: 650; }
+.feed-steering textarea, #feed-settings-form textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 10px;
+  resize: vertical;
+  border: 1px solid var(--field-edge);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+.feed-steering .feed-button, .feed-options summary { justify-self: start; }
+.feed-status { margin: 0; color: var(--secondary-text); font-size: .84rem; }
+.feed-status:empty, .feed-scroll:has(.feed-list:empty):has(> [hidden]) { display: none; }
+.feed-scroll {
+  max-height: clamp(360px, 64vh, 620px);
+  overflow-y: auto;
+  min-width: 0;
+  border-radius: 10px;
+}
+.feed-list { display: grid; gap: 10px; }
+.feed-scroll > .feed-button { margin-top: 8px; }
+.feed-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--artifact-border);
+  border-radius: 10px;
+  background: var(--panel-muted);
+  color: var(--text);
+}
+.feed-card h3 { margin: 8px 0 6px; font-size: 1.03rem; line-height: 1.3; }
+.feed-meta, .feed-kind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  color: var(--secondary-text);
+  font-size: .76rem;
+}
+.feed-meta time { margin-inline-start: auto; }
+.feed-kind { color: var(--accent); font-weight: 700; }
+.feed-copy, .feed-why { margin: 0 0 7px; font-size: .87rem; line-height: 1.42; }
+.feed-why { color: var(--secondary-text); }
+.feed-sources { margin-block: 4px; }
+.feed-source {
+  justify-content: flex-start;
+  max-width: 100%;
   border: 0;
-  border-radius: 5px;
-  color: var(--muted);
-  text-align: left;
-  font-size: .73rem;
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
-#proactivity-muted:empty { display: none; }
-@media (max-width: 1050px) {
-  .suggestion-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.feed-feedback-actions { margin-block: 6px 0; }
+.feed-options { margin-top: 6px; }
+.feed-options summary { display: list-item; width: fit-content; padding: 12px 9px; cursor: pointer; }
+.feed-options .feed-actions { margin-top: 6px; }
+.feed-interests { color: var(--secondary-text); margin: 0; padding-inline-start: 1.25rem; }
+#feed-settings-form label { display: grid; gap: 6px; }
+#feed-settings-form .check-label { display: flex; align-items: center; min-height: 44px; }
+#feed-settings-form input[type="number"], #feed-settings-form button[type="submit"] { min-height: 44px; }
+#feed-settings-form h3 { margin-bottom: 0; }
+
+@media (min-width: 1111px) {
+  .home-card-feed { grid-column: span 2; }
 }
-@media (max-width: 700px) {
-  .home-date { font-size: clamp(22px, 6vw, 29px); }
-  #home-date-full { display: none; }
-  #home-date-compact { display: inline; }
-  .suggestion-grid { grid-template-columns: minmax(0, 1fr); }
-  .suggestion-primary, .suggestion-secondary { min-height: 44px; }
-  .suggestion-mute { min-height: 40px; }
-}
+
+#feed-settings-form input[type="number"] { border-color: var(--field-edge); }

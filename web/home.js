@@ -3,6 +3,7 @@ import { icon, iconButton } from "./icons.js";
 const get = (id) => document.getElementById(id);
 const demoPrompt = "Create the Thanksgiving countdown and shopping list Home panels";
 const builtIns = {
+  feed: { title: "Feed", icon: "sparkle" },
   today: { title: "Today", icon: "bell", page: "reminders", link: "Open Reminders" },
   inbox: { title: "Inbox to review", icon: "inbox", page: "inbox", link: "Open Inbox" },
   weather: { title: "Weather & clock", icon: "cloud", page: "weather", link: "Weather settings" },
@@ -89,7 +90,7 @@ function updatedLabel(value) {
   return `Updated ${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
-export function createHome({ api, openView, openWeatherSettings, openConnections, openFile, openPanelChat, openDemo, onData }) {
+export function createHome({ api, openView, openWeatherSettings, openConnections, openFile, openPanelChat, openDemo, feed, onData }) {
   const section = get("home-view");
   const grid = get("home-grid");
   const edit = get("home-edit");
@@ -425,7 +426,13 @@ export function createHome({ api, openView, openWeatherSettings, openConnections
     header.append(mark, heading);
     if (editing) header.append(layoutTools(id, order));
     if (desktop.matches) header.append(dragHandle(id, element));
-    element.append(header, kind ? builtinBody(id, row) : customBody(row), sourceFooter(id, row, kind));
+    element.append(header);
+    if (id === "feed") {
+      element.append(feed.root);
+      feed.show();
+    } else {
+      element.append(kind ? builtinBody(id, row) : customBody(row), sourceFooter(id, row, kind));
+    }
     return element;
   }
 

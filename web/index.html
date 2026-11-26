@@ -65,12 +65,6 @@
           </div>
           <p class="home-feedback" id="home-feedback" role="status"></p>
           <p class="home-meta" id="home-loading">Loading panels…</p>
-          <section id="for-you" class="for-you" aria-labelledby="for-you-title" hidden>
-            <h2 id="for-you-title" tabindex="-1"><span data-icon="sparkle" data-icon-size="19"></span>For you</h2>
-            <div id="for-you-cards" class="suggestion-grid"></div>
-            <p id="for-you-empty" class="home-meta">You’re caught up.</p>
-            <p id="for-you-feedback" class="meta" role="status"></p>
-          </section>
           <section id="home-approvals" class="automation-section" aria-label="Pending approvals" hidden></section>
           <div id="home-workers" hidden></div>
           <div class="home-grid" id="home-grid"></div>
@@ -381,11 +375,27 @@
             <p class="meta" id="weather-settings-status" role="status"></p>
           </form>
         </div>
+        <div class="settings-body" id="settings-feed" hidden>
+          <form id="feed-settings-form" class="card brain-form">
+            <label class="check-label"><input name="enabled" type="checkbox"> Enable Feed</label>
+            <label>Refresh every (minutes)<input name="frequency" type="number" min="30" max="1440" required></label>
+            <p class="meta">Refreshes respect the quiet hours in Action suggestions.</p>
+            <label>Steer your Feed<textarea name="steering" maxlength="600" rows="3"
+              placeholder="AI and hackathon news in the morning, family weekend ideas on Fridays"></textarea></label>
+            <label>Topics to follow<textarea name="follow" rows="3" placeholder="One public topic per line"></textarea></label>
+            <label>Topics to mute<textarea name="mute" rows="3" placeholder="One topic per line"></textarea></label>
+            <h3>Your interest profile</h3>
+            <p class="meta">Hearth derives interests from Memory. Follow or mute any topic above to edit the profile. Card feedback adjusts the scores.</p>
+            <ul id="feed-interests" class="feed-interests"></ul>
+            <button type="submit" class="primary-setting">Save settings</button>
+            <p class="meta" id="feed-settings-status" role="status"></p>
+          </form>
+        </div>
         <div class="settings-body" id="settings-proactivity" hidden>
           <form id="proactivity-settings-form" class="card brain-form">
             <fieldset class="preference-fields delivery-form">
-              <legend>For you on Home</legend>
-              <label class="check-label delivery-full"><input name="enabled" type="checkbox"> Show suggestions on Home</label>
+              <legend>Action suggestions in Feed</legend>
+              <label class="check-label delivery-full"><input name="enabled" type="checkbox"> Generate Action suggestions</label>
               <label>Check every (minutes)<input name="frequency" type="number" min="30" max="720" required></label>
               <label>Maximum suggestions per day<input name="max_per_day" type="number" min="1" max="12" required></label>
               <label>Quiet hours start<input name="quiet_start" type="time" required></label>

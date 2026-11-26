@@ -10,6 +10,7 @@ import { setupMobile } from "./mobile.js";
 import { createAttachments } from "./attachments.js";
 import { icon, iconButton, mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
+import { createFeed } from "./feed.js";
 import { createHome } from "./home.js";
 import { createProactivity } from "./proactivity.js";
 import { createAutomation } from "./automation.js";
@@ -40,7 +41,8 @@ const settingsGroups = [
   ]],
   ["Notifications", [
     ["reminders", "Reminders", "Delivery and forwarded mail", "bell"],
-    ["proactivity", "Proactivity", "Suggestions and digests", "sparkle"],
+    ["feed", "Feed", "Topics and steering", "sparkle"],
+    ["proactivity", "Action suggestions", "Quiet hours and email digests", "bell"],
     ["approvals", "Approvals", "When Hearth asks first", "shield"],
   ]],
   ["App", [
@@ -156,15 +158,43 @@ const homeWorkers = createWorkersCard({
     await openView("chat");
   },
 });
-const proactivity = createProactivity({ api,
-  runSuggestion: (id) => chat("", { keepDraft: true, suggestion: id }),
+const proactivity = createProactivity({ api });
+const feed = createFeed({
+  api, runSuggestion: (id) => chat("", { keepDraft: true, suggestion: id }),
+  openSettings: () => openSettingsSection("feed"),
+  async openChat(thread, draft) {
+    await openSkillChat(thread);
+    input.value = draft;
+    resizeInput();
+  },
+  async openSource(source) {
+    const id = source.ref;
+    if (source.kind === "memory") return openMemorySource({ path: id, line: 1 });
+    if (source.kind === "chat") return openArtifactThread(...id.split("/"));
+    if (["page", "artifact"].includes(source.kind)) {
+      await openView("artifacts");
+      return artifactLibrary.open(id);
+    }
+    const next = source.kind === "inbox" ? "inbox" : "reminders";
+    await openView(next);
+    if (source.kind === "task") return automation.openTask(id);
+    if (source.kind === "reminder" && automation.tasksActive()) await automation.openReminders();
+    if (source.kind === "reminder" || source.kind === "inbox") {
+      const attribute = source.kind === "reminder" ? "data-reminder" : "data-inbox";
+      const card = document.querySelector(`[${attribute}="${CSS.escape(id)}"]`);
+      if (card) {
+        card.tabIndex = -1;
+        card.focus();
+      }
+    }
+  },
 });
 const homePage = createHome({
-  api, openView, openWeatherSettings, openConnections, openPanelChat, openDemo,
+  api, openView, openWeatherSettings, openConnections, openPanelChat, openDemo, feed,
   openFile: (file, trigger) => artifactLibrary.open(file.id, trigger, file),
   onData(data) {
     setTimeZone(data.timezone);
-    proactivity.render(data.suggestions || [], data.proactivity_enabled);
+    if (feed.root.isConnected) feed.show();
     automation.home(data.approvals || []);
     const workers = data.workers || [];
     const target = byId("home-workers");
@@ -2217,6 +2247,7 @@ async function openSettings(section, target) {
   if (section === "appearance") return;
   if (section === "artifacts") return artifactLibrary.settings();
   if (section === "home") return homePage.settings();
+  if (section === "feed") return feed.settings();
   if (section === "proactivity") return proactivity.settings();
   if (section === "approvals") return automation.settings();
   if (section === "reminders") return delivery.settings();
@@ -2350,6 +2381,7 @@ async function openView(nextView, updateHistory = true, section, target) {
   } else if (view === "home") {
     if (previousView !== "home") byId("home-view").scrollTop = 0;
     await homePage.load();
+    if (previousView !== "home" && feed.root.isConnected) feed.show(true);
   } else if (view === "skills") {
     if (previousView !== "skills") byId("skills-view").scrollTop = 0;
     await skills.loadLinked(target);

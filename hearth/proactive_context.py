@@ -50,6 +50,10 @@ def record_forget(state, identity, removed):
         state.setdefault("proactivity_forget", {})[identity] = [
             memory.forget_rule(phrases[start:start + 12]) for start in range(0, len(phrases), 12)
         ]
+    if feed := state.get("feed"):
+        # Discard derived text and any in-flight pass when a source is forgotten.
+        for key in ("inferred", "cards", "feedback", "weights", "rated_topics", "saved_actions", "run_id", "attempted_at"):
+            feed.pop(key, None)
     proactive = state.setdefault("proactivity", {})
     proactive["privacy_revision"] = identity
     for row in proactive.get("cards", {}).values():

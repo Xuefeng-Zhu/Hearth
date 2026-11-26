@@ -379,6 +379,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
 
   function inboxCard(card) {
     const article = el("article", "card delivery-card inbox-card");
+    article.dataset.inbox = card.id;
     const header = el("div", "delivery-card-head");
     header.append(el("h4", "", card.title), el("span", "meta", formatDate(card.received_at)));
     const chips = el("div", "delivery-chips");
