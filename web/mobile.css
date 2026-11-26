@@ -249,19 +249,6 @@
   .connection-tabs button[aria-selected="true"] { background: var(--paper); border-color: var(--focus); }
   .connection-grid, .connection-filters { grid-template-columns: minmax(0, 1fr); }
 
-  .artifact-filters button { padding-inline: var(--space-1); font-size: 12px; }
-  .artifact-collection { grid-template-columns: repeat(auto-fill, minmax(min(100%, 208px), 1fr)); }
-  .artifact-collection[data-layout="list"] .artifact-card {
-    grid-template-columns: 32px minmax(0, 1fr);
-    align-items: start;
-    gap: var(--space-2) var(--grid-gap);
-  }
-  [data-layout="list"] .artifact-card > .artifact-kind-icon { width: 32px; height: 32px; }
-  [data-layout="list"] :is(.artifact-card-foot, .artifact-card-links) { grid-column: 2; justify-content: flex-start; }
-  .artifact-card-links:empty { display: none; }
-  .artifact-collection .artifact-card-title { font-size: 18px; }
-  .artifact-collection[data-layout="grid"] .page-tile-art { min-height: 112px; }
-  .artifact-collection[data-layout="grid"] .page-tile-window { height: 64px; padding: var(--space-2); gap: var(--space-1); }
   .artifact-table { max-width: 100%; overscroll-behavior-inline: contain; }
   .artifact-table table { overflow-wrap: normal; }
   .artifact-table :is(td, th) { min-width: 6em; max-width: 18em; overflow-wrap: anywhere; }

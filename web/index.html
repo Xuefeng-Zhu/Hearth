@@ -187,7 +187,7 @@
       </section>
       <section class="view panel" id="artifacts-view" aria-labelledby="view-title" hidden>
         <div class="artifact-library">
-          <div class="section-intro split-heading artifact-intro">
+          <div class="section-intro artifact-intro">
             <div><h2>Saved work</h2><p>Files and pages created by Hearth, plus files in your Box folder.</p></div>
             <div class="artifact-box-control">
               <span id="artifact-box-status" class="artifact-box-status" role="status">Checking Box…</span>
@@ -201,18 +201,14 @@
             <span id="artifact-connection-copy"></span>
             <a href="#settings/connections" id="artifact-connect">Open Connections</a>
           </div>
+          <div class="artifact-connection artifact-load-error" id="artifact-load-error" hidden>
+            <p id="artifact-error-message" role="status"></p>
+            <button class="artifact-control" id="artifact-try-again" type="button">Try again</button>
+          </div>
           <div class="artifact-toolbar">
             <label class="artifact-search"><span data-icon="search"></span>
               <span class="visually-hidden">Search artifacts</span>
               <input id="artifact-search" type="search" maxlength="160" placeholder="Search artifacts…">
-            </label>
-            <label>
-              <span class="visually-hidden">Filter by kind</span>
-              <select id="artifact-kind">
-                <option value="">All kinds</option>
-                <option value="plan">Plans</option><option value="list">Lists</option><option value="note">Notes</option>
-                <option value="transcript">Transcripts</option><option value="export">Exports</option>
-              </select>
             </label>
             <label>
               <span class="visually-hidden">Sort artifacts</span>
@@ -223,17 +219,22 @@
               <button type="button" id="artifact-list" aria-label="List view" title="List view" aria-pressed="false"><span data-icon="list"></span></button>
             </div>
           </div>
-          <div class="artifact-filters" id="artifact-filters" role="group" aria-label="Artifact type">
-            <button type="button" data-format-filter="all" aria-pressed="true">All</button>
-            <button type="button" data-format-filter="documents" aria-pressed="false">Documents</button>
-            <button type="button" data-format-filter="pdfs" aria-pressed="false">PDFs</button>
-            <button type="button" data-format-filter="sheets" aria-pressed="false">Sheets</button>
-            <button type="button" data-format-filter="slides" aria-pressed="false">Slides</button>
-            <button type="button" data-format-filter="pages" aria-pressed="false">Pages</button>
-          </div>
-          <div class="artifact-connection artifact-load-error" id="artifact-load-error" hidden>
-            <p id="artifact-error-message" role="status"></p>
-            <button class="artifact-control" id="artifact-try-again" type="button">Try again</button>
+          <div class="artifact-filters" id="artifact-filters" role="group" aria-label="Artifact filters">
+            <div role="group" aria-label="File format">
+              <button type="button" data-format-filter="all" aria-pressed="true">All</button>
+              <button type="button" data-format-filter="documents" aria-pressed="false">Documents</button>
+              <button type="button" data-format-filter="pdfs" aria-pressed="false">PDFs</button>
+              <button type="button" data-format-filter="sheets" aria-pressed="false">Sheets</button>
+              <button type="button" data-format-filter="slides" aria-pressed="false">Slides</button>
+              <button type="button" data-format-filter="pages" aria-pressed="false">Pages</button>
+            </div>
+            <div role="group" aria-label="Artifact kind">
+              <button type="button" data-format-filter="plan" aria-pressed="false">Plans</button>
+              <button type="button" data-format-filter="list" aria-pressed="false">Lists</button>
+              <button type="button" data-format-filter="note" aria-pressed="false">Notes</button>
+              <button type="button" data-format-filter="transcript" aria-pressed="false">Transcripts</button>
+              <button type="button" data-format-filter="export" aria-pressed="false">Exports</button>
+            </div>
           </div>
           <p class="artifact-count" id="artifact-count" role="status">Loading artifacts…</p>
           <div class="artifact-collection" id="artifact-collection"></div>
@@ -241,6 +242,7 @@
             <span class="artifact-kind-icon" aria-hidden="true"><span data-icon="files"></span></span>
             <h3 id="artifact-empty-title">No artifacts yet</h3>
             <p id="artifact-empty-hint">Ask Hearth to create a document, PDF, spreadsheet, slide deck, or page.</p>
+            <button class="artifact-control" id="artifact-clear-filters" type="button" hidden>Clear filters</button>
           </div>
         </div>
       </section>

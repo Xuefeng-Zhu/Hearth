@@ -38,15 +38,6 @@ function time(value) {
   return stamp;
 }
 
-export function pageThumbnail() {
-  const artwork = element("span", "page-tile-art");
-  artwork.setAttribute("aria-hidden", "true");
-  const mockWindow = element("span", "page-tile-window");
-  mockWindow.append(element("i"), element("i"), element("i"), element("i"));
-  artwork.append(mockWindow, icon("page", 24));
-  return artwork;
-}
-
 export function createPageDetail({ api, onChange }) {
   const get = (name) => document.getElementById(name);
   const dialog = get("page-dialog");

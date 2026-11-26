@@ -1,6 +1,6 @@
 import { fileGlyph, uploadURL } from "./attachments.js";
 import { icon, iconButton } from "./icons.js";
-import { createPageDetail, pageThumbnail } from "./pages.js";
+import { createPageDetail } from "./pages.js";
 import { createFileQuestions } from "./file-questions.js";
 import { setTimeZone, timeFormatter } from "./time.js";
 
@@ -19,13 +19,24 @@ const formatFilters = { documents: ["docx", "md", "txt"], pdfs: ["pdf"], sheets:
 export function artifactFilterFromHash(hash) {
   if (hash === "#artifacts") return "all";
   if (hash === "#pages") return "pages";
-  const filter = hash.match(/^#artifacts\/([a-z]+)$/)?.[1];
-  if (filter === "pages" || Object.hasOwn(formatFilters, filter)) return filter;
+  const [, format, kind] = hash.match(/^#artifacts\/([a-z]+)(?:\/([a-z]+))?$/) || [];
+  if (kind) return Object.hasOwn(formatFilters, format) && isKindFilter(kind) ? `${format}/${kind}` : undefined;
+  if (format === "pages" || Object.hasOwn(formatFilters, format) || isKindFilter(format)) return format;
+}
+
+function isKindFilter(value) {
+  return value !== "page" && Object.hasOwn(kinds, value);
+}
+
+function filterParts(value) {
+  const [format, kind] = value.split("/");
+  return isKindFilter(format) ? ["all", format] : [format, kind];
 }
 
 const sizeFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 const statuses = { synced: "Synced to Box", saving: "Saving…", local: "Local only", error: "Sync error" };
 const updated = timeFormatter({ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const updatedDay = timeFormatter({ month: "short", day: "numeric" });
 
 function element(tag, className, text) {
   const item = document.createElement(tag);
@@ -45,9 +56,13 @@ function badge(text, style) {
   return element("span", `artifact-badge ${style || ""}`, text);
 }
 
-function clock(at) {
+function clock(at, dateOnly = false) {
   const timestamp = Date.parse(at);
-  const time = element("time", "", Number.isFinite(timestamp) ? updated.format(timestamp) : "Date unavailable");
+  const valid = Number.isFinite(timestamp);
+  const full = valid ? updated.format(timestamp) : "Date unavailable";
+  const time = element("time", "", dateOnly ? (valid ? updatedDay.format(timestamp) : "—") : full);
+  if (dateOnly) time.setAttribute("aria-label", full);
+  time.title = full;
   if (Number.isFinite(timestamp)) time.dateTime = at;
   return time;
 }
@@ -188,7 +203,7 @@ function fileURL(item, inline = false) {
 
 function fileIcon(item) {
   const type = fileTypes[item.format];
-  const glyph = element("span", `artifact-kind-icon ${type ? `is-${item.format}` : ""}`);
+  const glyph = element("span", `artifact-kind-icon ${type || item.kind === "page" ? `is-${item.format}` : ""}`);
   glyph.setAttribute("aria-hidden", "true");
   glyph.append(icon(item.mime ? fileGlyph(item) : type?.[1] || kinds[item.kind]?.[1] || "file", 21));
   return glyph;
@@ -201,13 +216,13 @@ function fileSize(size) {
   return `${sizeFormat.format(size / (1024 * 1024))} MiB`;
 }
 
-function fileLink(item, box = false, compact = false) {
+function fileLink(item, box = false, compactClass) {
   const label = box ? "Open in Box" : "Download";
-  const link = element("a", compact ? "icon-button" : box ? "artifact-control artifact-box-link" : "artifact-control");
+  const link = element("a", compactClass || (box ? "artifact-control artifact-box-link" : "artifact-control"));
   link.title = label;
   link.setAttribute("aria-label", label);
-  if (!compact) link.append(label, " ");
-  link.append(icon(box ? "external" : "download", compact ? 18 : 15));
+  if (!compactClass) link.append(label, " ");
+  link.append(icon(box ? "external" : "download", compactClass ? 18 : 15));
   if (box) {
     link.href = item.box_url;
     link.target = "_blank";
@@ -320,7 +335,6 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
   const detailBody = get("artifact-detail-body");
   const detailStatus = get("artifact-detail-status");
   const search = get("artifact-search");
-  const kind = get("artifact-kind");
   const filters = [...get("artifact-filters").querySelectorAll("button")];
   const sort = get("artifact-sort");
   const settingsForm = get("artifact-settings-form");
@@ -330,9 +344,17 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     if (!get("artifacts-view").hidden) void show();
   } });
   let layout = localStorage.getItem("hearth-artifact-layout") === "list" ? "list" : "grid";
-  let formatFilter = "all";
+  let activeFilter = "all";
   let snapshot, selected, request, refreshTimer, detailRequest, opener, liveBrowse, confirming = false;
   const questions = createFileQuestions(api);
+  const listHead = element("div", "artifact-list-head");
+  listHead.setAttribute("role", "row");
+  ["", "Name", "Status", "Modified", "Actions"].forEach((label) => {
+    const heading = element("span", "", label);
+    heading.setAttribute("role", "columnheader");
+    if (!label || label === "Actions") heading.classList.add("visually-hidden");
+    listHead.append(heading);
+  });
 
   function connection(info) {
     const { connected, box_error: error, box_status: freshness, settings } = info;
@@ -348,8 +370,9 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
   function syncLabel(item) {
     const state = pending.has(item.id) ? "saving" : item.sync;
     const text = item.kind === "page" && state === "synced" ? "Saved to Box" : statuses[state];
-    const label = element("span", `artifact-sync is-${state}`, text);
-    label.title = item.sync_message || text;
+    const label = element("span", `artifact-sync is-${state}`);
+    label.append(element("span", "artifact-sync-label", text));
+    label.title = item.sync_message ? `${text} · ${item.sync_message}` : text;
     return label;
   }
 
@@ -378,10 +401,12 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
   function card(item) {
     const panel = element("article", "artifact-card");
     panel.dataset.kind = item.kind;
+    panel.dataset.id = item.id;
     const page = item.kind === "page";
-    const thumbnail = page ? pageThumbnail() : fileIcon(item);
+    const thumbnail = element("div", "artifact-card-icon");
+    thumbnail.append(fileIcon(item));
     const header = element("div", "artifact-card-header");
-    const badges = element("div", "artifact-badges");
+    const meta = element("div", "artifact-card-meta");
     const heading = element("h3");
     const title = control("", (event) => open(item.id, event.currentTarget, { kind: item.kind }), "artifact-card-title");
     title.append(element("span", "", item.title));
@@ -392,40 +417,47 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
       if (!event.target.closest("button, a")) title.click();
     });
     heading.append(title);
-    badges.append(...chips(item));
-    header.append(heading, badges);
-    if (item.size != null) header.append(element("p", "artifact-card-size meta", fileSize(item.size)));
-    const foot = element("div", "artifact-card-foot");
-    const timestamp = clock(item.updated_at);
-    timestamp.title = `Updated ${timestamp.textContent}`;
+    meta.append(...chips(item));
+    if (item.size != null) meta.append(element("span", "artifact-card-size", fileSize(item.size)));
+    header.append(heading, meta);
+    const timestamp = element("div", "artifact-modified");
+    timestamp.append(clock(item.updated_at, layout === "grid"), ...(layout === "list" ? [clock(item.updated_at, true)] : []));
     const sync = syncLabel(item);
-    if (item.sync_message && !pending.has(item.id)) {
-      sync.append(element("small", "artifact-sync-message", item.sync_message));
+    const actions = element("div", "artifact-card-links");
+    const iconClass = "artifact-row-action";
+    if (item.box_url) actions.append(fileLink(item, true, iconClass));
+    if (!page && item.sync === "error" && snapshot.connected && !pending.has(item.id)) {
+      actions.append(iconButton("retry", "Retry sync", () => retry(item), iconClass));
     }
-    foot.append(sync, timestamp);
-    const sources = element("div", "artifact-card-links");
-    if (page || fileTypes[item.format] || item.legacy) sources.append(fileLink(item));
-    if (item.box_url) sources.append(fileLink(item, true));
-    if (!page && item.sync !== "synced" && snapshot.connected && !pending.has(item.id)) {
-      sources.append(control("Retry sync", () => retry(item), "artifact-text-button"));
+    if (page || fileTypes[item.format] || item.legacy) actions.append(fileLink(item, false, iconClass));
+    if (layout === "list") {
+      panel.setAttribute("role", "row");
+      for (const cell of [thumbnail, header, sync, timestamp, actions]) cell.setAttribute("role", "cell");
+      panel.append(thumbnail, header, sync, timestamp, actions);
+    } else {
+      const foot = element("div", "artifact-card-foot");
+      foot.append(sync, timestamp, actions);
+      panel.append(thumbnail, header, foot);
     }
-    panel.append(thumbnail, header, foot);
-    if (sources.childElementCount) panel.append(sources);
     return panel;
   }
 
   function render() {
+    const [format, kind] = filterParts(activeFilter);
     collection.dataset.layout = layout;
     get("artifact-grid").setAttribute("aria-pressed", String(layout === "grid"));
     get("artifact-list").setAttribute("aria-pressed", String(layout === "list"));
-    for (const button of filters) button.setAttribute("aria-pressed", String(button.dataset.formatFilter === formatFilter));
+    for (const button of filters) {
+      const value = button.dataset.formatFilter;
+      button.setAttribute("aria-pressed", String(value === activeFilter || (value !== "all" && (value === format || value === kind))));
+    }
     if (!snapshot) return;
     connection(snapshot);
     const query = search.value.trim().toLocaleLowerCase();
     const all = snapshot.artifacts;
-    const matchesFormat = (item) => formatFilter === "all" || (formatFilter === "pages" ? item.kind === "page"
-      : formatFilters[formatFilter].includes(item.format));
-    const rows = all.filter((item) => matchesFormat(item) && (!kind.value || item.kind === kind.value)
+    const matchesType = (item) => (!kind || item.kind === kind) && (format === "all"
+      || (format === "pages" ? item.kind === "page" : formatFilters[format].includes(item.format)));
+    const rows = all.filter((item) => matchesType(item)
       && [item.title, item.filename, item.thread_title, kinds[item.kind]?.[0], item.source].filter(Boolean)
         .join(" ").toLocaleLowerCase().includes(query));
     const byName = (a, b) => a.title.localeCompare(b.title);
@@ -434,27 +466,49 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     get("artifact-count").textContent = `${rows.length}${rows.length !== all.length ? " of " + all.length : ""}
       ${all.length === 1 ? "artifact" : "artifacts"}`.replace(/\s+/g, " ");
     const active = document.activeElement;
-    const focusedId = collection.contains(active) && active.dataset.artifactId;
-    collection.replaceChildren(...rows.map(card));
+    const focusedCard = active.closest(".artifact-card");
+    const focusedId = collection.contains(focusedCard) && focusedCard.dataset.id;
+    const list = layout === "list" && rows.length;
+    if (list) {
+      collection.setAttribute("role", "table");
+      collection.setAttribute("aria-label", "Artifacts");
+    } else {
+      collection.removeAttribute("role");
+      collection.removeAttribute("aria-label");
+    }
+    collection.replaceChildren(...(list ? [listHead] : []), ...rows.map(card));
     if (focusedId) {
       const replacement = [...collection.querySelectorAll("button[data-artifact-id]")]
         .find((button) => button.dataset.artifactId === focusedId);
-      (replacement || search).focus({ preventScroll: true });
+      const action = active.getAttribute("aria-label");
+      const sameAction = action && [...(replacement?.closest(".artifact-card").querySelectorAll(".artifact-row-action") || [])]
+        .find((control) => control.getAttribute("aria-label") === action);
+      (sameAction || replacement || search).focus({ preventScroll: true });
     }
     get("artifact-empty").hidden = !!rows.length;
-    const hasType = all.some(matchesFormat);
+    const hasType = all.some(matchesType);
     get("artifact-empty-title").textContent = hasType ? "No matches"
-      : formatFilter === "pages" ? "No pages yet" : all.length ? "No artifacts of this type" : "No artifacts yet";
+      : format === "pages" ? "No pages yet" : all.length ? "No artifacts of this type" : "No artifacts yet";
     get("artifact-empty-hint").textContent = hasType ? "Try a different search or kind."
-      : formatFilter === "pages" ? "Ask Hearth in Chat to build a page."
+      : format === "pages" ? "Ask Hearth in Chat to build a page."
       : all.length ? "Choose another type to see more artifacts."
       : "Ask Hearth to create a document, PDF, spreadsheet, slide deck, or page.";
+    get("artifact-clear-filters").hidden = !query && activeFilter === "all";
   }
 
   function selectFormat(value) {
-    if (formatFilter !== value && value === "pages") kind.value = "";
-    formatFilter = value;
+    activeFilter = value;
     render();
+  }
+
+  function chooseFilter(value) {
+    const [format, kind] = filterParts(activeFilter);
+    if (value === "all" || value === "pages") return onFilter(value);
+    if (isKindFilter(value)) {
+      if (kind === value) return onFilter(format);
+      return onFilter(format === "all" || format === "pages" ? value : `${format}/${value}`);
+    }
+    onFilter(kind ? `${value}/${kind}` : value);
   }
 
   async function show({ fromRetry = false, force = false } = {}) {
@@ -499,8 +553,9 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     detailStatus.textContent = item.sync_message || "";
     if (item.download_available || Object.hasOwn(item, "content")) actions.append(fileLink(item));
     if (item.box_url) actions.append(fileLink(item, true));
-    if (item.sync !== "synced" && item.box_connected && !pending.has(item.id)) {
-      actions.append(control("Retry sync", () => retry(item)));
+    if (item.box_connected && !pending.has(item.id) && (item.sync === "error" || item.sync === "local")) {
+      const label = item.sync === "error" ? "Retry sync" : "Save to Box";
+      actions.append(control(label, () => retry(item)));
     }
     const deletion = control("Move to Trash", () => {
       confirming = !confirming;
@@ -519,11 +574,11 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
         () => mutate("delete", item, { revision: item.revision }), "artifact-control artifact-danger");
       yes.id = "artifact-confirm-delete";
       const controls = element("div", "action-row");
-      controls.append(yes, control("Cancel", () => {
+      controls.append(control("Cancel", () => {
         confirming = false;
         renderDetail(item);
         get("artifact-actions").lastElementChild.focus();
-      }));
+      }), yes);
       confirm.append(controls);
       detailBody.append(confirm);
     }
@@ -778,7 +833,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
       const openFile = iconButton("external", "Open", (event) => open(artifact.id, event.currentTarget));
       openFile.dataset.artifactId = artifact.id;
       openFile.setAttribute("aria-haspopup", "dialog");
-      const save = artifact.box_url ? fileLink(artifact, true, true) : iconButton("box", "Save to Box", async (event) => {
+      const save = artifact.box_url ? fileLink(artifact, true, "icon-button") : iconButton("box", "Save to Box", async (event) => {
         const target = event.currentTarget;
         target.disabled = true;
         try {
@@ -843,10 +898,14 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     questions.open(snapshot);
   });
   get("artifact-refresh").addEventListener("click", () => show({ force: true }));
+  get("artifact-clear-filters").addEventListener("click", () => {
+    search.value = "";
+    onFilter("all");
+    search.focus();
+  });
   search.addEventListener("input", render);
-  kind.addEventListener("change", render);
   sort.addEventListener("change", render);
-  for (const button of filters) button.addEventListener("click", () => onFilter(button.dataset.formatFilter));
+  for (const button of filters) button.addEventListener("click", () => chooseFilter(button.dataset.formatFilter));
   for (const mode of ["grid", "list"]) {
     get(`artifact-${mode}`).addEventListener("click", () => {
       layout = mode;
