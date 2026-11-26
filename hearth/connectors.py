@@ -262,9 +262,6 @@ class Integrations:
         self.config = config
         self.gateway = gateway or Gateway()
 
-    def configured(self, name):
-        return bool(self.config.get(name, {}).get("connection_id"))
-
     def has_mail(self):
         return self.config.get("agentmail", {}).get("connection_id") and self.config["agentmail"].get("inbox_id")
 

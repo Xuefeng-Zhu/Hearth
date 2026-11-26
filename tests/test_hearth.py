@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 from unittest.mock import Mock
 
+from hearth import recall
 from hearth.agent import Agent, tool_call
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import ConnectorError, Gateway, read_config
@@ -62,7 +63,9 @@ class HearthTest(unittest.TestCase):
         self.assertEqual(len(self.storage.load()["jobs"]), 1)
 
     def test_keywords_and_markdown_path_validation(self):
-        self.assertIn("people/maya.md", [hit["path"] for hit in self.storage.search("vegetarian")])
+        selection = recall.settings({"backend": "keyword", "top_k": 5})
+        result = self.agent.memory_index.run(self.config, selection, "vegetarian")
+        self.assertIn("people/maya.md", [hit["path"] for hit in result["results"]])
         for path in ("../USER.md", "/USER.md", "people/../USER.md", "config/connectors.json", "people/alice.txt"):
             with self.assertRaises(HearthError):
                 self.storage.read(path)

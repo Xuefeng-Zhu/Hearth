@@ -104,17 +104,3 @@ class Storage:
         if not isinstance(content, str) or len(content) > MAX_NOTE:
             raise HearthError("Supply Markdown content of at most 24,000 characters.")
         atomic_write(self.memory_path(name), content)
-
-    def search(self, query, limit=5):
-        words = set(re.findall(r"\w+", query.lower()))
-        hits = []
-        for name in self.files():
-            content = self.read(name)
-            bag = re.findall(r"\w+", f"{name} {content}".lower())
-            score = sum(bag.count(word) for word in words)
-            if score:
-                excerpts = [line for line in content.splitlines()
-                            if words.intersection(re.findall(r"\w+", line.lower()))]
-                hits.append((score, name, " ".join(excerpts)[:550] or content[:550]))
-        return [{"path": name, "excerpt": excerpt}
-                for _, name, excerpt in sorted(hits, key=lambda hit: (-hit[0], hit[1]))[:limit]]
