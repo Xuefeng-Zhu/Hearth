@@ -21,6 +21,7 @@ import { createMemory } from "./memory.js";
 import { createMemoryReview } from "./memory-review.js";
 import { conversationView, newConversation, reconcile } from "./chat-state.js";
 import { createSSEParser } from "./sse.js";
+import { githubSettings, updateCard } from "./self-update.js";
 
 mountIcons();
 
@@ -56,6 +57,7 @@ const settingsGroups = [
   ["App", [
     ["home", "Home", "Weather location", "home"],
     ["appearance", "Appearance", "Ember view and style", "image"],
+    ["about", "About", "Deployed Hearth version", "history"],
   ]],
 ];
 const settingsDisclosures = new Map();
@@ -1221,6 +1223,7 @@ function renderChat(force = false, preserveScroll = false) {
   renderThreads();
   const { transcript: history, local } = conversationView(conversation);
   const actions = new Map((history.actions || []).map((action) => [action.id, action]));
+  const proposals = new Map((history.self_updates || []).map((proposal) => [proposal.id, proposal]));
   const messages = history.messages || [];
   updateStopReply();
   const workers = new Map();
@@ -1235,7 +1238,7 @@ function renderChat(force = false, preserveScroll = false) {
   const remoteSkill = thread?.activity?.skill;
   const signature = JSON.stringify([currentThread, messages, threadList.map((thread) => thread.title),
     avatarLook, avatarColor, busy,
-    history.message_artifacts, history.message_uploads, state?.timezone, history.workers, remoteBrowse, remoteSkill, thread?.skill,
+    history.message_artifacts, history.message_uploads, history.self_updates, state?.timezone, history.workers, remoteBrowse, remoteSkill, thread?.skill,
     local.map(({ user, reply, approval, finished }) => [user?.id, reply?.id, approval?.id, finished]),
     messages.flatMap((message) => (message.action_ids || []).map((id) => actions.get(id)))]);
   if (!force && signature === chatSignature) return;
@@ -1279,6 +1282,14 @@ function renderChat(force = false, preserveScroll = false) {
     if (row.bubble && workers.has(message.worker_turn_id)) {
       const card = workersCard(workers.get(message.worker_turn_id));
       if (row.bubble.cards.firstElementChild !== card) row.bubble.cards.prepend(card);
+    }
+    if (row.bubble && proposals.has(message.self_update_id)) {
+      const proposal = proposals.get(message.self_update_id);
+      if (row.proposalCard) row.proposalCard.render(proposal);
+      else {
+        row.proposalCard = updateCard(proposal, { perform: changeSelfUpdate, announce: announceSelfUpdate });
+        row.bubble.cards.append(row.proposalCard.card);
+      }
     }
     nextRows.set(message.id, row);
     rows.push(row.item);
@@ -1342,6 +1353,24 @@ function renderChat(force = false, preserveScroll = false) {
   renderFace(local, messages, actions, remoteBrowse, remoteSkill, workers);
   paintAvatars();
   if (follow) scrollDown();
+}
+
+function announceSelfUpdate(row, { complete, stage }) {
+  const key = `hearth-update-${row.id}`;
+  if ((row.status === "waiting" || row.status === "updating") && sessionStorage.getItem(key) !== "announced") {
+    sessionStorage.setItem(key, "pending");
+  }
+  if (complete && sessionStorage.getItem(key) === "pending") {
+    sessionStorage.setItem(key, "announced");
+    byId("self-update-status").replaceChildren(node("span", "", stage));
+  }
+}
+
+async function changeSelfUpdate(operation, { id, thread_id, head }, feedback) {
+  const result = await api(`/api/self-update/${operation}`, { id, thread_id, head,
+    ...(operation === "revise" ? { feedback } : {}) });
+  schedulePoll(true);
+  return result;
 }
 
 function installSidebar(complete) {
@@ -1709,6 +1738,13 @@ function connectionCard(provider, entry) {
     card.append(uses);
   }
   if (Object.hasOwn(connectorSettings, provider)) card.append(connectorForm(provider, entry, connectorSettings[provider]));
+  if (provider === "github" && connectionState.self_update) {
+    card.append(githubSettings(connectionState.self_update, async (settings) => {
+      applyConnections(await api("/api/self-update/settings", settings));
+      byId("connection-notice").textContent = "GitHub settings saved.";
+      document.querySelector('[data-provider="github"] input')?.focus();
+    }));
+  }
   if (entry.index_error) card.append(node("p", "connection-test failed", entry.index_error));
   else if (entry.test_detail) card.append(node("p", used ? `connection-test ${entry.test_status}` : "meta", entry.test_detail));
 
@@ -2498,6 +2534,15 @@ async function openSettings(section, target) {
   }
   if (section === "brain") return openBrainSettings();
   if (section === "appearance") return;
+  if (section === "about") {
+    const version = byId("hearth-version");
+    try {
+      version.textContent = (await api("/health")).version || "Local checkout";
+    } catch (error) {
+      version.textContent = error.message;
+    }
+    return;
+  }
   if (section === "artifacts") return artifactLibrary.settings();
   if (section === "home") return homePage.settings();
   if (section === "feed") return feed.settings();

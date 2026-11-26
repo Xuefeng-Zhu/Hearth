@@ -1,0 +1,200 @@
+.self-update-card,
+.self-update-settings {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.self-update-card {
+  padding: 14px;
+}
+
+.self-update-card [hidden] {
+  display: none;
+}
+
+.self-update-card :is(h3, p, ul, pre),
+.self-update-settings p {
+  margin: 0;
+}
+
+.self-update-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.self-update-heading svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.self-update-heading h3 {
+  font-size: 1rem;
+}
+
+.self-update-stage {
+  font-weight: 650;
+}
+
+.self-update-checks {
+  color: var(--muted);
+  font-size: .875rem;
+}
+
+.self-update-detail {
+  color: var(--ink);
+  font-size: .875rem;
+}
+
+.self-update-detail:empty {
+  display: none;
+}
+
+.self-update-files {
+  list-style: none;
+  padding: 0;
+  min-width: 0;
+}
+
+.self-update-files li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  border-top: 1px solid var(--border);
+  padding-block: 6px;
+}
+
+.self-update-counts {
+  display: inline-flex;
+  gap: 8px;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+
+.self-update-added { color: #25643e; }
+.self-update-removed { color: #9e3449; }
+
+@media (prefers-color-scheme: dark) {
+  .self-update-added { color: #80d3a3; }
+  .self-update-removed { color: #ffa2b3; }
+}
+
+.self-update-card details {
+  min-width: 0;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+}
+
+.self-update-card summary {
+  min-height: 44px;
+  padding: 11px 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.self-update-card .self-update-diff {
+  padding: 10px;
+  max-block-size: 24rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  white-space: pre;
+  background: var(--field-surface);
+  border-radius: 0 0 8px 8px;
+}
+
+.self-update-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.self-update-card .self-update-approve {
+  background: var(--accent-fill);
+  color: var(--on-solid);
+  border-color: var(--accent-fill);
+}
+
+.self-update-card .self-update-approve:hover:not(:disabled) {
+  background: var(--accent-fill-hover);
+  color: var(--on-solid);
+}
+
+.self-update-card :is(button, a),
+.self-update-settings :is(button, input),
+.self-update-toggle {
+  min-height: 44px;
+  min-width: 44px;
+}
+.self-update-card button {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.self-update-controls a:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+  padding-inline: 4px;
+  text-underline-offset: 3px;
+}
+
+.self-update-feedback label,
+.self-update-settings label:not(.self-update-toggle) {
+  display: grid;
+  gap: 4px;
+}
+
+.self-update-feedback .self-update-controls {
+  margin-top: 8px;
+}
+
+.self-update-feedback textarea,
+.self-update-settings input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  color: var(--ink);
+  background: var(--field-surface);
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+  padding: 8px;
+  font: inherit;
+}
+
+.self-update-feedback textarea {
+  resize: vertical;
+}
+
+.self-update-settings {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.self-update-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.self-update-settings .self-update-toggle input {
+  min-width: 0;
+  min-height: 0;
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.self-update-settings button {
+  justify-self: start;
+}
+
+.self-update-version {
+  overflow-wrap: anywhere;
+}

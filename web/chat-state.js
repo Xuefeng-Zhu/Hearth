@@ -16,7 +16,7 @@ export function conversationView({ threadId, transcript, turns }) {
 
 function mergeTranscript(pages, snapshot) {
   if (!pages.length) return snapshot;
-  const messages = new Map(), actions = new Map(), workers = new Map();
+  const messages = new Map(), actions = new Map(), workers = new Map(), proposals = new Map();
   const message_artifacts = {}, message_uploads = {};
   for (const page of [...pages, snapshot]) {
     for (const message of page.messages) {
@@ -25,10 +25,12 @@ function mergeTranscript(pages, snapshot) {
     }
     for (const action of page.actions) actions.set(action.id, action);
     for (const worker of page.workers) workers.set(worker.id, worker);
+    for (const proposal of page.self_updates || []) proposals.set(proposal.id, proposal);
     Object.assign(message_artifacts, page.message_artifacts);
     Object.assign(message_uploads, page.message_uploads);
   }
   return { messages: [...messages.values()], actions: [...actions.values()], workers: [...workers.values()],
+    self_updates: [...proposals.values()],
     message_artifacts, message_uploads, previous_prompt: pages[0].previous_prompt };
 }
 

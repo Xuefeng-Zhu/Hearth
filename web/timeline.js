@@ -14,6 +14,7 @@ const kinds = {
   browse: ["Web browsing", "monitor"], routing: ["Model routing", "route"], brain: ["Model fallback", "route"],
   voice: ["Voice", "mic"], artifact: ["Artifact", "file-text"], upload: ["Attachment", "paperclip"],
   page: ["Page", "page"], page_share: ["Page sharing", "share"],
+  self_update: ["Hearth update", "shield"],
   skill: ["Skill", "skill"], goal: ["Goal", "activity"],
   worker: ["Worker", "workers"],
   undo: ["Undo", "retry"], inbox: ["Inbox", "inbox"], email: ["Email", "mail"],
@@ -83,7 +84,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["approval", "task", "automation", "proactivity", "goal", "artifact", "browse", "checkpoint", "email", "feed", "gateway", "inbox", "memory", "panel", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill", "worker"]
+    action: ["approval", "task", "automation", "proactivity", "goal", "artifact", "browse", "checkpoint", "email", "feed", "gateway", "inbox", "memory", "panel", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill", "worker", "self_update"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -111,6 +112,7 @@ function detailFields(row, gatewayResponse) {
     ["Request", data.prompt || data.query],
     ["Page URL", data.url],
     ["Version", data.page_version && `v${data.page_version}`],
+    ["Commit", data.merge_sha],
     ["Change", row.kind === "page" && data.note],
     ["Category", row.kind === "proactivity" && data.category],
     ["Trigger", row.kind === "automation" && { email: "Incoming email", feed: "Feed card",

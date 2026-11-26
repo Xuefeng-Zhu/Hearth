@@ -296,7 +296,7 @@ class HearthTest(unittest.TestCase):
         def get(path):
             return json.loads(request(path)[0])
 
-        self.assertEqual(get("/health"), {"ok": True, "checkpoints": "local"})
+        self.assertEqual(get("/health"), {"ok": True, "checkpoints": "local", "version": None})
         self.assertIn("Message Hearth", request("/")[0])
         for asset, content_type in {
             "manifest.webmanifest": "application/manifest+json",

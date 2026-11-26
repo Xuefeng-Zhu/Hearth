@@ -4,6 +4,7 @@ import argparse
 import os
 import re
 from contextlib import contextmanager
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event, Thread
 from unittest.mock import patch
@@ -361,6 +362,79 @@ def disconnect(browser, app, origin):
         expect_announcements(page, 1)
 
 
+def self_update_smoke(browser, app, origin):
+    path = "docs/self-update.md"
+    with app.storage.lock():
+        thread = app.threads.create(title="Hearth update smoke")
+        app.threads.append(thread["id"], "user", f"Hearth, add a line to {path}.")
+        app.threads.append(thread["id"], "assistant", "Review the proposed change below.", self_update_id="smoke")
+    proposal = {
+        "id": "smoke", "thread_id": thread["id"], "repository": "Xuefeng-Zhu/Hearth", "thread_title": thread["title"],
+        "title": "Clarify the update guide", "summary": "Add a note about reviewing test results.",
+        "head": "a" * 40, "files": [{"path": path, "added": 1, "removed": 1}],
+        "diff": f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-Old\n+{'New text. ' * 55}\n",
+        "number": 66, "url": "https://github.com/Xuefeng-Zhu/Hearth/pull/66", "status": "review", "checks": "pending",
+    }
+    for width in (390, 1440):
+        for scheme in ("light", "dark"):
+            app.self_updates.store(proposal)
+            with browser_page(browser, origin, viewport={"width": width, "height": 900}, color_scheme=scheme,
+                              is_mobile=width == 390, has_touch=width == 390) as page:
+                assert page.goto(f"/?thread={thread['id']}").ok
+                expect(page).to_have_title("Hearth")
+                card = page.get_by_role("region", name=proposal["title"])
+                expect(card.get_by_text(proposal["summary"])).to_be_visible()
+                expect(card.get_by_text(path, exact=True)).to_be_visible()
+                expect(card.get_by_text("+1", exact=True)).to_be_visible()
+                expect(card.get_by_text("−1", exact=True)).to_be_visible()
+                expect(card.get_by_role("link", name="Open PR #66")).to_have_attribute("href", proposal["url"])
+                expect(card.get_by_text("CI · Tests running")).to_be_visible()
+                expect(card.locator("pre")).to_be_hidden()
+                card.locator("summary").click()
+                expect(card.locator("pre")).to_be_visible()
+                assert card.locator("pre").evaluate("(el) => el.scrollWidth > el.clientWidth")
+                assert page.evaluate("document.documentElement.scrollWidth === innerWidth")
+                assert card.evaluate("(el) => el.scrollWidth === el.clientWidth")
+                for control in card.locator("summary, button:visible, a:visible").all():
+                    box = control.bounding_box()
+                    assert box["height"] >= 44 and box["width"] >= 44, box
+                contrast = card.evaluate("""(card) => {
+                  const luminance = (value) => value.match(/[0-9.]+/g).slice(0, 3)
+                    .map((n) => Number(n) / 255)
+                    .map((n) => n <= 0.04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4)
+                    .reduce((sum, n, i) => sum + n * [.2126, .7152, .0722][i], 0);
+                  const surface = getComputedStyle(card).backgroundColor;
+                  return [...card.querySelectorAll('h3, p:not([hidden]), li span:not(.self-update-counts), a:not([hidden]), summary, button:not([hidden])')]
+                    .filter((el) => el.textContent && el.getClientRects().length)
+                    .map((el) => {
+                      const style = getComputedStyle(el);
+                      const bg = style.backgroundColor === 'rgba(0, 0, 0, 0)' ? surface : style.backgroundColor;
+                      const [a, b] = [luminance(bg), luminance(style.color)].sort((a, b) => a - b);
+                      return [el.textContent, (b + .05) / (a + .05)];
+                    });
+                }""")
+                assert all(ratio >= 4.5 for _, ratio in contrast), (width, scheme, contrast)
+                screenshots = os.environ.get("HEARTH_SMOKE_SCREENSHOTS")
+                if screenshots:
+                    page.screenshot(path=Path(screenshots) / f"hearth-update-{width}-{scheme}.png")
+                card.get_by_role("button", name="Request changes").click()
+                feedback = card.get_by_role("textbox", name="What should change?")
+                expect(feedback).to_be_focused()
+                feedback.fill("Make the note shorter.")
+                card.get_by_role("button", name="Cancel").click()
+                expect(feedback).to_be_hidden()
+                card.get_by_role("button", name="Approve and update").click()
+                expect(card.get_by_text("Waiting for tests", exact=True)).to_be_visible()
+                app.self_updates.store({**proposal, "status": "updated", "checks": "passed", "merge_sha": "b" * 40})
+                page.evaluate("window.dispatchEvent(new Event('focus'))")
+                expect(card.get_by_text("Hearth updated to bbbbbbb", exact=True)).to_be_visible()
+                expect(card.get_by_text("Ask me to revert", exact=True)).to_be_visible()
+                live = page.locator("#self-update-status")
+                expect(live).to_have_text("Hearth updated to bbbbbbb")
+                expect(live.locator("span")).to_have_count(1)
+                expect(card.locator("pre")).to_be_visible()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--disconnect", action="store_true", help="Run the SSE disconnect regression.")
@@ -374,6 +448,7 @@ def main():
             else:
                 smoke(browser, origin)
                 stale_refresh(browser, origin)
+                self_update_smoke(browser, app, origin)
         finally:
             browser.close()
     print(f"Chromium {'stream disconnect' if args.disconnect else 'smoke'} passed.")

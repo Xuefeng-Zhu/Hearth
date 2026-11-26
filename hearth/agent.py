@@ -8,7 +8,7 @@ from http.client import HTTPException
 from urllib.parse import urlsplit
 
 from . import approvals, box, browserbase, event_automations, file_intent, goals, memory, memory_edits, office, page_agent, panels, recall, router, search, skills, tasks, timeline, uploads, workers
-from . import file_questions, tool_calls
+from . import file_questions, self_update, tool_calls
 from .agent_definitions import (BRAIN_TEST_PROMPT, BROWSING_SYSTEM, FILE_TOOL_MODES, SYSTEM, TOOL_DEFINITIONS,
                                 TOOL_TITLES, WORKER_GUIDANCE, schema)
 from .connections import catalog_entry, with_model
@@ -497,6 +497,21 @@ class Agent:
                 time.sleep(0.75)
             event("started", {"message": message, "thread": thread,
                               **({"attachments": attachments} if attachments else {})})
+            mode = self_update.intent(prompt, CHAT_ORIGIN.get(), attachments=attachments)
+            if self.application and mode:
+                event("tool_started", {"title": "Preparing a Hearth proposal"})
+                try:
+                    proposal = self.application.self_updates.propose(
+                        prompt, CHAT_ORIGIN.get(), mode=mode, check=check,
+                        commit=lambda: event("committing", {}))
+                except ConnectorError as error:
+                    raise HearthError(self_update.errors_for(error)) from None
+                event("tool_finished", {})
+                with self.storage.lock():
+                    reply = self.threads.append(thread_id, "assistant", "Review the proposed change below.",
+                                                reply_to=message["id"], self_update_id=proposal["id"])
+                event("done", {"message": reply})
+                return
             if turn["file_question"]:
                 self.reply(prompt, event, history, {})
                 return
@@ -1600,6 +1615,8 @@ class Agent:
             if not config:
                 raise HearthError("This provider is not connected. Open Settings → Connections to set it up.")
             method, path = validate_request(provider, args["method"], args["path"], args.get("body"))
+            if provider == "github":
+                self_update.guard_gateway_write(self.storage.load(), provider, method, path)
             request = {"provider": provider, "method": method, "path": "/" + path, "body": args.get("body")}
             body = request["body"] if isinstance(request["body"], dict) else {}
             amount = next((body[key] for key in ("amount", "amount_cents", "max_amount", "price") if key in body), None)
@@ -1676,6 +1693,8 @@ class Agent:
                        categories=list(dict.fromkeys([*row["categories"], *categories])))
 
     def gateway_response(self, config, method, path, body, identity):
+        if config["provider"] == "github":
+            self_update.guard_gateway_write(self.storage.load(), "github", method, path)
         with self.tools.gateway.open(config, path, body, {"Idempotency-Key": identity} if identity else None,
                                      method=method) as response:
             return gateway_result(response)
@@ -2018,6 +2037,8 @@ class Agent:
             raise HearthError("This provider is not connected. Open Settings → Connections to set it up.")
         config = self.gateway_connections[provider]
         method, path = validate_request(provider, method, path, body)
+        if provider == "github":
+            self_update.guard_gateway_write(self.storage.load(), provider, method, path)
         if method == "GET":
             request = {"method": method, "path": "/" + path}
             result = gateway_read(self.tools.gateway, config, path)
@@ -2044,6 +2065,7 @@ class Agent:
             raise HearthError("The provider connection changed. Ask Hearth to prepare the request again.")
         body = request["body"]
         method, path = validate_request(provider, request["method"], request["path"], body)
+        self_update.guard_gateway_write(state, provider, method, path)
         if method == "GET":
             raise HearthError("The saved request has an invalid method.")
         # The pre-request checkpoint includes the replay guard.

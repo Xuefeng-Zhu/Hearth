@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/mobile.css">
   <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/self-update.css">
   <link rel="stylesheet" href="/home.css">
   <link rel="stylesheet" href="/pages.css">
   <link rel="stylesheet" href="/automation.css">
@@ -141,6 +142,7 @@
             <div class="transcript" id="transcript" aria-label="Conversation"></div>
           </div>
           <div id="reply-status" class="visually-hidden" aria-live="polite" aria-relevant="additions"></div>
+          <div id="self-update-status" class="visually-hidden" aria-live="polite" aria-relevant="additions"></div>
           <form class="composer" id="composer">
             <div id="voice-bar" class="voice-bar" hidden>
               <div class="voice-reading">
@@ -740,6 +742,12 @@
               <input type="color" id="avatar-color">
               <button type="button" id="avatar-color-reset">Use preset color</button>
             </div>
+          </div>
+        </div>
+        <div class="settings-body" id="settings-about" hidden>
+          <div class="card">
+            <p>Deployed commit</p>
+            <p><code id="hearth-version" class="self-update-version">Checking…</code></p>
           </div>
         </div>
         <div class="settings-body" id="settings-voice" hidden>

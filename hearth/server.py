@@ -17,7 +17,7 @@ from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
 from . import approvals, artifacts, box, browserbase, event_automations, feed, home, inbox, memory, memory_edits, memory_purge, memory_review, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
-from . import file_questions, goals, ideas
+from . import file_questions, goals, ideas, self_update
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, RestoreInProgress, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -109,6 +109,8 @@ STATIC = {
     "/avatar.js": ("avatar.js", "text/javascript; charset=utf-8"),
     "/avatar-state.js": ("avatar-state.js", "text/javascript; charset=utf-8"),
     "/chat-state.js": ("chat-state.js", "text/javascript; charset=utf-8"),
+    "/self-update.js": ("self-update.js", "text/javascript; charset=utf-8"),
+    "/self-update.css": ("self-update.css", "text/css; charset=utf-8"),
     "/sse.js": ("sse.js", "text/javascript; charset=utf-8"),
     "/voice.js": ("voice.js", "text/javascript; charset=utf-8"),
     "/voice-call.js": ("voice-call.js", "text/javascript; charset=utf-8"),
@@ -132,6 +134,8 @@ CLIENT_DISCONNECT = (BrokenPipeError, ConnectionResetError, ConnectionAbortedErr
 class Application:
     def __init__(self, storage, checkpoints, config, *, config_path=None, gateway=None):
         self.storage = storage
+        self.version = self_update.deployed_version()
+        self.self_updates = self_update.SelfUpdates(self)
         self.subsystem_status = SubsystemStatus()
         self.threads = Threads(storage)
         self.checkpoints = checkpoints
@@ -231,6 +235,7 @@ class Application:
                         next_inbox = now + 60
                     self.task_runner.kick()
                     self.event_runner.kick()
+                    self.self_updates.kick()
                     if woke or now >= next_home:
                         self.home.kick()
                         self.proactivity.kick()
@@ -284,6 +289,9 @@ class Application:
         if pinecone is None:
             pinecone = self.memory_index.pinecone_status(self.agent.config)
         report = {**self.connection_state, **self.brain_status()}
+        report["self_update"] = self.self_updates.settings()
+        github = report["providers"]["github"]
+        report["providers"] = {**report["providers"], "github": {**github, "uses": ["Hearth updates"]}}
         if pinecone["connected"]:
             providers = report["providers"]
             entry = {**providers["pinecone"], "index_state": pinecone["state"],
@@ -483,6 +491,8 @@ class Application:
         expires = min((datetime.fromisoformat(row["expires_at"]) for row in pending
                        if row.get("tool") and row["status"] == "pending"), default=None)
         active_work = bool(active or pending or sending or any(
+            row["thread_id"] == selected and row["status"] in self_update.TRANSIENT
+            for row in state.get("self_updates", {}).values()) or any(
             row["status"] in workers.ACTIVE for row in state.get("workers", {}).values()))
         return ({"threads": threads, "next_thread_offset": following, "thread_revision": thread_revision,
                  "thread_activity": active,
@@ -529,6 +539,7 @@ class Application:
             actions.append(action)
         uploads_from = [*messages, prompt] if prompt else messages
         return {"thread_id": thread_id, "messages": messages, "before": cursor, "actions": actions,
+                "self_updates": self_update.in_transcript(state, messages, thread_id),
                 "workers": worker_rows, "history_revision": self.history_revision(),
                 "record_revision": sha256(repr(revision(self.storage.state)).encode()).hexdigest()[:24],
                 "previous_prompt": {"content": prompt["content"], "attachment_ids": prompt.get("attachment_ids", [])}
@@ -936,7 +947,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def get_health(self, request):
-        self.json({"ok": True, "checkpoints": self.app.checkpoints.mode})
+        self.json({"ok": True, "checkpoints": self.app.checkpoints.mode, "version": self.app.version})
 
     def get_status(self, request):
         self.json({"subsystems": self.app.subsystem_status.snapshot()})
@@ -1293,6 +1304,17 @@ class Handler(BaseHTTPRequestHandler):
     def post_browse_approve(self, request):
         body = request.body
         return ChatStream(self.app.enqueue(body["thread_id"], "", approval=require_text(body["id"], 40)))
+
+    def post_self_update(self, request):
+        body = request.body
+        if request.operation == "settings":
+            self.app.self_updates.configure(body["repository"], body["enabled"])
+            return self.app.connection_info()
+        try:
+            return self.app.self_updates.act(request.operation, body["id"], body["thread_id"],
+                                             body["head"], body.get("feedback", ""))
+        except ConnectorError as error:
+            raise HearthError(self_update.errors_for(error)) from None
 
     def post_browse_settings(self, request):
         self.app.connections.save_preferences("browsing", browserbase.settings(request.body))
