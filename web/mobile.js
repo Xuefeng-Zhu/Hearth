@@ -1,12 +1,11 @@
 const mobile = matchMedia("(max-width: 760px), (max-width: 950px) and (max-height: 500px) and (pointer: coarse)");
 
-export function setupMobile({ nearBottom, scrollDown, refreshThreads }) {
+export function setupMobile({ nearBottom, scrollDown, refreshThreads, closeThreadMenu }) {
   const get = (id) => document.getElementById(id);
   const drawer = get("workspace-drawer");
   const toggle = get("open-menu");
   const threadPanel = get("thread-panel");
   const threadHeader = get("thread-title").closest("header");
-  const threadMenu = get("thread-menu");
   const call = get("start-call");
   const callResume = get("return-to-call");
   const workspaceHeader = call.parentElement;
@@ -14,8 +13,8 @@ export function setupMobile({ nearBottom, scrollDown, refreshThreads }) {
   let restoreDrawerFocus = true;
 
   function closeDrawer({ restoreFocus = true } = {}) {
-    if (threadMenu.open) threadMenu.close();
     if (!drawer.open) return false;
+    closeThreadMenu({ restoreFocus: false });
     restoreDrawerFocus = restoreFocus;
     toggle.setAttribute("aria-expanded", "false");
     drawer.close();
@@ -49,12 +48,12 @@ export function setupMobile({ nearBottom, scrollDown, refreshThreads }) {
   drawer.addEventListener("click", (event) => {
     if (event.target !== drawer) return;
     const bounds = drawer.getBoundingClientRect();
-    if (event.clientX > bounds.right || event.clientX < bounds.left) closeDrawer();
+    if ((event.clientX > bounds.right || event.clientX < bounds.left) && !closeThreadMenu()) closeDrawer();
   });
   drawer.addEventListener("keydown", (event) => {
     if (event.key !== "Tab") return;
     const items = [...drawer.querySelectorAll("button:enabled, select:enabled, a[href]")]
-      .filter((item) => item.getClientRects().length);
+      .filter((item) => item.tabIndex >= 0 && item.getClientRects().length);
     const first = items.at(0), last = items.at(-1);
     if (document.activeElement === (event.shiftKey ? first : last)) {
       event.preventDefault();

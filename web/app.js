@@ -8,6 +8,7 @@ import { fileAnswerSources } from "./file-questions.js";
 import { channelChip, createReminders } from "./reminders.js";
 import { reconcileChildren } from "./dom.js";
 import { setupMobile } from "./mobile.js";
+import { createThreadMenu } from "./thread-menu.js";
 import { createAttachments } from "./attachments.js";
 import { icon, iconButton, mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
@@ -34,7 +35,11 @@ const stopReply = byId("stop-reply");
 const replyStatus = byId("reply-status");
 const notice = byId("notice");
 const chatScroll = byId("chat-scroll");
-const mobile = setupMobile({ nearBottom, scrollDown, refreshThreads: refreshDrawerThreads });
+const threadMenu = byId("thread-menu");
+const threadActions = createThreadMenu(threadMenu);
+const mobile = setupMobile({
+  nearBottom, scrollDown, refreshThreads: refreshDrawerThreads, closeThreadMenu: threadActions.close,
+});
 const settingsGroups = [
   ["Assistant", [
     ["brain", "Brain", "Models and routing", "route"],
@@ -1024,13 +1029,13 @@ function isWorking(thread) {
   return thread?.busy || localTurns().some((turn) => turn.threadId === thread?.id && !turn.finished);
 }
 
-const threadMenu = byId("thread-menu");
 const summarySheet = byId("thread-summary");
 let threadMenuId;
 let summaryThread;
 
 function syncThreadMenu(thread) {
   const pinned = thread?.id === mainThread.id;
+  byId("thread-menu-title").textContent = thread?.title || "";
   const rename = threadMenu.querySelector('[value="rename"]');
   const remove = threadMenu.querySelector('[value="delete"]');
   rename.hidden = remove.hidden = pinned;
@@ -1039,11 +1044,10 @@ function syncThreadMenu(thread) {
   threadMenu.querySelector('[value="summary"]').disabled = !thread;
 }
 
-function openThreadMenu(thread) {
+function openThreadMenu(thread, trigger, options) {
   threadMenuId = thread.id;
-  byId("thread-menu-title").textContent = thread.title;
   syncThreadMenu(thread);
-  threadMenu.showModal();
+  threadActions.open(trigger, options);
 }
 
 function isSendingReminder(threadId) {
@@ -1104,16 +1108,35 @@ function renderThreads() {
     }
     const row = node("div", "thread-row");
     row.append(item);
-    const more = iconButton("more", `Actions for ${thread.title}`, () => openThreadMenu(thread), "thread-overflow");
+    const more = iconButton("more", `Actions for ${thread.title}`,
+      (event) => openThreadMenu(thread, event.currentTarget), "thread-overflow");
     more.dataset.thread = thread.id;
-    more.setAttribute("aria-haspopup", "dialog");
+    more.setAttribute("aria-haspopup", "menu");
+    more.setAttribute("aria-expanded", "false");
     more.setAttribute("aria-controls", threadMenu.id);
+    more.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      event.preventDefault();
+      openThreadMenu(thread, more, { last: event.key === "ArrowUp" });
+    });
     row.append(more);
     return row;
   }));
-  if (focused) [...list.querySelectorAll("button")].find((item) =>
-    item.dataset.thread === focused.dataset.thread && item.className === focused.className)?.focus({ preventScroll: true });
-  if (threadMenu.open) syncThreadMenu(entries.find((thread) => thread.id === threadMenuId));
+  if (focused) {
+    const replacement = [...list.querySelectorAll("button")].find((item) =>
+      item.dataset.thread === focused.dataset.thread && item.className === focused.className);
+    (replacement || list.querySelector('[aria-current="true"]'))?.focus({ preventScroll: true });
+  }
+  if (!threadMenu.hidden) {
+    const thread = entries.find((thread) => thread.id === threadMenuId);
+    if (thread) {
+      syncThreadMenu(thread);
+      threadActions.refresh(threadMenuTrigger(thread.id));
+    } else {
+      threadActions.close({ restoreFocus: false });
+      list.querySelector('[aria-current="true"]')?.focus({ preventScroll: true });
+    }
+  }
   const select = byId("thread-select");
   select.replaceChildren(...entries.map((thread) => new Option(thread.status ? `${thread.title} · ${thread.status}` : thread.title, thread.id)));
   select.value = currentThread;
@@ -2651,6 +2674,7 @@ async function refreshView(options) {
 async function openView(nextView, updateHistory = true, section, target) {
   const previousView = view;
   const fromDrawer = mobile.closeDrawer({ restoreFocus: false });
+  if (nextView !== previousView) threadActions.close({ restoreFocus: false });
   if (nextView !== previousView) showNotice();
   if (nextView !== "chat") voice.cancel();
   if (updateHistory) {
@@ -3270,23 +3294,22 @@ byId("reset-thread-summary").addEventListener("click", async (event) => {
     }
   }
 });
-threadMenu.querySelector("form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  const operation = event.submitter?.value;
+threadMenu.addEventListener("click", (event) => {
+  const item = event.target.closest('[role="menuitem"]');
+  if (!item || item.disabled || item.hidden) return;
   const thread = threadList.find((item) => item.id === threadMenuId);
-  threadMenu.close();
-  if (operation === "summary" && thread) openSummary(thread);
-  if (operation === "rename") renameThread(thread);
-  if (operation === "delete") deleteThread(thread);
+  threadActions.close();
+  if (item.value === "summary" && thread) openSummary(thread);
+  if (item.value === "rename") renameThread(thread);
+  if (item.value === "delete") deleteThread(thread);
 });
-function focusThreadMenuTrigger() {
-  if (threadMenu.open || summarySheet.open || (mobile.isMobile() && !byId("workspace-drawer").open)) return;
-  const trigger = [...byId("threads").querySelectorAll(".thread-overflow")]
-    .find((item) => item.dataset.thread === threadMenuId);
-  (trigger || byId("new-thread")).focus({ preventScroll: true });
+function threadMenuTrigger(threadId) {
+  return [...byId("threads").querySelectorAll(".thread-overflow")].find((item) => item.dataset.thread === threadId);
 }
-threadMenu.addEventListener("close", focusThreadMenuTrigger);
-summarySheet.addEventListener("close", focusThreadMenuTrigger);
+summarySheet.addEventListener("close", () => {
+  if (!threadMenu.hidden || summarySheet.open || (mobile.isMobile() && !byId("workspace-drawer").open)) return;
+  (threadMenuTrigger(summaryThread?.id) || byId("new-thread")).focus({ preventScroll: true });
+});
 for (const tab of configTabs) {
   const panel = byId(`${tab}-panel`);
   const tabButton = byId(`${tab}-tab`);

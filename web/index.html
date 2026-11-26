@@ -89,6 +89,12 @@
           </div>
           <p id="thread-list-status" role="status" class="visually-hidden"></p>
           <div id="threads" class="threads" aria-label="Thread list"></div>
+          <div id="thread-menu" class="thread-menu" popover="manual" role="menu" aria-labelledby="thread-menu-title" hidden>
+            <div id="thread-menu-title" aria-hidden="true"></div>
+            <button type="button" role="menuitem" tabindex="-1" value="summary"><span data-icon="book" data-icon-size="18"></span> Summary</button>
+            <button type="button" role="menuitem" tabindex="-1" value="rename"><span data-icon="edit" data-icon-size="18"></span> Rename</button>
+            <button type="button" role="menuitem" tabindex="-1" value="delete"><span data-icon="trash" data-icon-size="18"></span> Delete</button>
+          </div>
         </aside>
         <div class="chat-pane">
           <header class="thread-header">
@@ -853,15 +859,6 @@
       <p class="workspace-status" role="status" hidden><span class="dot" aria-hidden="true"></span><span data-workspace-status></span><a href="#settings/connections" data-connection-warning hidden>Check connections</a></p>
       <button type="button" class="nav-link" data-view="settings"><span data-icon="settings"></span> Settings</button>
     </nav>
-  </dialog>
-  <dialog class="message-menu" id="thread-menu" aria-labelledby="thread-menu-title">
-    <h2 id="thread-menu-title"></h2>
-    <form method="dialog" class="message-menu-actions">
-      <button type="submit" value="summary"><span data-icon="book" data-icon-size="18"></span> View summary</button>
-      <button type="submit" value="rename"><span data-icon="edit" data-icon-size="18"></span> Rename</button>
-      <button type="submit" value="delete"><span data-icon="trash" data-icon-size="18"></span> Delete</button>
-      <button type="submit" value="" autofocus>Cancel</button>
-    </form>
   </dialog>
   <dialog class="message-menu" id="thread-summary" aria-labelledby="thread-summary-title" aria-describedby="thread-summary-thread">
     <header class="message-menu-header split-heading">

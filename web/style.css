@@ -140,12 +140,70 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .thread-row .thread-link { flex: 1; width: auto; }
 .thread-overflow {
   display: grid; place-items: center; flex: 0 0 var(--control-height); padding: 0;
-  border: 0; border-radius: 8px; background: transparent; color: var(--muted);
+  border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted);
 }
-.thread-overflow:hover { color: var(--selection-text); background: var(--nav-hover); }
+@media (hover: hover) and (min-width: 761px) {
+  .thread-row:not(:hover, :focus-within) .thread-overflow[aria-expanded="false"] { opacity: 0; pointer-events: none; }
+}
+@media (hover: none) {
+  .thread-overflow { flex-basis: var(--touch-height); min-height: var(--touch-height); }
+}
+.thread-overflow:is(:hover, [aria-expanded="true"]) { color: var(--selection-text); background: var(--nav-hover); }
+.thread-overflow[aria-expanded="true"] { anchor-name: --thread-menu-trigger; }
 .thread-link:focus-visible, .thread-overflow:focus-visible { outline-offset: -2px; }
-#thread-menu-title { overflow-wrap: anywhere; }
-#thread-menu button[value="delete"] { color: var(--thread-delete); }
+.thread-menu {
+  --thread-menu-gap: var(--space-1);
+  --thread-menu-inset: var(--space-2);
+  position: fixed;
+  z-index: 2;
+  inset: auto;
+  margin: 0;
+  width: min(200px, calc(100vw - 2 * var(--thread-menu-inset)));
+  max-height: calc(100dvh - 2 * var(--thread-menu-inset));
+  padding: var(--space-1);
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--text);
+  background: var(--paper);
+  border: var(--border-width) solid var(--drawer-border);
+  border-radius: var(--radius-card);
+  box-shadow: 0 12px 36px var(--floating-shadow);
+}
+.thread-menu[data-anchor] {
+  position-anchor: --thread-menu-trigger;
+  position-area: block-end span-inline-start;
+  position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  margin: var(--thread-menu-gap) 0;
+}
+#thread-menu-title {
+  padding: var(--space-2) var(--space-3);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--control-gap);
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  text-align: start;
+  font-size: var(--control-font-size);
+}
+.thread-menu button:not(:disabled):is(:hover, :focus-visible) { background: var(--nav-hover); }
+.thread-menu button:focus-visible { outline-offset: -2px; }
+.thread-menu button[value="delete"] { color: var(--thread-delete); }
+@media (hover: none) {
+  .thread-menu button { min-height: var(--touch-height); }
+}
 .thread-link:hover, .thread-link[aria-current] { color: var(--selection-text); background: var(--thread-active); }
 .thread-link[aria-current], .thread-row:first-child .thread-link { font-weight: 650; }
 .thread-link .thread-label, .thread-header h2 { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -1521,7 +1579,7 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 .message-menu::backdrop { background: var(--drawer-scrim); }
 .message-menu :is(h2, .meta) { margin: 0; }
 .message-menu h2 { font-size: 16px; overflow-wrap: anywhere; }
-.message-menu-header, #thread-menu > h2 { margin-bottom: var(--space-2); }
+.message-menu-header { margin-bottom: var(--space-2); }
 .message-menu-actions { display: grid; gap: var(--space-1); }
 .message-menu-actions button {
   display: flex;

@@ -138,6 +138,12 @@
   .workspace-drawer .thread-select { display: none; }
   .workspace-drawer .thread-link { padding-inline: var(--space-2); }
   .workspace-drawer .threads { grid-template-columns: minmax(0, 1fr); min-width: 0; overflow: visible; }
+  .workspace-drawer .thread-row .thread-overflow[aria-expanded] {
+    flex-basis: var(--touch-height);
+    min-height: var(--touch-height);
+    opacity: 1;
+    pointer-events: auto;
+  }
   .workspace-drawer :is(.thread-link, .new-thread) { font-size: 15px; min-height: 44px; }
   .workspace-drawer .new-thread { white-space: nowrap; }
   .workspace-drawer-body button:focus-visible { outline-offset: -2px; }

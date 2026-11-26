@@ -266,9 +266,11 @@ def verify(context, origin, tag, output, baseline, app):
         page.locator("#open-menu").click()
     more = page.locator(".thread-overflow:visible").first
     if more.count():
+        more.focus()
         more.click()
         capture("thread-menu")
-        close_modal(page, "#thread-menu")
+        page.keyboard.press("Escape")
+        expect(page.locator("#thread-menu")).to_be_hidden()
     if mobile:
         close_modal(page, "#workspace-drawer")
     page.locator("#transcript .workers-card .worker-summary").first.click()

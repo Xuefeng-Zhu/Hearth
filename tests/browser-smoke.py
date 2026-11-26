@@ -126,9 +126,9 @@ def send(page, prompt):
     page.get_by_role("button", name="Send message").click()
 
 
-def await_partial_reply(page):
+def await_partial_reply(page, first_token="I"):
     partial = page.locator("#transcript .message.assistant:not([data-message-id]) .message-body > p")
-    expect(partial).to_have_text("I")
+    expect(partial).to_have_text(first_token)
     stop = page.get_by_role("button", name="Stop reply")
     expect(stop).to_be_visible()
     return stop
@@ -487,6 +487,212 @@ def smoke(browser, origin):
         expect(heading).to_be_focused()
 
 
+def assert_thread_menu_position(page, trigger, menu, *, above=False):
+    anchor, popup = trigger.bounding_box(), menu.bounding_box()
+    assert anchor and popup
+    assert abs(anchor["x"] + anchor["width"] - popup["x"] - popup["width"]) <= 1, (anchor, popup)
+    gap = anchor["y"] - popup["y"] - popup["height"] if above else popup["y"] - anchor["y"] - anchor["height"]
+    assert 3 <= gap <= 5, (anchor, popup)
+    assert popup["x"] >= 8 and popup["y"] >= 8, popup
+    assert popup["x"] + popup["width"] <= page.viewport_size["width"] - 8, popup
+    assert popup["y"] + popup["height"] <= page.viewport_size["height"] - 8, popup
+
+
+def thread_menu_smoke(browser, origin):
+    with browser_page(browser, origin, color_scheme="dark", viewport={"width": 1440, "height": 900}) as page:
+        open_chat(page)
+        trigger = page.get_by_role("button", name="Actions for Smoke side chat")
+        main = page.get_by_role("button", name="Actions for Main")
+        row = page.locator(".thread-row").filter(has=trigger)
+        label = row.locator(".thread-label")
+        before = label.bounding_box()
+        expect(trigger).to_have_css("opacity", "0")
+        expect(main).to_have_css("opacity", "0")
+        row.hover()
+        expect(trigger).to_have_css("opacity", "1")
+        expect(main).to_have_css("opacity", "0")
+        assert label.bounding_box() == before
+        trigger.click()
+        menu = page.get_by_role("menu", name="Smoke side chat")
+        summary = menu.get_by_role("menuitem", name="Summary")
+        rename = menu.get_by_role("menuitem", name="Rename")
+        delete = menu.get_by_role("menuitem", name="Delete")
+        expect(menu).to_be_visible()
+        assert menu.evaluate("element => element.matches(':popover-open') && element.hasAttribute('data-anchor')")
+        assert_thread_menu_position(page, trigger, menu)
+        assert not page.locator("dialog:modal").count()
+        page.mouse.move(1000, 50)
+        expect(trigger).to_have_css("opacity", "1")
+        expect(trigger).to_have_attribute("aria-expanded", "true")
+        expect(summary).to_be_focused()
+        page.keyboard.press("ArrowUp")
+        expect(delete).to_be_focused()
+        page.keyboard.press("ArrowDown")
+        expect(summary).to_be_focused()
+        page.keyboard.press("End")
+        expect(delete).to_be_focused()
+        page.keyboard.press("Home")
+        expect(summary).to_be_focused()
+        assert menu.evaluate("""menu => {
+          const luminance = color => color.match(/[0-9]+/g).slice(0, 3)
+            .map(value => value / 255)
+            .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+            .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+          const style = getComputedStyle(menu);
+          const paper = style.backgroundColor;
+          const hover = style.getPropertyValue("--nav-hover").trim();
+          const focus = style.getPropertyValue("--focus").trim();
+          const sample = document.createElement("span");
+          menu.append(sample);
+          const ratio = (foreground, background) => {
+            sample.style.color = background;
+            const values = [foreground, getComputedStyle(sample).color].map(luminance).sort((a, b) => b - a);
+            return (values[0] + 0.05) / (values[1] + 0.05);
+          };
+          sample.style.color = focus;
+          const outline = getComputedStyle(sample).color;
+          const targets = [...menu.querySelectorAll("button")].map(item => getComputedStyle(item).color);
+          const passes = targets.every(text => [paper, hover].every(bg => ratio(text, bg) >= 4.5))
+            && ratio(getComputedStyle(menu.firstElementChild).color, paper) >= 4.5
+            && ratio(outline, hover) >= 3;
+          sample.remove();
+          return passes;
+        }"""), "Dark menu text or focus contrast is below WCAG AA."
+        page.keyboard.press("Escape")
+        expect(menu).to_be_hidden()
+        expect(trigger).to_be_focused()
+        expect(trigger).to_have_attribute("aria-expanded", "false")
+
+        page.locator("#new-thread").focus()
+        page.keyboard.press("Tab")
+        expect(page.locator('.thread-link[data-thread="main"]')).to_be_focused()
+        expect(main).to_have_css("opacity", "1")
+        page.keyboard.press("Tab")
+        expect(main).to_be_focused()
+        page.keyboard.press("ArrowDown")
+        main_menu = page.get_by_role("menu", name="Main", exact=True)
+        expect(main_menu.get_by_role("menuitem")).to_have_count(1)
+        expect(main_menu.get_by_role("menuitem", name="Summary")).to_be_focused()
+        page.keyboard.press("Tab")
+        expect(main_menu).to_be_hidden()
+        expect(row.get_by_role("button", name="Smoke side chat", exact=True)).to_be_focused()
+
+        page.keyboard.press("Tab")
+        expect(trigger).to_be_focused()
+        page.keyboard.press("ArrowUp")
+        expect(delete).to_be_focused()
+        page.mouse.click(1000, 50)
+        expect(menu).to_be_hidden()
+        expect(trigger).to_be_focused()
+        page.keyboard.press("Enter")
+        page.locator("#threads").dispatch_event("scroll")
+        expect(menu).to_be_hidden()
+        expect(trigger).to_be_focused()
+        page.keyboard.press("Enter")
+        page.set_viewport_size({"width": 1400, "height": 860})
+        expect(menu).to_be_hidden()
+        expect(trigger).to_be_focused()
+
+        page.locator("#threads").evaluate("element => { element.style.marginTop = 'auto'; }")
+        trigger.hover()
+        trigger.click()
+        expect(menu).to_be_visible()
+        assert menu.evaluate("element => element.hasAttribute('data-anchor')")
+        assert_thread_menu_position(page, trigger, menu, above=True)
+        summary.click()
+        expect(menu).to_be_hidden()
+        sheet = page.get_by_role("dialog", name="Chat summary")
+        expect(sheet.get_by_text("Smoke side chat")).to_be_visible()
+        expect(sheet.get_by_text("No summary yet.")).to_be_visible()
+        sheet.get_by_role("button", name="Close summary").click()
+        expect(trigger).to_be_focused()
+
+        row.get_by_role("button", name="Smoke side chat", exact=True).click()
+        expect(page.get_by_role("heading", name="Smoke side chat", exact=True)).to_be_visible()
+        prompt = "Nebulaquill thread-menu fixture"
+        with hold_after_first_token(prompt) as release:
+            send(page, prompt)
+            stop = await_partial_reply(page, "This")
+            trigger.press("ArrowDown")
+            expect(summary).to_be_focused()
+            expect(delete).to_be_disabled()
+            expect(rename).to_be_enabled()
+            page.keyboard.press("ArrowUp")
+            expect(rename).to_be_focused()
+            page.keyboard.press("Escape")
+            release.set()
+        expect(stop).to_be_hidden()
+        expect(trigger).to_be_focused()
+
+        page.keyboard.press("Enter")
+        page.once("dialog", lambda dialog: dialog.accept("Renamed smoke chat"))
+        with page.expect_response("**/api/threads/rename") as renamed:
+            rename.click()
+        assert renamed.value.ok
+        trigger = page.get_by_role("button", name="Actions for Renamed smoke chat")
+        menu = page.get_by_role("menu", name="Renamed smoke chat")
+        delete = menu.get_by_role("menuitem", name="Delete")
+        expect(trigger).to_be_focused()
+        page.keyboard.press("Enter")
+        page.once("dialog", lambda dialog: dialog.dismiss())
+        delete.click()
+        expect(menu).to_be_hidden()
+        expect(trigger).to_be_focused()
+        page.keyboard.press("Enter")
+        page.once("dialog", lambda dialog: dialog.accept())
+        with page.expect_response("**/api/threads/delete") as deleted:
+            delete.click()
+        assert deleted.value.ok
+        expect(trigger).to_have_count(0)
+        expect(page.locator('.thread-link[data-thread="main"]')).to_be_focused()
+
+
+def mobile_thread_menu_smoke(browser, origin):
+    for fallback in (False, True):
+        with browser_page(browser, origin, viewport={"width": 390, "height": 844},
+                          is_mobile=not fallback, has_touch=not fallback) as page:
+            if fallback:
+                page.add_init_script("HTMLElement.prototype.showPopover = undefined;")
+            assert page.goto("/").ok
+            page.get_by_role("button", name="Open menu").click()
+            drawer = page.get_by_role("dialog", name="Hearth")
+            trigger = page.get_by_role("button", name="Actions for Smoke side chat")
+            menu = drawer.get_by_role("menu", name="Smoke side chat")
+            expect(trigger).to_have_css("opacity", "1")
+            box = trigger.bounding_box()
+            row = page.locator(".thread-row").filter(has=trigger).bounding_box()
+            assert box and row and box["width"] >= 44 and box["height"] >= 44
+            assert box["y"] == row["y"] and box["height"] == row["height"]
+            if fallback:
+                trigger.click()
+            else:
+                trigger.tap()
+            expect(menu).to_be_visible()
+            assert_thread_menu_position(page, trigger, menu)
+            expect(menu.get_by_role("menuitem", name="Summary")).to_be_focused()
+            page.keyboard.press("Escape")
+            expect(menu).to_be_hidden()
+            expect(drawer).to_be_visible()
+            expect(trigger).to_be_focused()
+            page.keyboard.press("Enter")
+            page.mouse.click(370, 300)
+            expect(menu).to_be_hidden()
+            expect(drawer).to_be_visible()
+            expect(trigger).to_be_focused()
+            page.keyboard.press("Enter")
+            menu.get_by_role("menuitem", name="Summary").click()
+            sheet = page.get_by_role("dialog", name="Chat summary")
+            expect(sheet.get_by_text("Smoke side chat")).to_be_visible()
+            sheet.get_by_role("button", name="Close summary").click()
+            expect(drawer).to_be_visible()
+            expect(trigger).to_be_focused()
+
+    with browser_page(browser, origin, viewport={"width": 1440, "height": 900}, has_touch=True) as page:
+        open_chat(page)
+        assert page.evaluate("matchMedia('(hover: none)').matches")
+        expect(page.get_by_role("button", name="Actions for Smoke side chat")).to_have_css("opacity", "1")
+
+
 def stale_refresh(browser, origin):
     with browser_page(browser, origin, color_scheme="dark", viewport={"width": 390, "height": 844}) as page:
         page.add_init_script("""(() => {
@@ -695,6 +901,8 @@ def main():
                 with workspace() as (layout_app, layout_origin):
                     layout_smoke(browser, layout_app, layout_origin)
                 smoke(browser, origin)
+                mobile_thread_menu_smoke(browser, origin)
+                thread_menu_smoke(browser, origin)
                 stale_refresh(browser, origin)
                 self_update_smoke(browser, app, origin)
         finally:

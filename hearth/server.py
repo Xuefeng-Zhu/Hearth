@@ -95,6 +95,7 @@ STATIC = {
     "/pages.css": ("pages.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/mobile.js": ("mobile.js", "text/javascript; charset=utf-8"),
+    "/thread-menu.js": ("thread-menu.js", "text/javascript; charset=utf-8"),
     "/dom.js": ("dom.js", "text/javascript; charset=utf-8"),
     "/icons.js": ("icons.js", "text/javascript; charset=utf-8"),
     "/time.js": ("time.js", "text/javascript; charset=utf-8"),
