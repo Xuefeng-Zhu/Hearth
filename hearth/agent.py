@@ -8,6 +8,7 @@ from http.client import HTTPException
 from urllib.parse import urlsplit
 
 from . import approvals, box, browserbase, event_automations, file_intent, memory, memory_edits, office, page_agent, panels, recall, router, search, skills, tasks, timeline, uploads, workers
+from . import file_questions
 from .connections import catalog_entry, with_model
 from .proactivity import SOURCE as PROACTIVE_SOURCE
 from .connectors import ConnectorError, Integrations, model_error
@@ -100,6 +101,7 @@ TOOL_TITLES = {
     "send_email": "Preparing an email", "remember_fact": "Remembering a fact", "web_search": "Searching the web",
     "schedule": "Scheduling a reminder", "checkpoint": "Saving a checkpoint", "undo": "Finding a checkpoint",
     "gateway_request": "Contacting a connector", "read_artifact": "Reading a file",
+    "ask_files": "Asking your Box files",
     "create_panel": "Creating Home panels", "update_panel": "Updating a Home panel", "delete_panel": "Deleting a Home panel",
     "browse_fetch": "Reading a web page", "browse_search": "Searching with Browserbase",
     "browse_session": "Starting a browser session",
@@ -202,6 +204,9 @@ TOOL_DEFINITIONS = {
     "memory_search": schema("Find and cite relevant excerpts from memory, artifacts and enabled chat history.",
                             {"query": STRING, "kind": {"type": "string", "enum": list(recall.KINDS)},
                              "thread_id": STRING}, ("query",)),
+    "ask_files": schema("Answer from the user's Box artifacts. Supply exact file names only when named by the user. "
+                        "Omit file_names to use up to 25 recent Box files.",
+                        {"question": STRING, "file_names": {"type": "array", "items": STRING}}, ("question",)),
     "memory_write": schema("Create Markdown subject notes. Start with YAML id, type, related and contact relation. "
                            "The id is the path without .md. Re-read existing notes before full replacement.", {
         "notes": {"type": "array", "items": {"type": "object", "properties": {"path": STRING, "content": STRING},
@@ -691,14 +696,18 @@ class Agent:
         turn["schedule_setup"] = not task_run and bool(SCHEDULE_SETUP.search(prompt))
         page_intent = None
         pinned = thread_settings.get("skill")
+        turn["file_question"] = bool(self.artifacts and not task_run and not source and not pinned
+                                     and not turn["automation_setup"] and file_questions.INTENT.search(prompt))
         recent_page = self.pages.recent(thread_id) if self.pages else None
-        if self.pages and prompt and not task_run and not pinned and not turn["automation_setup"]:
+        if self.pages and prompt and not task_run and not pinned and not turn["automation_setup"] and not turn["file_question"]:
             page_intent = page_agent.intent(prompt, recent_page, history[-2] if len(history) > 1 else None)
         turn["browse_intent"] = None if turn["panel_request"] else router.browse_intent(prompt)
         turn["file_intent"] = (file_intent.intent(prompt, has_recent_file, has_attachments=bool(attachments))
                                if self.artifacts and not turn["panel_request"] else None)
         if turn["automation_setup"]:
             turn.update(browse_intent=None, file_intent=None, panel_request=False)
+        if turn["file_question"]:
+            turn.update(browse_intent=None, file_intent=None)
         token = TURN_MEMORY.set(turn)
         try:
             if demo:
@@ -706,6 +715,9 @@ class Agent:
                 time.sleep(0.75)
             event("started", {"message": message, "thread": thread,
                               **({"attachments": attachments} if attachments else {})})
+            if turn["file_question"]:
+                self.reply(prompt, event, history, "")
+                return
             if not turn["automation_setup"] and (pinned or (
                 not demo and not page_intent and not turn["panel_request"] and not turn["schedule_setup"]
             )):
@@ -871,12 +883,22 @@ class Agent:
             )
         if turn["automation_setup"]:
             definitions = {name: value for name, value in definitions.items() if name in AUTOMATION_SETUP_TOOLS}
+        if turn.get("file_question"):
+            definitions = {"ask_files": TOOL_DEFINITIONS["ask_files"]}
+            messages = [
+                {"role": "system", "content": "Call ask_files to answer the user's Box file question. Preserve the "
+                 "question's meaning and provide only file names explicitly named as sources. Omit file_names when "
+                 "the user wants recent files or gives no file names."},
+                {"role": "user", "content": prompt},
+            ]
+        else:
+            definitions.pop("ask_files", None)
         tools = [{"type": "function", "function": {"name": name, **definition}}
                  for name, definition in definitions.items()]
 
         notices = []
         recovery = None
-        turn_type = "tool" if turn["automation_setup"] else router.classify(prompt, side=CHAT_ORIGIN.get()["thread_id"] != MAIN,
+        turn_type = "tool" if turn["automation_setup"] or turn.get("file_question") else router.classify(prompt, side=CHAT_ORIGIN.get()["thread_id"] != MAIN,
                                     file_request=bool(turn["file_intent"] or turn.get("skill")))
         stats = self.brain_stats.snapshot() if self.brain_mode == "smart" else {}
         models, plan = self.routing_plan(turn_type, self.brain_mode, self.models, stats)
@@ -1147,6 +1169,8 @@ class Agent:
             available = {tool["function"]["name"] for tool in active_tools}
             required = [names & available for pattern, names in router.REQUIRED_ACTIONS
                         if pattern.search(user_prompt) and names & available]
+            if "ask_files" in available:
+                required.append({"ask_files"})
             if parallel_requested and "spawn_workers" in available:
                 required.append({"spawn_workers"})
             file_mode = turn["file_intent"]
@@ -1155,7 +1179,10 @@ class Agent:
                 required.append(file_tools)
             emit = lambda text: event("token", {"text": text})
             try:
-                if not tool_results and "create_recurring_task" in available and model["provider"] != "mock" and (
+                if "ask_files" in available and model["provider"] == "mock":
+                    reply = mock_text("Chat needs a tool-capable brain for Box file questions. "
+                                     "You can choose files in Artifacts → Ask my files.", emit)
+                elif not tool_results and "create_recurring_task" in available and model["provider"] != "mock" and (
                     re.match(r"^(?:please\s+)?every\s+", user_prompt, re.I) and
                     not re.search(r"\b(?:by email|via email|in-app|both|UTC|GMT|timezone)\b", user_prompt, re.I)
                 ) and (recurring := tasks.natural(user_prompt)):
@@ -1283,6 +1310,12 @@ class Agent:
                     self.log_activity("tool", TOOL_TITLES.get(name, "Tool request"),
                                       diagnostic=True, data={"detail": result["error"]})
                     event("tool_warning", {})
+                if name == "ask_files" and "ask_files" in available:
+                    result = dict(result)
+                    content = result.pop("error") if "error" in result else result.pop("answer")
+                    self.finish_reply(model, {"content": content}, [], notices, event, user_prompt, routing,
+                                      extra={"file_answer": result} if result else None, summarize=False)
+                    return True
                 if result.get("action", {}).get("id"):
                     touched_state = True
                     action = result["action"]
@@ -1675,6 +1708,10 @@ class Agent:
             return self.gateway_response(self.gateway_connections[provider], method, path, None, None)
         if name in FILE_TOOL_MODES:
             return self.file_tool(name, arguments)
+        if name == "ask_files":
+            if not (TURN_MEMORY.get() or {}).get("file_question"):
+                raise HearthError("Ask about your Box files directly in Chat or Artifacts.")
+            return file_questions.ask(self, arguments, selection="file_names")
         if name not in TOOL_DEFINITIONS:
             raise HearthError("Unknown tool.")
         if name == "list_reminders":

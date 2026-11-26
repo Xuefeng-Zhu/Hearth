@@ -14,6 +14,7 @@ from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
 from . import approvals, artifacts, box, browserbase, event_automations, feed, home, inbox, memory, memory_edits, memory_purge, memory_review, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
+from . import file_questions
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -60,6 +61,7 @@ STATIC = {
     "/theme.css": ("theme.css", "text/css; charset=utf-8"),
     "/timeline.js": ("timeline.js", "text/javascript; charset=utf-8"),
     "/artifacts.js": ("artifacts.js", "text/javascript; charset=utf-8"),
+    "/file-questions.js": ("file-questions.js", "text/javascript; charset=utf-8"),
     "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
     "/icons/icon.svg": ("icons/icon.svg", "image/svg+xml"),
     "/icons/favicon.svg": ("icons/favicon.svg", "image/svg+xml"),
@@ -1355,16 +1357,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_artifact(self):
         operation = self.path.removeprefix("/api/artifacts/")
-        if operation not in {"settings", "retry", "delete", "undo"}:
+        if operation not in {"settings", "retry", "delete", "undo", "ask"}:
             self.json({"error": "Page not found."}, 404)
             return
         try:
-            body = self.body(8 * box.MAX_BYTES)
-            with self.app.operation:
+            body = self.body(24_000 if operation == "ask" else 8 * box.MAX_BYTES)
+            if operation == "ask":
                 if self.app.restore and self.app.restore["status"] == "restoring":
                     self.json({"error": "A checkpoint is being restored."}, 409)
                     return
-                result = self.update_artifacts(operation, body)
+                result = file_questions.ask(self.app.agent, body)
+            else:
+                with self.app.operation:
+                    if self.app.restore and self.app.restore["status"] == "restoring":
+                        self.json({"error": "A checkpoint is being restored."}, 409)
+                        return
+                    result = self.update_artifacts(operation, body)
         except HearthError as error:
             self.json({"error": str(error)}, 400)
         except TimeoutError:

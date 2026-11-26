@@ -17,7 +17,7 @@ CATEGORIES = (*CONNECTOR_CATEGORIES, "skills")
 DEFAULTS = dict.fromkeys(CATEGORIES, "ask")
 LABELS = {"send": "Send", "spend": "Spend", "public": "Publish", "destructive": "Delete", "skills": "Skills"}
 READ_TOOLS = frozenset({
-    "memory_read", "memory_search", "web_search", "read_artifact", "list_reminders", "list_recurring_tasks",
+    "memory_read", "memory_search", "web_search", "read_artifact", "ask_files", "list_reminders", "list_recurring_tasks",
     "browse_fetch", "browse_search", "undo", "skill_load",
 })
 LOCAL_TOOLS = frozenset({

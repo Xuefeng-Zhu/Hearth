@@ -37,7 +37,7 @@ def remaining(deadline):
 
 
 class Index:
-    def __init__(self, gateway, entry):
+    def __init__(self, gateway, entry, *, store_text=True):
         self.gateway = gateway
         self.entry = entry
         self.name = entry["index"]
@@ -45,7 +45,8 @@ class Index:
         self.base = f"indexes/{quote(self.name, safe='')}"
         self.records = f"records/namespaces/{quote(self.namespace, safe='')}"
         self.rerank_unavailable = False
-        self.vector_transport = False
+        self.store_text = store_text
+        self.vector_transport = not store_text
 
     def control(self, path, body=None):
         return retry(lambda: self.gateway.json(self.entry, path, body, timeout=8))
@@ -53,11 +54,11 @@ class Index:
     def data(self, path, body, *, timeout=8):
         return self.gateway.json(self.entry, f"{self.base}/{path}", body, timeout=timeout)
 
-    def bootstrap(self, dense_available):
+    def bootstrap(self, dense_available, *, create=True):
         try:
             model = self.control(self.base)
         except ConnectorError as error:
-            if error.status != 404 or error.missing_connection:
+            if not create or error.status != 404 or error.missing_connection:
                 raise
             self.create(dense_available)
             model = self.control(self.base)
@@ -201,7 +202,8 @@ class Index:
         if any(len(vector) != info["dimension"] for vector in vectors):
             raise ConnectorError(f"The embedding model must return {info['dimension']}-dimension vectors.")
         body = {"namespace": self.namespace, "vectors": [
-            {"id": row["memory_id"], "values": vector, "metadata": row}
+            {"id": row["memory_id"], "values": vector,
+             "metadata": row if self.store_text else {key: value for key, value in row.items() if key != "text"}}
             for row, vector in zip(records, vectors, strict=True)]}
         retry(lambda: self.data("vectors/upsert", body, timeout=12))
 

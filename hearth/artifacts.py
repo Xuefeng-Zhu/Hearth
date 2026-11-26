@@ -13,6 +13,8 @@ from .gateway_tools import redact_text
 from .storage import HearthError, atomic_write, iso, new_id
 from .threads import compact
 
+QUESTION_FORMATS = {*office.MIME_TYPES, "txt", "md", "csv"}
+
 
 def filename(title, fmt, suffix=""):
     safe = "".join(char if char.isalnum() or char in " ._-" else "-"
@@ -56,7 +58,7 @@ def digest(content):
 
 def public(row, *, content=False):
     hidden = {"content", "box_connection", "box_history", "etag", "deleted", "folder_id", "folder_connection",
-              "source_tag", "from_message", "file_revision", "file_history", "structured", "reply_links"}
+              "source_tag", "from_message", "file_revision", "file_history", "structured", "reply_links", "box_filename"}
     result = {key: value for key, value in row.items() if key not in hidden}
     if row.get("box_id"):
         result["box_url"] = f"https://app.box.com/file/{row['box_id']}"
@@ -179,6 +181,7 @@ class Artifacts:
         fmt = re.sub(r"[^a-z0-9]", "", ext.lower())[:12] if sep else ""
         title = stem if sep and stem else label
         row = {**metadata(item), "id": f"box-{item['id']}", "title": title[:160], "filename": filename(title, fmt),
+               "box_filename": label[:255],
                "box_connection": self.connection(), "kind": kind, "format": fmt, "source": "Box",
                "sync": "synced", "size": item.get("size"), "created_at": when(item.get("created_at")),
                "updated_at": when(item.get("modified_at"))}
@@ -218,8 +221,35 @@ class Artifacts:
                     if remote and not row.get("file_revision"):
                         row = {**row, "updated_at": remote["updated_at"], "size": remote["size"]}
                 rows.append(row)
-            return {**self.info(), "artifacts": [*(public(row) for row in rows), *page_artifacts(state)],
+            items = []
+            for row in rows:
+                item = public(row)
+                if not error and (remote := self._question_row(row)):
+                    item["ask_filename"] = remote["box_filename"]
+                items.append(item)
+            return {**self.info(), "artifacts": [*items, *page_artifacts(state)],
                     "box_error": error}
+
+    def _question_row(self, row):
+        if row.get("box_connection") != self.connection() or row["sync"] != "synced":
+            return None
+        remote = self.remote.get(f"box-{row.get('box_id')}")
+        return remote if remote and remote["format"] in QUESTION_FORMATS else None
+
+    def question_files(self):
+        with self.lock:
+            scope = (self.connection(), self.config()["folder_name"])
+            client = self.client()
+            if not client:
+                raise HearthError("Connect Box in Settings to ask about your files.")
+            listing = self.list()
+            if listing["box_error"]:
+                raise HearthError(listing["box_error"])
+            if scope != (self.connection(), self.config()["folder_name"]):
+                raise HearthError("The Artifacts Box folder changed. Refresh Artifacts and try again.")
+            rows = {item["id"]: {**self.remote[f"box-{item['box_id']}"], "id": item["id"], "title": item["title"]}
+                    for item in listing["artifacts"] if item.get("ask_filename")}
+            return client, scope, rows
 
     def memory_rows(self, previous):
         if self.list()["box_error"]:
