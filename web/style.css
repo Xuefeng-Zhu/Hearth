@@ -1116,7 +1116,7 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 .file-question-form :is(textarea, input[type="search"]) {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid var(--artifact-control-border);
+  border: 1px solid var(--field-edge);
   border-radius: 8px;
   background: var(--paper);
   color: inherit;

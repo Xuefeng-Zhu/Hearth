@@ -212,7 +212,7 @@
   .layout label:has(> :is(input[type="checkbox"], input[type="radio"])) { min-height: 44px; align-content: center; }
   .layout input[type="color"] { min-width: 44px; }
   .layout :is(.artifact-thread, .artifact-connection a, .delivery-actions a, .connector-links a,
-    .connection-match-link, #memory-connect, a.home-link, a.skill-chip),
+    .connection-match-link, #inbox-address a, #memory-connect, a.home-link, a.skill-chip),
   .artifact-drawer .artifact-thread { display: inline-flex; min-height: 44px; min-width: 44px; align-items: center; }
   .layout a.skill-chip { padding-block: 8px; }
   .layout pre, .artifact-drawer pre { white-space: pre-wrap; overflow-wrap: anywhere; }
