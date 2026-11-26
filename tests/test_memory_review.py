@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
-from hearth import memory, memory_review, recall, router
+from hearth import memory, memory_purge, memory_review, recall, router
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import ConnectorError, read_config
 from hearth.server import Application
@@ -161,6 +161,16 @@ class MemoryReviewTest(unittest.TestCase):
         self.decide(digest, "accept-all")
         self.assertIn(FACT, self.storage.read(memory.PROFILE_NOTE))
 
+    def test_forgetting_keeps_unrelated_review_proposals_pending(self):
+        digest, items = self.mock_digest()
+        state = self.storage.load()
+        rules = [memory.forget_rule([[STALE]])]
+        memory_purge.scrub_state(state, rules)
+        remaining, = state["memory_review"]["digests"]
+        self.assertEqual(remaining, {**digest, "items": [item for item in digest["items"] if item != items["stale"]]})
+        self.assertTrue(all(item["status"] == "pending" for item in remaining["items"]))
+        self.assertNotIn(STALE, json.dumps(remaining, ensure_ascii=False))
+
     def test_validation_caps_proposals_and_logs_failure(self):
         self.make_live()
         self.gateway.reply = '{"items":[{"kind":"merge","sources":["1","missing"]}]}'
@@ -215,16 +225,16 @@ class MemoryReviewTest(unittest.TestCase):
         self.assertEqual(self.review.tick(NOW, force=True)["count"], 0)
         self.assertNotIn(FACT, self.storage.read(memory.PROFILE_NOTE))
 
-    def test_permanent_forget_drops_pending_and_checkpoint_digests(self):
+    def test_permanent_forget_scrubs_matching_review_items_from_live_state_and_checkpoints(self):
         digest, items = self.mock_digest()
         self.decide(digest, "accept", items["promote"])
         self.app.purge_memory([["sketching with charcoal"]], None)
-        self.assertFalse(self.review.get()["digests"])
+        remaining, = self.review.get()["digests"]
+        self.assertEqual(remaining, {**digest, "items": [items["stale"], items["contradiction"]]})
         self.assertNotIn("sketching with charcoal", self.storage.state.read_text())
         for state in self.app.checkpoints.root.glob("*/live/state.json"):
             self.assertNotIn("sketching with charcoal", state.read_text())
-        with self.assertRaises(HearthError):
-            self.decide(digest, "accept-all")
+        self.assertEqual(self.decide(digest, "accept", items["merge"])["digests"], [remaining])
         self.review.tick(NOW, force=True)
         self.assertNotIn("sketching with charcoal", json.dumps(self.review.get()))
 
