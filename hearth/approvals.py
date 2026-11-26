@@ -24,9 +24,9 @@ LOCAL_TOOLS = frozenset({
     "remember_fact", "schedule", "checkpoint", "create_panel", "update_panel", "create_recurring_task",
     "update_recurring_task", "pause_recurring_task", "create_document", "create_pdf", "create_spreadsheet",
     "create_presentation", "update_document", "update_pdf", "update_spreadsheet", "update_presentation",
-    "spawn_workers", "memory_move",
+    "spawn_workers", "memory_move", "create_event_automation",
 })
-DELETE_TOOLS = frozenset({"delete_panel", "delete_recurring_task", "delete_memory", "delete_artifact", "memory_forget"})
+DELETE_TOOLS = frozenset({"delete_panel", "delete_recurring_task", "delete_event_automation", "delete_memory", "delete_artifact", "memory_forget"})
 SAFE_HTTP = {"GET", "HEAD", "OPTIONS"}
 
 

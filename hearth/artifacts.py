@@ -341,7 +341,7 @@ class Artifacts:
             if row.get("box_id") and row["sync"] == "synced":
                 row = {**row, "revision": self.box_revision(row)}
             return {**public(row, content=True), "versions": history, "version_source": history_source,
-                    "warnings": warnings,
+                    "warnings": warnings, "download_available": bool(row.get("file_revision")),
                     "box_connected": bool(self.connection())}
 
     def file_path(self, row):
@@ -472,7 +472,11 @@ class Artifacts:
                                             and item.get("name") == row["filename"] and box.box_id(item.get("id"))
                                             and item.get("sha1") == digest(content)), None)
                         if current is None:
-                            name = filename(row["title"], row["format"], f" - {row['id'][:8]}")
+                            title, fmt = row["title"], row["format"]
+                            if fmt == "file":
+                                stem, dot, ext = row["filename"].rpartition(".")
+                                title, fmt = (stem, ext) if dot else (row["filename"], "")
+                            name = filename(title, fmt, f" - {row['id'][:8]}")
                             if name == row["filename"]:
                                 raise
                             row = {**row, "filename": name}
@@ -518,6 +522,25 @@ class Artifacts:
                "size": len(raw), "sync": "local", "sync_message": None, "file_history": [*history, entry]}
         atomic_write(self.file_path(row), raw)
         return row
+
+    def import_mail(self, name, raw, *, origin, sync):
+        from .uploads import safe_filename
+
+        with self.operation, self.lock:
+            name = safe_filename(name)
+            row = self.stage_file({"id": new_id(), "title": name, "filename": name,
+                                   "kind": "export", "format": "file", "mime": "application/octet-stream", "source": "Email",
+                                   "source_tag": "event-automation", "created_at": iso(), **origin},
+                                  None, raw=raw)
+            if sync:
+                row.update(sync="saving")
+                self.write(row)
+                try:
+                    row = self.synchronize(row)
+                except (HearthError, OSError):
+                    row.update(sync="error", sync_message="Hearth could not confirm the Box upload. A local copy is available.")
+            self.write(row, "created")
+            return public(row)
 
     def save_file(self, row, value, *, before=None):
         row = self.stage_file(row, value)

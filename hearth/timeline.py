@@ -141,6 +141,7 @@ def chat_entries(threads, thread_list, logged_recall):
 
 
 def entries(storage, threads, can_undo, *, pinecone=None, mail_connected=False):
+    from . import event_automations
     from .pages import can_undo as can_undo_page
     from .skills import can_undo as can_undo_skill
     with storage.lock():
@@ -158,6 +159,17 @@ def entries(storage, threads, can_undo, *, pinecone=None, mail_connected=False):
             rows.append(entry("worker", worker["title"], worker, id=f"worker:{worker['id']}",
                               at=worker.get("finished_at") or worker.get("started_at") or worker["queued_at"],
                               error=worker["status"] == "failed", data=worker))
+        labels = {"approval_needed": "Needs approval", "complete": "Completed", "rate_limited": "Hourly limit reached",
+                  "cancelled": "Stopped", "request_unknown": "Outcome unconfirmed", "partial": "Partially applied"}
+        for run in state.get("event_runs", {}).values():
+            status = run["status"]
+            label = labels.get(status, status.replace("_", " ").capitalize())
+            undoable = event_automations.undoable(state, run)
+            rows.append(entry("automation", f"{run['name']} · {label}", run, id=f"automation:{run['id']}",
+                              action_id=run["id"], at=run.get("finished_at", run["at"]), undoable=undoable,
+                              undone=bool(run.get("undo_at") and not undoable), undone_at=run.get("undo_at"),
+                              error=status in {"failed", "request_unknown", "rate_limited", "partial"},
+                              data=event_automations.run_info(run)))
         jobs = {job["id"]: job for job in state["jobs"]}
         def undoable(action):
             if action["kind"] == "page":

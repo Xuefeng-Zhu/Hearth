@@ -303,7 +303,7 @@ def apply_feedback(data, row, operation):
 
 
 def public_card(row, votes):
-    return {key: value for key, value in row.items() if key not in {"references", "category"}} | {
+    return {key: value for key, value in row.items() if key not in {"references", "category", "automation_path"}} | {
         "liked": bool(votes.get("like")), "saved": bool(votes.get("save"))}
 
 
@@ -422,6 +422,10 @@ class Feed:
             action_ids = state.get("proactivity", {}).get("cards", {}).keys() | current.get("saved_actions", {}).keys()
             for identity in votes.keys() - cards.keys() - action_ids:
                 votes.pop(identity)
+            if state.get("event_automations"):
+                from . import event_automations
+                for row in generated:
+                    event_automations.enqueue(state, event_automations.feed_event(row), now)
             current.update(inferred=inferred, error=failure, updated_at=iso(now), completed_run=run_id)
             self.storage.save(state)
             return {"status": "error" if failure and not generated else "complete",
@@ -472,11 +476,7 @@ class Feed:
             page = {"running": running, "enabled": config["enabled"], "steering": config["steering"], "updated_at": data.get("updated_at"),
                     "error": data.get("error"), "cards": [], "next_cursor": None}
             if config["enabled"]:
-                rows = list(data.get("cards", {}).values())
-                if not saved:
-                    rows.extend(memory_review_cards(state, now))
-                rows.extend(action for row in state.get("proactivity", {}).get("cards", {}).values()
-                            if (action := self.action(row, state, context, config, now, blocked)))
+                rows = self.current_cards(state, now, context, config, blocked, include_review=not saved)
                 if saved:
                     live = {row["id"] for row in rows}
                     rows.extend(row for identity, snapshot in data.get("saved_actions", {}).items()
@@ -489,14 +489,34 @@ class Feed:
                     if ((saved and not feedback.get("save"))
                             or (not saved and (feedback.get("dismiss") or feedback.get("less")))):
                         continue
-                    if row["kind"] not in {"action", "memory-review"} and not self.valid(row, context, config):
-                        continue
                     if len(page["cards"]) == limit:
                         last = page["cards"][-1]
                         page["next_cursor"] = f"{last['at']}~{last['id']}"
                         break
                     page["cards"].append(public_card(row, feedback))
             return page
+
+    def current_cards(self, state, now, context, config, blocked, *, include_review=True):
+        rows = [row for row in state.get("feed", {}).get("cards", {}).values() if self.valid(row, context, config)]
+        if include_review:
+            rows.extend(memory_review_cards(state, now))
+        rows.extend(action for row in state.get("proactivity", {}).get("cards", {}).values()
+                    if (action := self.action(row, state, context, config, now, blocked)))
+        return rows
+
+    def collect_events(self, state, now):
+        from . import event_automations
+        config = settings(state)
+        if not config["enabled"]:
+            return False
+        rows = self.current_cards(state, now, Context(self.app, state), config, proactivity.blocked(self.storage))
+        votes = state.get("feed", {}).get("feedback", {})
+        changed = False
+        for row in reversed(rows):
+            feedback = votes.get(row["id"], {})
+            if not (feedback.get("dismiss") or feedback.get("less")):
+                changed |= event_automations.enqueue(state, event_automations.feed_event(row), now)
+        return changed
 
     def select(self, state, identity):
         data = state.setdefault("feed", {})

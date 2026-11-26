@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import approvals, artifacts, box, browserbase, feed, home, inbox, memory, memory_edits, memory_purge, memory_review, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
+from . import approvals, artifacts, box, browserbase, event_automations, feed, home, inbox, memory, memory_edits, memory_purge, memory_review, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -109,6 +109,7 @@ class Application:
         self.feed = feed.Feed(self)
         self.memory_review = memory_review.MemoryReview(self)
         self.task_runner = tasks.Runner(self)
+        self.event_runner = event_automations.Runner(self)
         approvals.upgrade_legacy(self.agent)
 
     def scheduler_tick(self):
@@ -119,6 +120,7 @@ class Application:
         self.feed.kick()
         self.memory_review.kick()
         task_runs = self.task_runner.tick()
+        self.event_runner.kick()
         info = self.reminders.info()
         return {"fired": fired, "processed": polled, "last_tick": info["last_tick"], "next_due": info["next_due"],
                 "panels_refreshed": self.home.run_due(), "task_runs": task_runs}
@@ -141,6 +143,7 @@ class Application:
                         next_inbox = now + 60
                     self.reminders.deliver()
                     self.task_runner.kick()
+                    self.event_runner.kick()
                     if woke or now >= next_home:
                         self.home.kick()
                         self.proactivity.kick()
@@ -574,7 +577,13 @@ class Application:
 
     def undo_action(self, action_id):
         with self.storage.lock():
-            action = self.storage.load()["actions"].get(action_id)
+            state = self.storage.load()
+            action = state["actions"].get(action_id)
+            event_run = action_id in state.get("event_runs", {})
+        if event_run:
+            return event_automations.undo_run(self, action_id), 200
+        if action and action.get("undo_automation"):
+            return event_automations.undo_delete(self, action_id), 200
         if action and action.get("undo_task"):
             return tasks.undo_delete(self.storage, action_id), 200
         if action and action["kind"] == "page":
@@ -591,6 +600,8 @@ class Application:
     def start_restore(self, action_id):
         if self.workers.busy():
             raise HearthError("Wait for worker tools to finish before restoring a checkpoint.")
+        if self.event_runner.worker.locked():
+            raise HearthError("Wait for automation processing to finish before restoring a checkpoint.")
         if self.task_runner.worker.locked():
             raise HearthError("Wait for recurring task processing to finish before restoring a checkpoint.")
         if self.reindex_running() or self.memory_sync.running:
@@ -776,6 +787,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"approvals": approvals.records(self.app.storage)})
             elif url.path == "/api/approvals/settings":
                 self.json(approvals.policy(self.app.storage.load()))
+            elif url.path == "/api/event-automations":
+                with self.app.storage.lock():
+                    state = self.app.storage.load()
+                    result = {"automations": event_automations.describe(state),
+                              "threads": self.app.threads.list(),
+                              "reminders": [{"id": row["id"], "message": row["message"]} for row in state["jobs"]
+                                            if row["status"] == "scheduled"],
+                              "timezone": saved(state)["timezone"], "feed_kinds": event_automations.FEED_KINDS}
+                self.json(result)
             elif url.path == "/api/tasks":
                 self.json(tasks.mutate(self.app.storage, "list", {}))
             elif url.path == "/api/reminders/settings":
@@ -900,7 +920,7 @@ class Handler(BaseHTTPRequestHandler):
                 except (HearthError, OSError):
                     self.json({"error": "Hearth could not run the scheduler tick."}, 500)
             return
-        if self.path.startswith(("/api/approvals/", "/api/tasks/")):
+        if self.path.startswith(("/api/approvals/", "/api/tasks/", "/api/event-automations/")):
             self.post_automation()
             return
         if self.path == "/api/workers/stop":
@@ -1255,7 +1275,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_automation(self):
         try:
-            body = self.body()
+            body = self.body(limit=48_000 if self.path.startswith("/api/event-automations/") else 24_000)
             operation = self.path.rsplit("/", 1)[-1]
             with self.app.operation:
                 if self.app.restoring():
@@ -1270,6 +1290,13 @@ class Handler(BaseHTTPRequestHandler):
                                                   body.get("changes"))
                     else:
                         raise HearthError("Choose an approval action.")
+                elif self.path.startswith("/api/event-automations/"):
+                    if operation == "delete" and body.keys() == {"id"}:
+                        result = self.app.agent.execute("delete_event_automation", body)
+                    elif operation in {"create", "update"}:
+                        result = event_automations.mutate(self.app, operation, body)
+                    else:
+                        raise HearthError("Choose an automation action.")
                 elif operation == "delete" and body.keys() == {"id"}:
                     result = self.app.agent.execute("delete_recurring_task", body)
                     action = result["action"]

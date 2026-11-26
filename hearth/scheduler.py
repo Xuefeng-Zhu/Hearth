@@ -124,7 +124,8 @@ def occurrence(job, now, *, test=False):
     return {"id": new_id(), "job_id": job["id"], "message": job["message"], "note": job.get("note", ""),
             "channel": job.get("channel", "app"), "urgent": job.get("urgent", False), "test": test,
             "scheduled_at": due, "delivered_at": iso(now), "late_minutes": late, "delivery": delivery,
-            **{key: job.get(key, default) for key, default in MAIN_ORIGIN.items()}}
+            **{key: job.get(key, default) for key, default in MAIN_ORIGIN.items()},
+            **{key: job[key] for key in ("source", "automation_path") if key in job}}
 
 
 def run_due(storage, clock=None, *, tick=False):
@@ -134,7 +135,15 @@ def run_due(storage, clock=None, *, tick=False):
         due = [job for job in state["jobs"] if job["status"] == "scheduled"
                and datetime.fromisoformat(job.get("next_fire_at", job["next_at"])) <= now]
         for job in due:
-            state["reminders"].append(occurrence(job, now))
+            item = occurrence(job, now)
+            state["reminders"].append(item)
+            if state.get("event_automations"):
+                from . import event_automations
+                event_automations.enqueue(state, {
+                    "type": "reminder", "id": item["id"], "at": item["delivered_at"], "job_id": job["id"],
+                    "title": job["message"], "body": job.get("note", ""), "source": job.get("source"),
+                    "automation_path": job.get("automation_path", []),
+                }, now)
             if job.get("snoozed_at"):
                 job.pop("snoozed_at")
             if job.get("cron"):

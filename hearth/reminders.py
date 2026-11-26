@@ -55,7 +55,7 @@ def change_occurrence(state, item, operation, now, minutes=None):
         due = now + timedelta(minutes=minutes)
         scheduler.add_job(state, item["message"], now, at=iso(due), channel=item["channel"],
                           urgent=item["urgent"], note=item["note"],
-                          origin={key: item[key] for key in MAIN_ORIGIN})["snoozed_at"] = iso(now)
+                          origin={key: item[key] for key in (*MAIN_ORIGIN, "source", "automation_path") if key in item})["snoozed_at"] = iso(now)
         label = f"Snoozed {minutes} min"
     item["action"] = {"label": label, "at": iso(now)}
     log(state, f"{label} · {item['message']}", item, now, data={"reminder_id": item["id"]})

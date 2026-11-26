@@ -172,9 +172,18 @@ class Inbox:
         own_sender = sender == mailbox["address"]
         addressed_here = mailbox["address"] in map(mail_content.sender, recipients)
         if (own_sender and not addressed_here) or labels.intersection(
-                {"spam", "blocked", "agent-armor-held", "agent-armor-pending", "hearth-reminder", "hearth-ack", "hearth-task", "hearth-proactivity"}):
+                {"spam", "blocked", "agent-armor-held", "agent-armor-pending", "hearth-reminder", "hearth-ack", "hearth-task", "hearth-proactivity", "hearth-automation"}):
             self.mark_handled(card_id, now)
             return 0
+        if not own_sender:
+            from . import event_automations
+            with self.storage.lock():
+                state = self.storage.load()
+                if any(row["enabled"] and row["trigger"]["type"] == "email"
+                       for row in state.get("event_automations", {}).values()):
+                    event = event_automations.email_event(card_id, mailbox, message_id, message, sender, now)
+                    if event_automations.enqueue(state, event, now):
+                        self.storage.save(state)
         verified = trusted_sender(message, selection) and not own_sender
         if verified and self.apply_reply(card_id, mailbox, message, sender, now):
             return 1

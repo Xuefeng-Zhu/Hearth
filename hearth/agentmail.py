@@ -66,13 +66,29 @@ class AgentMail:
     def message(self, inbox, identity):
         return self.call(self.path(inbox, identity))
 
+    def attachment_info(self, inbox, message, item):
+        return self.call(self.path(inbox, message) + "/attachments/" + quote(item, safe=""))
+
     def attachment(self, inbox, message, item, *, pdf=False):
-        info = self.call(self.path(inbox, message) + "/attachments/" + quote(item, safe=""))
+        info = self.attachment_info(inbox, message, item)
         if isinstance(info.get("text"), str):
             return info["text"][:LIMIT]
         url = info.get("text_url" if pdf else "download_url")
         if not url:
             return ""
+        return self.download_attachment(url, LIMIT).decode("utf-8-sig", errors="replace")
+
+    def attachment_bytes(self, inbox, message, item):
+        info = self.attachment_info(inbox, message, item)
+        if not info.get("download_url"):
+            raise HearthError("AgentMail did not return an attachment download.")
+        limit = 20 * 1024 * 1024
+        raw = self.download_attachment(info["download_url"], limit + 1)
+        if len(raw) > limit:
+            raise HearthError("Email attachments must be at most 20 MiB.")
+        return raw
+
+    def download_attachment(self, url, limit):
         target = urlsplit(url)
         # URLs come only from the authenticated attachment metadata endpoint.
         host = target.hostname or ""
@@ -81,4 +97,4 @@ class AgentMail:
                  or re.fullmatch(r"s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com", host))):
             raise HearthError("Attachment download host is unavailable.")
         with self.gateway.opener.open(Request(url), timeout=5) as response:
-            return response.read(LIMIT).decode("utf-8-sig", errors="replace")
+            return response.read(limit)
