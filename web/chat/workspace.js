@@ -19,6 +19,8 @@ import { conversationView, newConversation, reconcile } from "../chat-state.js";
 import { createSSEParser } from "../sse.js";
 import { updateCard } from "../self-update.js";
 import { createStore } from "../store.js";
+import { mountComposer } from "./composer.js";
+import { mountThreads, renderThreadMenu } from "./threads.js";
 
 export const mainThread = { id: "main", title: "Main", busy: false };
 
@@ -28,9 +30,21 @@ export function createChatWorkspace({
   getArtifacts, onThreadsChanged, renderBrain, schedulePoll, approvalCard, approve, undo, gatewayResults,
   memoryLabel, openMemorySource, stopWorkers, openVoiceAction, openConnections,
 }) {
+  const store = createStore({
+    currentThread: requestedThread || sessionStorage.getItem("hearth-thread") || mainThread.id,
+    threads: [mainThread], threadEntries: [mainThread], busy: false, uploading: false,
+    sendLabel: "Send message", canStop: false, stoppingReply: false, callActive: false,
+    dictation: { phase: "idle", interim: "" },
+  });
+  mountComposer(byId("composer"), store, {
+    onSend: chat, onStop: stopActiveReply, onAttach: () => attachmentDraft.pick(),
+    onInput() { resizeInput(); followComposer(); },
+    onSelect() { if (Date.now() < avatarStates.get(store.state.currentThread)?.typing) followComposer(); },
+    onMic: () => voice.active ? voice.stop() : startVoice(),
+    onCancelVoice() { voice.cancel(); byId("mic").focus({ preventScroll: true }); },
+  });
   const transcript = byId("transcript");
   const input = byId("message");
-  const send = byId("send");
   const stopReply = byId("stop-reply");
   const replyStatus = byId("reply-status");
   const chatScroll = byId("chat-scroll");
@@ -41,10 +55,6 @@ export function createChatWorkspace({
   });
   const messageTime = timeFormatter({ hour: "numeric", minute: "2-digit" });
   const threadDrafts = new Map();
-  const store = createStore({
-    currentThread: requestedThread || sessionStorage.getItem("hearth-thread") || mainThread.id,
-    threads: [mainThread], busy: false,
-  });
   let conversation = newConversation(store.state.currentThread);
   const localTurns = () => [...conversation.turns.values()];
   const turnBubbles = new Map();
@@ -66,6 +76,7 @@ export function createChatWorkspace({
   let chatMotion;
   const workerCards = new Map();
   let threadBusy = false;
+  syncThreadMenu();
   let serverState;
   let stateTag;
   let stateVariant;
@@ -81,13 +92,11 @@ export function createChatWorkspace({
     api, thread: () => store.state.currentThread, jump: openChatSearchResult, reveal: revealChatSearchResult,
     prepareFind: () => { if (store.state.avatarMode === "face") chooseAvatarMode("beside"); },
   });
-  let uploading = false;
   const attachmentDraft = createAttachments({
     thread: () => store.state.currentThread, isChat: () => currentView() === "chat", isBusy: () => store.state.busy,
     onChange(pending) {
       const follow = nearBottom();
-      uploading = pending;
-      send.disabled = store.state.busy || pending;
+      store.update({ uploading: pending });
       if (follow) scrollDown();
     },
   });
@@ -100,6 +109,10 @@ export function createChatWorkspace({
     avatarMode: avatarModes.includes(savedMode) ? savedMode : "beside",
     avatarLook: Object.hasOwn(looks, savedLook) ? savedLook : "ember",
     avatarColor: /^#[0-9a-f]{6}$/i.test(savedColor) ? savedColor : "",
+  });
+  mountThreads({
+    store, list: byId("threads"), select: byId("thread-select"), avatarSelect: byId("avatar-view"),
+    onSelect: openThreadFromList, openMenu: openThreadMenu, menuId: threadMenu.id, onAvatarChange: chooseAvatarMode,
   });
   const avatarStates = new Map();
   const headerMascot = mascot(store.state.avatarLook, store.state.avatarColor);
@@ -118,8 +131,6 @@ export function createChatWorkspace({
     // Start from the default settings if the saved value is unreadable.
   }
   const voiceLevel = byId("voice-level");
-  const mic = byId("mic");
-  let voicePhase = "idle";
   let spaceHeld = false;
   const voice = createVoiceInput({
     update: updateVoice,
@@ -138,7 +149,7 @@ export function createChatWorkspace({
     },
     makeMascot: () => store.state.avatarMode === "off" ? null : mascot(store.state.avatarLook, store.state.avatarColor),
     update: (_, refresh) => {
-      mic.disabled = voiceCall.inProgress;
+      store.update({ callActive: voiceCall.inProgress });
       paintAvatars();
       if (refresh) refreshView().catch((error) => showNotice(error.message));
       if (currentView() === "settings" && currentSettings() === "voice" && !voiceCall.inProgress) voiceCall.refreshSettings();
@@ -252,7 +263,6 @@ export function createChatWorkspace({
   function applyAppearance() {
     const hidden = store.state.avatarMode === "off";
     const full = store.state.avatarMode === "face";
-    byId("avatar-view").value = store.state.avatarMode;
     byId("ember-view").value = store.state.avatarMode;
     byId("avatar-enabled").checked = !hidden;
     byId("avatar-header").hidden = hidden;
@@ -314,27 +324,14 @@ export function createChatWorkspace({
   function updateVoice({ thread, phase, interim = "", engine, message }) {
     const recording = phase === "recording";
     const processing = phase === "processing";
-    const active = phase !== "idle";
-    const follow = voicePhase !== phase && nearBottom();
-    if (voicePhase !== phase) {
-      if (recording || voicePhase === "recording") avatarSignal(thread, { type: "recording", active: recording });
-      if (processing || voicePhase === "processing") avatarSignal(thread, { type: "voice_processing", active: processing });
-      voicePhase = phase;
+    const previous = store.state.dictation.phase;
+    const follow = previous !== phase && nearBottom();
+    if (previous !== phase) {
+      if (recording || previous === "recording") avatarSignal(thread, { type: "recording", active: recording });
+      if (processing || previous === "processing") avatarSignal(thread, { type: "voice_processing", active: processing });
     }
-    const bar = byId("voice-bar");
-    bar.hidden = !active;
-    bar.dataset.phase = phase;
-    mic.setAttribute("aria-pressed", String(active));
-    mic.setAttribute("aria-label", recording ? "Stop voice recording" : active ? "Cancel voice input" : "Start voice input");
-    mic.title = active ? mic.getAttribute("aria-label") : "Start voice input. Hold Space in an empty composer to talk.";
-    voiceLevel.hidden = !recording;
+    store.update({ dictation: { phase, engine, interim, held: spaceHeld } });
     if (!recording) voiceLevel.value = 0;
-    updateText(byId("voice-phase"), recording ? `Recording · ${engine === "whisper" ? "Whisper" : "Browser"}`
-      : processing ? "Transcribing…" : active ? "Waiting for microphone…" : "");
-    updateText(byId("voice-key"), recording && spaceHeld ? "Release Space to finish · Esc to cancel" : "Esc to cancel");
-    const preview = byId("voice-interim");
-    preview.hidden = !interim;
-    updateText(preview, interim);
     if (follow) scrollDown();
     if (message) showNotice(message);
   }
@@ -752,14 +749,7 @@ export function createChatWorkspace({
   let summaryThread;
 
   function syncThreadMenu(thread) {
-    const pinned = thread?.id === mainThread.id;
-    byId("thread-menu-title").textContent = thread?.title || "";
-    const rename = threadMenu.querySelector('[value="rename"]');
-    const remove = threadMenu.querySelector('[value="delete"]');
-    rename.hidden = remove.hidden = pinned;
-    rename.disabled = store.state.busy || threadBusy || !thread;
-    remove.disabled = store.state.busy || threadBusy || !thread || !!thread.busy;
-    threadMenu.querySelector('[value="summary"]').disabled = !thread;
+    renderThreadMenu(threadMenu, thread, thread?.id === mainThread.id, store.state.busy || threadBusy);
   }
 
   function openThreadMenu(thread, trigger, options) {
@@ -803,58 +793,9 @@ export function createChatWorkspace({
     const focused = list.contains(document.activeElement) ? document.activeElement : null;
     updateText(byId("thread-list-status"), entries.filter((thread) => thread.status)
       .map((thread) => `${thread.title}: ${thread.status}`).join(". "));
-    list.replaceChildren(...entries.map((thread) => {
-      const item = button("", () => {
-        if (currentView() !== "chat") {
-          activateThread(thread.id);
-          openView("chat");
-        } else {
-          const fromDrawer = mobile.closeDrawer({ restoreFocus: false });
-          selectThread(thread.id);
-          if (fromDrawer) byId("thread-title").focus({ preventScroll: true });
-        }
-      });
-      item.className = "thread-link";
-      item.dataset.thread = thread.id;
-      const label = node("span", "thread-label", thread.title);
-      item.append(label);
-      if (thread.id !== mainThread.id && thread.title !== "Main") {
-        item.addEventListener("pointerenter", () => {
-          if (label.scrollWidth > label.clientWidth) item.title = thread.title;
-        });
-        item.addEventListener("pointerleave", () => item.removeAttribute("title"));
-      }
-      if (thread.id === store.state.currentThread) item.setAttribute("aria-current", "true");
-      if (thread.status) {
-        const dot = node("span", "thread-dot");
-        dot.dataset.status = thread.status === "Unread reply" ? "unread" : "working";
-        dot.setAttribute("aria-hidden", "true");
-        item.append(dot, node("span", "visually-hidden", ` · ${thread.status}`));
-      }
-      const row = node("div", "thread-row");
-      row.dataset.motionKey = thread.id;
-      row.append(item);
-      const more = iconButton("more", `Actions for ${thread.title}`,
-        (event) => openThreadMenu(thread, event.currentTarget), "thread-overflow");
-      more.removeAttribute("title");
-      more.dataset.thread = thread.id;
-      more.setAttribute("aria-haspopup", "menu");
-      more.setAttribute("aria-expanded", "false");
-      more.setAttribute("aria-controls", threadMenu.id);
-      more.addEventListener("keydown", (event) => {
-        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-        event.preventDefault();
-        openThreadMenu(thread, more, { last: event.key === "ArrowUp" });
-      });
-      row.append(more);
-      return row;
-    }));
+    store.update({ threadEntries: entries });
     play?.();
-    if (focused) {
-      const replacement = [...list.querySelectorAll("button")].find((item) =>
-        item.dataset.thread === focused.dataset.thread && item.className === focused.className);
-      (replacement || list.querySelector('[aria-current="true"]'))?.focus({ preventScroll: true });
-    }
+    if (focused && !focused.isConnected) list.querySelector('[aria-current="true"]')?.focus({ preventScroll: true });
     if (!threadMenu.hidden) {
       const thread = entries.find((thread) => thread.id === threadMenuId);
       if (thread) {
@@ -865,9 +806,6 @@ export function createChatWorkspace({
         list.querySelector('[aria-current="true"]')?.focus({ preventScroll: true });
       }
     }
-    const select = byId("thread-select");
-    select.replaceChildren(...entries.map((thread) => new Option(thread.status ? `${thread.title} · ${thread.status}` : thread.title, thread.id)));
-    select.value = store.state.currentThread;
     byId("thread-title").textContent = active?.title || (store.state.currentThread === mainThread.id ? "Main" : "Side chat");
     const activity = byId("thread-activity");
     activity.hidden = store.state.avatarMode !== "off" || !active?.status || active.status === "Unread reply";
@@ -878,9 +816,19 @@ export function createChatWorkspace({
     const remove = byId("delete-thread");
     remove.disabled = store.state.busy || threadBusy || !!active?.busy;
     remove.title = active?.busy ? "Wait for this chat to finish" : "Delete this side chat";
-    send.title = active?.busy ? "Queue follow-up" : "Send message";
-    send.setAttribute("aria-label", send.title);
+    store.update({ sendLabel: active?.busy ? "Queue follow-up" : "Send message" });
     paintAvatars();
+  }
+
+  function openThreadFromList(id) {
+    if (currentView() !== "chat") {
+      activateThread(id);
+      openView("chat");
+    } else {
+      const fromDrawer = mobile.closeDrawer({ restoreFocus: false });
+      selectThread(id);
+      if (fromDrawer) byId("thread-title").focus({ preventScroll: true });
+    }
   }
 
   function rememberThread(thread) {
@@ -923,11 +871,10 @@ export function createChatWorkspace({
   function updateStopReply() {
     const turn = activeReply();
     if (!turn && document.activeElement === stopReply) input.focus({ preventScroll: true });
-    stopReply.hidden = !turn;
-    stopReply.setAttribute("aria-disabled", String(stopping.has(turn?.key)));
+    store.update({ canStop: !!turn, stoppingReply: stopping.has(turn?.key) });
   }
 
-  stopReply.addEventListener("click", async () => {
+  async function stopActiveReply() {
     const turn = activeReply();
     if (!turn || stopping.has(turn.key)) return;
     stopping.add(turn.key);
@@ -941,7 +888,7 @@ export function createChatWorkspace({
       stopping.delete(turn.key);
       updateStopReply();
     }
-  });
+  }
 
   function updateConversation(update) {
     const result = reconcile(conversation, update);
@@ -1327,7 +1274,6 @@ export function createChatWorkspace({
     sessionStorage.setItem("hearth-thread", threadId);
     input.value = threadDrafts.get(threadId) || "";
     attachmentDraft.render();
-    input.placeholder = threadId === mainThread.id ? "Message Hearth…" : "Message this side chat…";
     resizeInput();
     renderChat(true);
     scrollDown();
@@ -1694,7 +1640,6 @@ export function createChatWorkspace({
     choice.append(preview, node("span", "", look.name));
     byId("avatar-looks").append(choice);
   }
-  byId("avatar-view").addEventListener("change", (event) => chooseAvatarMode(event.target.value));
   byId("ember-view").addEventListener("change", (event) => {
     const mode = event.target.value;
     chooseAvatarMode(mode);
@@ -1714,7 +1659,6 @@ export function createChatWorkspace({
     localStorage.removeItem("hearth-avatar-color");
     applyAppearance();
   });
-  mic.addEventListener("click", () => voice.active ? voice.stop() : startVoice());
   byId("call-connections").addEventListener("click", openConnections);
   byId("voice-engine").addEventListener("change", showVoiceEngine);
   byId("voice-settings-form").addEventListener("submit", (event) => {
@@ -1750,21 +1694,12 @@ export function createChatWorkspace({
     if (event.code !== "Space" || !spaceHeld) return;
     event.preventDefault();
     spaceHeld = false;
-    if (voicePhase === "recording" || voicePhase === "requesting") voice.stop();
+    if (["recording", "requesting"].includes(store.state.dictation.phase)) voice.stop();
   });
   setInterval(() => {
     if (!document.hidden) paintAvatars();
   }, 100);
 
-  byId("composer").addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (document.activeElement === send) input.focus({ preventScroll: true });
-    chat(input.value);
-  });
-  byId("voice-cancel").addEventListener("click", () => {
-    voice.cancel();
-    byId("mic").focus({ preventScroll: true });
-  });
   byId("thread-select").addEventListener("change", (event) => selectThread(event.target.value));
   byId("chat-latest").addEventListener("click", async () => {
     try {
@@ -1847,19 +1782,6 @@ export function createChatWorkspace({
     if (!threadMenu.hidden || summarySheet.open || (mobile.isMobile() && !byId("workspace-drawer").open)) return;
     (threadMenuTrigger(summaryThread?.id) || byId("new-thread")).focus({ preventScroll: true });
   });
-  input.addEventListener("input", () => {
-    resizeInput();
-    followComposer();
-  });
-  input.addEventListener("select", () => {
-    if (Date.now() < avatarStates.get(store.state.currentThread)?.typing) followComposer();
-  });
-  input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-      event.preventDefault();
-      chat(input.value);
-    }
-  });
   for (const prompt of document.querySelectorAll("[data-prompt]")) {
     prompt.addEventListener("click", () => chat(prompt.dataset.prompt));
   }
@@ -1896,8 +1818,6 @@ export function createChatWorkspace({
     },
     setBusy(value) {
       store.update({ busy: value });
-      send.disabled = value || uploading;
-      byId("attach").disabled = value;
       renderThreads();
     },
     reminderSending(sending) {

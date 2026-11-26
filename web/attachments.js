@@ -170,7 +170,6 @@ export function createAttachments({ thread, isChat, isBusy, onChange }) {
     render();
   }
 
-  get("attach").addEventListener("click", () => picker.click());
   picker.addEventListener("change", () => { add(picker.files); picker.value = ""; });
   pane.addEventListener("paste", (event) => {
     const files = event.clipboardData?.files;
@@ -244,5 +243,5 @@ export function createAttachments({ thread, isChat, isBusy, onChange }) {
     if (threadId === thread()) render();
   }
 
-  return { render, selected, discard, restore, hasDraft: () => state().entries.length > 0 };
+  return { pick: () => picker.click(), render, selected, discard, restore, hasDraft: () => state().entries.length > 0 };
 }

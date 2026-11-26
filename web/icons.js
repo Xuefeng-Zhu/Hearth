@@ -64,17 +64,27 @@ const paths = {
   home: "m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-6v-7h-4v7H4a1 1 0 0 1-1-1Z",
 };
 
+export function iconAttributes(size) {
+  return {
+    viewBox: "0 0 24 24", width: size, height: size, fill: "none", stroke: "currentColor",
+    "stroke-width": "1.75", "stroke-linecap": "round", "stroke-linejoin": "round",
+    "aria-hidden": "true", focusable: "false", class: "line-icon",
+  };
+}
+
+export function iconPath(name) {
+  return {
+    d: paths[name === "thumbs-down" ? "thumbs-up" : name] || paths.file,
+    ...(name === "thumbs-down" ? { transform: "translate(0 24) scale(1 -1)" } : {}),
+  };
+}
+
 export function icon(name, size = 20) {
   const namespace = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(namespace, "svg");
   const path = document.createElementNS(namespace, "path");
-  for (const [key, value] of Object.entries({
-    viewBox: "0 0 24 24", width: size, height: size, fill: "none", stroke: "currentColor",
-    "stroke-width": "1.75", "stroke-linecap": "round", "stroke-linejoin": "round",
-    "aria-hidden": "true", focusable: "false", class: "line-icon",
-  })) svg.setAttribute(key, value);
-  path.setAttribute("d", paths[name === "thumbs-down" ? "thumbs-up" : name] || paths.file);
-  if (name === "thumbs-down") path.setAttribute("transform", "translate(0 24) scale(1 -1)");
+  for (const [key, value] of Object.entries(iconAttributes(size))) svg.setAttribute(key, value);
+  for (const [key, value] of Object.entries(iconPath(name))) path.setAttribute(key, value);
   svg.append(path);
   return svg;
 }

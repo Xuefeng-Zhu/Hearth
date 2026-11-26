@@ -113,17 +113,12 @@
           <div class="thread-panel-header">
             <h2>Threads</h2>
             <label class="visually-hidden" for="thread-select">Chat thread</label>
-            <select id="thread-select" class="thread-select"><option value="main">Main</option></select>
+            <select id="thread-select" class="thread-select"></select>
             <button type="button" id="new-thread" class="new-thread"><span data-icon="plus" data-icon-size="18"></span> <span id="new-thread-label">New side chat</span></button>
           </div>
           <p id="thread-list-status" role="status" class="visually-hidden"></p>
           <div id="threads" class="threads" aria-label="Thread list"></div>
-          <div id="thread-menu" class="thread-menu" popover="manual" role="menu" aria-labelledby="thread-menu-title" hidden>
-            <div id="thread-menu-title" aria-hidden="true"></div>
-            <button type="button" role="menuitem" tabindex="-1" value="summary"><span data-icon="book" data-icon-size="18"></span> Summary</button>
-            <button type="button" role="menuitem" tabindex="-1" value="rename"><span data-icon="edit" data-icon-size="18"></span> Rename</button>
-            <button type="button" role="menuitem" tabindex="-1" value="delete"><span data-icon="trash" data-icon-size="18"></span> Delete</button>
-          </div>
+          <div id="thread-menu" class="thread-menu" popover="manual" role="menu" aria-labelledby="thread-menu-title" hidden></div>
         </aside>
         <div class="chat-pane">
           <header class="thread-header">
@@ -139,11 +134,7 @@
               <button type="button" id="delete-thread">Delete</button>
             </div>
             <label class="visually-hidden" for="avatar-view">Avatar view</label>
-            <select class="avatar-view" id="avatar-view">
-              <option value="off">Off</option>
-              <option value="beside">Beside chat</option>
-              <option value="face">Full screen</option>
-            </select>
+            <select class="avatar-view" id="avatar-view"></select>
             <button type="button" id="open-chat-search" class="chat-search-icon" title="Search chats"
               aria-label="Search chats" aria-haspopup="dialog" aria-expanded="false" aria-controls="chat-search-dialog"
               aria-keyshortcuts="Meta+K Control+K /"><span data-icon="search"></span></button>
@@ -186,30 +177,7 @@
           </div>
           <div id="reply-status" class="visually-hidden" aria-live="polite" aria-relevant="additions"></div>
           <div id="self-update-status" class="visually-hidden" aria-live="polite" aria-relevant="additions"></div>
-          <form class="composer" id="composer">
-            <div id="voice-bar" class="voice-bar" hidden>
-              <div class="voice-reading">
-                <span class="voice-dot" aria-hidden="true"></span>
-                <span id="voice-phase" role="status"></span>
-                <meter id="voice-level" aria-label="Microphone level" min="0" max="1" value="0" hidden></meter>
-              </div>
-              <span id="voice-key" class="voice-key" aria-hidden="true">Esc to cancel</span>
-              <button type="button" class="mobile-only voice-cancel" id="voice-cancel">Cancel</button>
-              <p id="voice-interim" hidden></p>
-            </div>
-            <div id="composer-attachments" class="composer-attachments" hidden></div>
-            <p id="attachment-status" class="attachment-status" role="status" hidden></p>
-            <input id="attachment-files" type="file" multiple hidden>
-            <button type="button" id="attach" aria-label="Attach files" title="Attach files"><span data-icon="paperclip"></span></button>
-            <label class="visually-hidden" for="message">Message Hearth</label>
-            <textarea id="message" maxlength="4000" rows="1" placeholder="Message Hearth…"></textarea>
-            <button type="button" id="mic" aria-label="Start voice input" aria-pressed="false" title="Start voice input. Hold Space in an empty composer to talk.">
-              <span class="mic-on"><span data-icon="mic"></span></span>
-              <span class="mic-stop"><span data-icon="stop"></span></span>
-            </button>
-            <button type="submit" id="send" aria-label="Send message"><span data-icon="send"></span></button>
-            <button type="button" id="stop-reply" aria-label="Stop reply" title="Stop reply" hidden><span data-icon="stop"></span></button>
-          </form>
+          <form class="composer" id="composer"></form>
         </div>
       </section>
       <section class="view panel" id="memory-view" aria-labelledby="view-title" hidden>
