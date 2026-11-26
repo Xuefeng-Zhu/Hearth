@@ -18,6 +18,7 @@ TYPES = ("user", "contact", "organization", "project", "place", "event", "intere
 TOPICS = ("food", "travel", "shopping-and-money", "home-and-health", "leisure")
 APPROVAL_NOTE = "APPROVAL_PREFERENCES.md"
 PROFILE_NOTE = "USER.md"
+PROACTIVITY_NOTE = "PROACTIVITY_PREFERENCES.md"
 PINNED = {PROFILE_NOTE, APPROVAL_NOTE}
 ID = re.compile(r"[\w-]+(?:/[\w-]+)?")
 FRONT = re.compile(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.S)
@@ -51,7 +52,8 @@ def clean_content(text):
 
 
 def note_id(path):
-    return {PROFILE_NOTE: "user", APPROVAL_NOTE: "approval-preferences"}.get(path, path.removesuffix(".md"))
+    return {PROFILE_NOTE: "user", APPROVAL_NOTE: "approval-preferences",
+            PROACTIVITY_NOTE: "proactivity-preferences"}.get(path, path.removesuffix(".md"))
 
 
 def default_type(path):

@@ -172,7 +172,7 @@ class Inbox:
         own_sender = sender == mailbox["address"]
         addressed_here = mailbox["address"] in map(mail_content.sender, recipients)
         if (own_sender and not addressed_here) or labels.intersection(
-                {"spam", "blocked", "agent-armor-held", "agent-armor-pending", "hearth-reminder", "hearth-ack"}):
+                {"spam", "blocked", "agent-armor-held", "agent-armor-pending", "hearth-reminder", "hearth-ack", "hearth-task", "hearth-proactivity"}):
             self.mark_handled(card_id, now)
             return 0
         verified = trusted_sender(message, selection) and not own_sender

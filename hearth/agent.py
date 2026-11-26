@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from . import approvals, box, browserbase, file_intent, memory, memory_edits, office, page_agent, panels, recall, router, search, skills, tasks, timeline, uploads, workers
 from .connections import catalog_entry, with_model
+from .proactivity import SOURCE as PROACTIVE_SOURCE
 from .connectors import ConnectorError, Integrations, model_error
 from .gateway_tools import METHODS, gateway_read, gateway_result, redact_text, validate_request
 from .reply_text import ReplyStream, clean_reply, text_tool_calls
@@ -806,7 +807,7 @@ class Agent:
                 definitions.pop(name, None)
         if not interactive or not direct_edit:
             definitions.pop("memory_move", None)
-        if not interactive or not memory.forget_requested(prompt):
+        if not interactive or CHAT_ORIGIN.get().get("source") == PROACTIVE_SOURCE or not memory.forget_requested(prompt):
             definitions.pop("memory_forget", None)
         if self.gateway_connections:
             definitions["gateway_request"] = schema(
@@ -1428,7 +1429,8 @@ class Agent:
         if turn.get("skill") and not self.tool_available(name, turn):
             raise HearthError("This tool is unavailable while using the current skill.")
         if name == "memory_forget":
-            if not self.application or worker or origin.get("task_run") or not memory.forget_requested(turn.get("prompt", "")):
+            if (not self.application or worker or origin.get("task_run") or origin.get("source") == PROACTIVE_SOURCE
+                    or not memory.forget_requested(turn.get("prompt", ""))):
                 raise HearthError("Permanent forget requires a direct request in this chat.")
             return self.application.purge_memory(arguments.get("matches"), turn.get("message_id"))
         if name in ("memory_write", "memory_edit", "memory_move") and turn:
@@ -1440,6 +1442,13 @@ class Agent:
         ask_memory = (name in ("memory_write", "memory_edit") and turn
                       and self.memory["auto_remember"] == "ask" and not direct)
         categories = approvals.classify(name, arguments, prompt=turn.get("prompt", ""))
+        if origin.get("source") == PROACTIVE_SOURCE:
+            if name == "schedule":
+                arguments = {**arguments, "channel": arguments.get("channel") or "app"}
+                if arguments["channel"] in ("email", "both"):
+                    categories = ("send",)
+            if name == "update_recurring_task":
+                categories = ("send",) if arguments.get("delivery") in ("email", "both") else categories
         run_id = origin.get("task_run")
         key = None
         if run_id and name not in READ_ONLY_TOOLS:
@@ -1473,7 +1482,7 @@ class Agent:
                 state = self.storage.load()
                 draft_send = name == "send_email" and self.using_builtin(turn, "draft-email")
                 must_ask = name == "create_recurring_task" or draft_send or ask_memory or approvals.needs_approval(
-                    state, categories, scheduled=bool(run_id))
+                    state, categories, scheduled=bool(run_id) or origin.get("source") == PROACTIVE_SOURCE)
                 dedupe = key or (hashlib.sha256(json.dumps([turn["message_id"], name, arguments], sort_keys=True).encode()).hexdigest()
                                  if turn.get("message_id") else None)
                 row = approvals.proposal(state, name, arguments, categories, origin, fields, dedupe=dedupe)
@@ -1540,6 +1549,14 @@ class Agent:
             return getattr(self, name)(**arguments)
 
     def prepare_approval(self, name, args):
+        if name == "schedule":
+            job = add_job(self.storage.load(), origin=CHAT_ORIGIN.get(), **args)
+            return args, {"title": "Schedule an email reminder", "target": job["message"],
+                          "upcoming": [job["next_at"]], "editable": {}}
+        if name == "update_recurring_task":
+            task = tasks.mutate(self.storage, "preview", args)
+            return args, {"title": f"Update email delivery for {task['name']}", "target": task["name"],
+                          "upcoming": task["upcoming"], "editable": {}}
         if name in {"skill_create", "skill_edit"}:
             arguments, target = self.skills.prepare(name, args)
             verb = "Create" if name == "skill_create" else "Edit"
@@ -1713,6 +1730,14 @@ class Agent:
                         **result, "error": result.get("error") or result["fallback"]}
                 return ("simulated" if row["mock"] else "complete"), {
                     **result, "message": "Browser steps were simulated." if row["mock"] else "The browser session completed."}
+            if name == "schedule":
+                with self.storage.lock():
+                    action = self.schedule(**args)["action"]
+                row["effect_action"] = action["id"]
+                return "complete", {"message": action["title"], "job_id": action["job"]["id"]}
+            if name == "update_recurring_task":
+                task = tasks.mutate(self.storage, "update", args, origin=fields)
+                return "complete", {"message": "Recurring task updated.", "task": task}
             if name in {"create_recurring_task", "delete_recurring_task"}:
                 verb = "create" if name == "create_recurring_task" else "delete"
                 if verb == "delete":

@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
-MEMORY_PATH = re.compile(r"(?:USER|APPROVAL_PREFERENCES|food|travel|shopping-and-money|home-and-health|leisure|"
+MEMORY_PATH = re.compile(r"(?:USER|APPROVAL_PREFERENCES|PROACTIVITY_PREFERENCES|food|travel|shopping-and-money|home-and-health|leisure|"
     r"(?:people|locations|topics|projects)/[\w-]{1,90}|daily/\d{4}-\d{2}-\d{2})\.md")
 MAX_NOTE = 24_000
 
@@ -80,7 +80,7 @@ class Storage:
 
     def memory_path(self, name):
         if not isinstance(name, str) or not MEMORY_PATH.fullmatch(name):
-            raise HearthError("Choose a profile, topic or approvals note, or a Markdown file under people, locations, projects or daily.")
+            raise HearthError("Choose a profile, topic or preferences note, or a Markdown file under people, locations, projects or daily.")
         path = self.memory / name
         if path.resolve() != path:
             raise HearthError("Memory files must stay inside the memory directory.")

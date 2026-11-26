@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import approvals, artifacts, box, browserbase, home, inbox, memory, memory_edits, memory_purge, page_policy, pages, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
+from . import approvals, artifacts, box, browserbase, home, inbox, memory, memory_edits, memory_purge, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -28,6 +28,7 @@ STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/memory.js": ("memory.js", "text/javascript; charset=utf-8"),
     "/memory.css": ("memory.css", "text/css; charset=utf-8"),
+    "/proactivity.js": ("proactivity.js", "text/javascript; charset=utf-8"),
     "/home.js": ("home.js", "text/javascript; charset=utf-8"),
     "/home.css": ("home.css", "text/css; charset=utf-8"),
     "/workers.js": ("workers.js", "text/javascript; charset=utf-8"),
@@ -102,14 +103,16 @@ class Application:
         self.reminders = reminders.Reminders(self)
         self.inbox = inbox.Inbox(self)
         self.home = home.Home(self)
+        self.proactivity = proactivity.Proactivity(self)
         self.task_runner = tasks.Runner(self)
         approvals.upgrade_legacy(self.agent)
 
     def scheduler_tick(self):
         fired = scheduler.run_due(self.storage, tick=True)
         self.reminders.deliver(wait=True)
-        task_runs = self.task_runner.tick()
         polled = self.inbox.poll(force=True)
+        self.proactivity.kick()
+        task_runs = self.task_runner.tick()
         info = self.reminders.info()
         return {"fired": fired, "processed": polled, "last_tick": info["last_tick"], "next_due": info["next_due"],
                 "panels_refreshed": self.home.run_due(), "task_runs": task_runs}
@@ -120,18 +123,21 @@ class Application:
     def background_reminders(self):
         previous = None
         next_home = 0
+        next_inbox = 0
         while True:
             now = time.time()
             woke = previous is None or now - previous > 20
             try:
                 if not self.restore or self.restore["status"] != "restoring":
                     scheduler.run_due(self.storage, tick=woke)
-                    if woke:
-                        threading.Thread(target=self.inbox.poll, kwargs={"force": True}, daemon=True).start()
+                    if woke or now >= next_inbox:
+                        threading.Thread(target=self.inbox.poll, kwargs={"force": woke}, daemon=True).start()
+                        next_inbox = now + 60
                     self.reminders.deliver()
                     self.task_runner.kick()
                     if woke or now >= next_home:
                         self.home.kick()
+                        self.proactivity.kick()
                         next_home = now + 10
             except (HearthError, OSError):
                 pass
@@ -307,9 +313,13 @@ class Application:
                     self.storage.write(path, "".join(lines))
                 memory.catalog(self.storage)
             self.memory_index.forget_vectors(removed)
-            return self.agent.add_action("memory", "Memory forgotten", status="complete",
-                                         checkpoint=checkpoint, paths=[path], memory_before=before,
-                                         forgotten_id=message_id)
+            action = self.agent.add_action("memory", "Memory forgotten", status="complete",
+                                           checkpoint=checkpoint, paths=[path], memory_before=before,
+                                           forgotten_id=message_id)
+            state = self.storage.load()
+            proactive_context.record_forget(state, action["id"], removed)
+            self.storage.save(state)
+            return action
 
     def info(self, thread_id=MAIN):
         with self.turn_lock:
@@ -681,6 +691,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.json(self.app.info(thread_id), conditional=True)
             elif url.path == "/api/home":
                 self.json({**self.app.home.snapshot(), "checkpoints": self.app.checkpoints.mode})
+            elif url.path == "/api/proactivity/settings":
+                self.json(self.app.proactivity.get_settings())
+            elif url.path == "/api/proactivity/pass":
+                if not equal(self.headers.get("X-Hearth-Tick-Token"), self.app.reminders.tick_token):
+                    self.json({"error": "Scheduler token required."}, 401)
+                else:
+                    self.json(self.app.proactivity.last())
             elif url.path == "/api/home/settings":
                 self.json(self.app.home.settings())
             elif url.path == "/api/connections":
@@ -868,6 +885,9 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 self.json({"error": "Hearth could not stop the worker."}, 500)
             return
+        if self.path.startswith("/api/proactivity/"):
+            self.post_proactivity()
+            return
         if self.path.startswith("/api/home/"):
             self.post_home()
             return
@@ -1024,6 +1044,43 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"error": str(error)}, error.status if isinstance(error, pages.PageError) else 400)
         except OSError:
             self.json({"error": "Hearth could not update the page."}, 500)
+
+    def post_proactivity(self):
+        operation = self.path.rsplit("/", 1)[-1]
+        if operation not in {"pass", "settings", "do", "dismiss", "snooze", "block"}:
+            self.json({"error": "Page not found."}, 404)
+            return
+        if operation == "pass" and not equal(self.headers.get("X-Hearth-Tick-Token"), self.app.reminders.tick_token):
+            self.json({"error": "Scheduler token required."}, 401)
+            return
+        stream = None
+        try:
+            body = self.body()
+            if operation == "pass":
+                if body:
+                    raise HearthError("A proactive pass takes no settings.")
+                result = self.app.proactivity.tick(force=True)
+            else:
+                with self.app.operation:
+                    if self.app.restoring():
+                        self.json({"error": "A checkpoint is being restored."}, 409)
+                        return
+                    if operation == "settings":
+                        result = self.app.proactivity.save_settings(body)
+                    elif operation == "do":
+                        result, prompt = self.app.proactivity.update(operation, body)
+                        if prompt is not None:
+                            stream = self.app.enqueue(result["id"], prompt, source=proactivity.SOURCE)
+                    else:
+                        result = self.app.proactivity.update(operation, body)
+            if stream is not None:
+                self.stream_chat(stream)
+            else:
+                self.json(result)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+        except OSError:
+            self.json({"error": "Hearth could not update Proactivity."}, 500)
 
     def post_home(self):
         actions = {

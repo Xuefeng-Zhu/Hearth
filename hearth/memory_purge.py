@@ -4,6 +4,7 @@ import json
 import re
 
 from . import memory
+from .proactive_context import retire
 from .storage import atomic_write
 
 REDACTED = "[forgotten]"
@@ -86,6 +87,8 @@ def scrub_state(state, rules, message_id=None):
     activity = state.get("activity", [])
     state["activity"] = [row for row in activity if not (
         row.get("message_id") == message_id and message_id or memory.matches_rule(plain_values(row), rules))]
+    for row in state.get("proactivity", {}).get("cards", {}).values():
+        retire(row)
     actions = state.get("actions", {})
     changes = state.get("memory_changes", {})
     expired = set()

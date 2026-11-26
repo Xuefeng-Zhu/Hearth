@@ -69,6 +69,17 @@ def weather_value(row):
     return place, {"temperature": round(temperature), "code": code}
 
 
+def weather_label(code):
+    if 0 <= code <= 3:
+        return ("Clear", "Mostly clear", "Partly cloudy", "Overcast")[code]
+    if code in (85, 86) or 71 <= code <= 77:
+        return "Snow"
+    return next(label for upper, label in (
+        (48, "Fog"), (57, "Drizzle"), (67, "Rain"), (82, "Rain showers"), (99, "Thunderstorms"),
+        (float("inf"), "Unknown conditions"),
+    ) if code <= upper)
+
+
 class Home:
     def __init__(self, app):
         self.app = app
@@ -174,12 +185,15 @@ class Home:
             "weather": {key: weather[key] for key in ("location", "value", "updated_at", "attempted_at", "error")}
                        | {"name": (weather["place"] or {}).get("name", weather["location"])},
         }
+        from .proactivity import settings as proactivity_settings
         from .workers import ACTIVE
 
         return scrub({"layout": panels.layout(state), "builtin": built, "panels": state.get("panels", {}),
                       "workers": [row for row in state.get("workers", {}).values() if row["status"] in ACTIVE],
                       "timezone": config["timezone"], "clock_zone": str(PACIFIC), **self.app.brain_status()}) | {
-                          "approvals": approvals.records(self.storage, pending=True, clock=now)}
+                          "approvals": approvals.records(self.storage, pending=True, clock=now),
+                          "suggestions": self.app.proactivity.list(now),
+                          "proactivity_enabled": proactivity_settings(state)["enabled"]}
 
     def adjust(self, body):
         with self.storage.lock():

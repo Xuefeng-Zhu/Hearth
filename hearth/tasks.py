@@ -15,6 +15,10 @@ from .scheduler import next_cron
 from .storage import HearthError, iso, new_id
 
 SOURCE = "recurring-task"
+BRIEF_ID = "morning-brief"
+BRIEF_NAME = "Morning brief"
+OLD_BRIEF = "Give me a brief of my reminders, local weather, and top AI news."
+BRIEF_INSTRUCTION = "Summarize today’s reminders, For you suggestions, local weather, and pending approvals."
 ZONE = DEFAULTS["timezone"]
 SCHEDULES = ("once", "daily", "weekly", "interval", "cron")
 DAYS = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
@@ -45,7 +49,7 @@ def natural(prompt):
         schedule = {"type": "interval", "minutes": int(count) * {"m": 1, "h": 60, "d": 1440}[unit[0].lower()]}
     else:
         return None
-    name = "Morning brief" if "brief" in instruction.casefold() else instruction.strip().rstrip(".")[:80]
+    name = instruction.strip().rstrip(".")[:80]
     return {"name": name, "instruction": instruction, "schedule": schedule}
 
 
@@ -147,14 +151,34 @@ def preview(row, now):
 
 
 def seed(state, now):
-    if "recurring_tasks" not in state:
-        row = clean_fields({"name": "Morning brief", "instruction": "Give me a brief of my reminders, local weather, and top AI news.",
+    rows = state.setdefault("recurring_tasks", {})
+    brief = rows.get(BRIEF_ID)
+    duplicates = [row for identity, row in rows.items() if identity != BRIEF_ID and not row.get("deleted")
+                  and row["name"].strip().casefold() == BRIEF_NAME.casefold()
+                  and row["instruction"] in {OLD_BRIEF, BRIEF_INSTRUCTION}]
+    if brief and (brief["instruction"] not in {OLD_BRIEF, BRIEF_INSTRUCTION}
+                  or brief["name"].casefold() != BRIEF_NAME.casefold()):
+        return False
+    if not brief and not duplicates:
+        row = clean_fields({"name": BRIEF_NAME, "instruction": BRIEF_INSTRUCTION,
                             "schedule": {"type": "weekly", "days": [1, 2, 3, 4, 5], "time": "08:00"},
                             "enabled": False}, now)
-        state["recurring_tasks"] = {"morning-brief": {**row, "id": "morning-brief", "created_at": iso(now),
-                                                    "last_run": None, "next_run": None}}
+        rows[BRIEF_ID] = {**row, "id": BRIEF_ID, "created_at": iso(now), "last_run": None, "next_run": None}
         return True
-    return False
+    if not duplicates and brief["instruction"] == BRIEF_INSTRUCTION:
+        return False
+    active = next((row for row in duplicates if row["enabled"] or row.get("manual_due")), None)
+    if not brief or (active and not brief["enabled"] and not brief.get("deleted") and not brief.get("last_run")):
+        brief = active or duplicates[0]
+    rows[BRIEF_ID] = {**brief, "id": BRIEF_ID, "instruction": BRIEF_INSTRUCTION}
+    for duplicate in duplicates:
+        old = duplicate["id"]
+        rows.pop(old)
+        for collection in ("task_runs", "task_notifications"):
+            for row in state.get(collection, {}).values():
+                if row.get("task_id") == old:
+                    row["task_id"] = BRIEF_ID
+    return True
 
 
 def require(state, identity):
@@ -246,7 +270,7 @@ def notification(state, identity, row, now):
 
 def inbox_rows(state, now):
     return list(reversed([row for row in state.get("task_notifications", {}).values()
-                          if datetime.fromisoformat(row["visible_at"]) <= now]))[:50]
+                          if row.get("source") != "proactivity" and datetime.fromisoformat(row["visible_at"]) <= now]))[:50]
 
 
 def tool_failure(tools):
@@ -347,7 +371,7 @@ class Runner:
             for _ in range(12):
                 if not (run := self.due(now)):
                     break
-                output, tools, reason, duration = self.run(run)
+                output, tools, reason, duration = self.run(run, now)
                 with self.storage.lock():
                     state = self.storage.load()
                     current = state["task_runs"][run["id"]]
@@ -357,10 +381,61 @@ class Runner:
             self.deliver(now)
             return count
 
-    def run(self, run):
+    def run_brief(self, run, now):
+        from . import approvals, home
+        from .proactive_context import forget_rules, private_match, private_text
+
+        self.app.home.refresh_weather(now, due=True)
+        with self.storage.lock():
+            state = self.storage.load()
+            current = state["recurring_tasks"][BRIEF_ID]
+            zone = zone_for(current["timezone"])
+            date = now.astimezone(zone).date()
+            rules = forget_rules(self.storage, state)
+            labels = {}
+            for row in [*state["jobs"], *state["reminders"]]:
+                if row.get("status") == "canceled" or row.get("test"):
+                    continue
+                at = datetime.fromisoformat(row.get("scheduled_at") or row.get("next_fire_at") or row["next_at"])
+                text = row["message"]
+                if at.astimezone(zone).date() == date and not private_match(text, rules):
+                    labels[at, private_text(text)] = f"{at.astimezone(zone).strftime('%H:%M')} · {private_text(text)}"
+            cards = self.app.proactivity.cards(state, now)
+            if approvals.expire(state, now):
+                self.storage.save(state)
+            pending = [row for row in state["actions"].values() if row["status"] == "pending"]
+            weather = home.weather_state(state)
+            forecast = "Current conditions unavailable."
+            if weather["value"] and weather["updated_at"] and not private_match(weather["location"], rules):
+                updated = datetime.fromisoformat(weather["updated_at"])
+                if now - timedelta(hours=2) <= updated <= now:
+                    place = (weather["place"] or {}).get("name", weather["location"])
+                    if not private_match(place, rules):
+                        condition = home.weather_label(weather["value"]["code"])
+                        forecast = f"{private_text(place)} · {weather['value']['temperature']}°F, {condition.lower()}."
+            def section(title, values, empty):
+                return f"**{title}**\n" + ("\n".join(f"- {value}" for value in values) if values else empty)
+
+            brief = "\n\n".join((
+                section("Today’s reminders", [labels[key] for key in sorted(labels)][:20], "Nothing scheduled today."),
+                section("For you", [f"{card['title']} · {card['why']}" for card in cards], "No current suggestions."),
+                f"**Weather**\n{forecast}",
+                section("Waiting on approval", [f"{private_text(row['title'])} · {private_text(row.get('thread_title', 'Main'))}"
+                                                for row in pending[:20]
+                                                if not private_match(row["title"] + " " + row.get("thread_title", ""), rules)],
+                        "No visible pending approvals."),
+            ))
+            fields = {"source": SOURCE, "task_run": run["id"], "task_attempt": run["attempts"]}
+            self.app.threads.append(run["thread_id"], "user", BRIEF_INSTRUCTION, **fields)
+            self.app.threads.append(run["thread_id"], "assistant", brief, **fields)
+        return brief
+
+    def run(self, run, now=None):
         started = time.monotonic()
         output, reason, tools, done = "", None, [], False
         try:
+            if run["task_id"] == BRIEF_ID and run["instruction"] == BRIEF_INSTRUCTION:
+                return self.run_brief(run, now or datetime.now(timezone.utc)), [], None, round((time.monotonic() - started) * 1000)
             events = self.app.enqueue(run["thread_id"], run["instruction"], source=SOURCE, task_run=run["id"])
             while (event := events.get(timeout=90)) is not None:
                 name, data = event
@@ -408,6 +483,8 @@ class Runner:
             data={"status": status, "reason": reason, "duration_ms": duration, "task_id": run["task_id"]}))
 
     def deliver(self, now):
+        from . import proactivity
+
         for _ in range(12):
             with self.storage.lock():
                 state = self.storage.load()
@@ -427,6 +504,24 @@ class Runner:
                     row["email_next"] = iso(hold)
                     self.storage.save(state)
                     continue
+                digest = row.get("source") == proactivity.SOURCE
+                if digest:
+                    preferences = proactivity.settings(state)
+                    if not (preferences["enabled"] and preferences["email_digest"]) or row["date"] != proactivity.day_key(now):
+                        row.update(email_state="off")
+                        self.storage.save(state)
+                        continue
+                    if hold := proactivity.hold(now, preferences):
+                        row["email_next"] = iso(hold)
+                        self.storage.save(state)
+                        continue
+                    shown = state.get("proactivity", {}).get("cards", {})
+                    cards = [card for card in self.app.proactivity.cards(state, now)
+                             if proactivity.day_key(datetime.fromisoformat(shown[card["id"]]["shown_at"])) == row["date"]]
+                    if not cards:
+                        row.update(email_state="off")
+                        self.storage.save(state)
+                        continue
                 row.setdefault("recipient", selection["recipient"])
                 row["email_state"] = "sending"
                 self.storage.save(state)
@@ -437,11 +532,14 @@ class Runner:
                 client = self.app.reminders.client()
                 mailbox = self.app.reminders.mailbox(client)
                 url = self.app.reminders.base
-                body = row["text"] or "Open Hearth to review the run."
+                body = ("\n\n".join(f"{card['title']}\n{card['why']}" for card in cards) if digest
+                        else row["text"] or "Open Hearth to review the run.")
                 if url:
-                    body += f"\n\nOpen Hearth: {url}/?thread={row['thread_id']}"
+                    link = f"{url}/" if digest else f"{url}/?thread={row['thread_id']}"
+                    body += f"\n\nOpen Hearth: {link}"
+                label = "hearth-proactivity" if digest else "hearth-task"
                 receipt = client.send(mailbox, {"to": [row["recipient"]], "subject": f"Hearth: {row['title']}",
-                                                "text": body, "labels": ["hearth-task"]}, f"hearth-task-{row['id']}")
+                                                "text": body, "labels": [label]}, f"{label}-{row['id']}")
                 if not receipt.get("message_id"):
                     raise HearthError("AgentMail returned no delivery receipt.")
             except (HearthError, ConnectorError) as error:
