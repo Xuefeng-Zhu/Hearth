@@ -137,7 +137,6 @@
 }
 
 .self-update-controls a:not([hidden]) {
-  margin-inline-end: auto;
   display: inline-flex;
   align-items: center;
   color: var(--accent);

@@ -113,9 +113,9 @@
   color: var(--text);
   border-color: var(--automation-control-border);
 }
+.automation-dialog:has(.event-automation-editor) { width: min(42rem, calc(100% - 2rem)); }
 .automation-dialog::backdrop { background: rgb(20 13 24 / 65%); }
 .automation-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: var(--control-gap); margin-bottom: var(--space-3); }
-.automation-dialog-header button { border-color: var(--automation-control-border); }
 .automation-dialog-header h2 { margin: 0; font-size: 1.2rem; }
 .automation-editor { gap: var(--grid-gap); }
 .automation-editor input, .automation-editor textarea, .automation-editor select, .approval-settings select {
@@ -199,13 +199,20 @@
 #event-automation-approval:not(:empty) { margin-block-end: .8rem; }
 .event-automation-card, .event-automation-editor, .event-action { min-width: 0; }
 .event-automation-editor input, .event-automation-editor select, .event-automation-editor textarea { max-width: 100%; }
+@media (min-width: 761px) {
+  .event-automation-editor, .event-trigger-fields:has(> .event-checkbox) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .event-automation-editor > :nth-child(n + 3),
+  .event-trigger-fields > .event-checkbox { grid-column: 1 / -1; }
+}
 .event-automation-editor .event-checkbox, .event-automation-editor .automation-weekdays label {
   display: flex;
   align-items: center;
   gap: .65rem;
   min-height: 44px;
 }
-.event-checkbox input { min-height: 0; width: 1.1rem; height: 1.1rem; }
+.event-checkbox input { order: -1; min-height: 0; width: 1.1rem; height: 1.1rem; }
 .event-trigger-fields, .event-action-fields, .event-action-options, .event-action {
   display: grid;
   gap: .7rem;
@@ -230,8 +237,4 @@
   color: var(--delivery-queued-text);
   background: var(--delivery-queued-bg);
 }
-.automation-dialog .automation-dialog-header button {
-  min-width: var(--control-height);
-  min-height: var(--control-height);
-  border-color: var(--automation-control-border);
-}
+.automation-dialog .automation-dialog-header button { border-color: var(--automation-control-border); }

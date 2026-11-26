@@ -47,7 +47,7 @@
   grid-template-columns: 1rem minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-1) var(--control-gap);
-  min-height: var(--touch-height);
+  min-height: var(--control-height);
   padding: var(--space-1) 0;
   cursor: pointer;
   list-style: none;
@@ -97,8 +97,8 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
-  min-width: var(--touch-height);
-  min-height: var(--touch-height);
+  min-width: var(--control-height);
+  min-height: var(--control-height);
   color: var(--accent);
   font-size: .8rem;
 }

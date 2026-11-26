@@ -26,7 +26,7 @@ function button(text, onClick, symbol, className = "") {
   const element = node("button", className);
   element.type = "button";
   if (symbol) element.append(icon(symbol, 16));
-  element.append(document.createTextNode(text));
+  if (text) element.append(document.createTextNode(text));
   element.addEventListener("click", onClick);
   return element;
 }
@@ -304,11 +304,13 @@ export function createMemory({ api, forget, approvals, renderReview }) {
       const list = node("div", "memory-card memory-list");
       list.setAttribute("aria-label", grouping.label);
       for (const row of rows) {
-        const item = button(row.title, () => {
+        const item = button("", () => {
           choose(section, row.path);
           area.querySelector('[aria-pressed="true"]')?.focus();
         }, grouping.icon, "memory-list-item");
-        item.append(node("small", "", section === "daily" ? row.id.split("/").at(-1) : relatedLabel(row)));
+        item.append(node("span", "memory-list-title", row.title),
+          node("small", "", section === "daily" ? row.id.split("/").at(-1) : relatedLabel(row)));
+        item.title = row.title;
         item.setAttribute("aria-pressed", String(row.path === selected));
         list.append(item);
       }

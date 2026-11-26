@@ -31,6 +31,9 @@
   :is(.layout, dialog) button:active { filter: brightness(.92); }
   .sidebar { display: none; }
   .panel, .home-view, .chat-scroll { overflow-x: hidden; overscroll-behavior-y: contain; }
+  .layout > main:has(:is(.panel, .home-view):not([hidden])) .header,
+  .panel, .home-view, .chat-scroll { scrollbar-gutter: auto; }
+  .layout > main:has(:is(.panel, .home-view):not([hidden])) .header { overflow: visible; }
   .panel, .chat-scroll, .workspace-drawer, .artifact-drawer, .call-sheet { overflow-wrap: anywhere; }
   .section-intro h2 { font-size: 31px; }
   .header {
@@ -209,6 +212,7 @@
   }
   :is(.layout, dialog) summary { align-content: center; }
   .layout input[type="color"] { min-width: var(--touch-height); }
+  .file-question-form input[type="search"] { font-size: 16px; }
   .layout :is(.artifact-thread, .artifact-connection a, .delivery-actions a, .connector-links a,
     .connection-match-link, #inbox-address a, #memory-connect, a.home-link, a.skill-chip),
   .artifact-drawer .artifact-thread { display: inline-flex; min-height: 44px; min-width: 44px; align-items: center; }

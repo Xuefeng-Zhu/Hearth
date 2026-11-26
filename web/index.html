@@ -192,15 +192,15 @@
             <div class="artifact-box-control">
               <span id="artifact-box-status" class="artifact-box-status" role="status">Checking Box…</span>
               <button type="button" class="artifact-icon-button" id="artifact-refresh" aria-label="Refresh artifacts" title="Refresh artifacts"><span data-icon="refresh"></span></button>
+              <button type="button" class="artifact-control file-question-launch" id="file-question-open">
+                <span data-icon="message"></span> Ask my files
+              </button>
             </div>
           </div>
           <div id="artifact-connection" class="artifact-connection" hidden>
             <span id="artifact-connection-copy"></span>
             <a href="#settings/connections" id="artifact-connect">Open Connections</a>
           </div>
-          <button type="button" class="artifact-control file-question-launch" id="file-question-open">
-            <span data-icon="message"></span> Ask my files
-          </button>
           <div class="artifact-toolbar">
             <label class="artifact-search"><span data-icon="search"></span>
               <span class="visually-hidden">Search artifacts</span>
@@ -262,7 +262,7 @@
             <label>Channel<select name="channel"><option value="">Settings default</option><option value="app">In app</option><option value="email">Email</option><option value="both">Both</option></select></label>
             <label class="delivery-full">Note<textarea name="note" rows="2" maxlength="4000"></textarea></label>
             <label class="check-label delivery-full"><input name="urgent" type="checkbox"> Urgent · send during quiet hours</label>
-            <div><button class="primary-setting" type="submit">Schedule reminder</button></div>
+            <div class="action-row delivery-full"><button class="primary-setting" type="submit">Schedule reminder</button></div>
           </form>
         </details>
         <p id="reminders-feedback" class="meta" role="status"></p>
@@ -406,7 +406,7 @@
           <form id="approval-settings-form" class="card brain-form approval-settings">
             <div id="approval-policies"></div>
             <p class="meta">Reminders and task updates can email your configured recipient. Scheduled tools still ask before sending, spending, publishing, or deleting.</p>
-            <button type="submit" class="primary-setting">Save settings</button>
+            <div class="action-row"><button type="submit" class="primary-setting">Save settings</button></div>
             <p class="meta" id="approval-settings-feedback" role="status"></p>
           </form>
         </div>
@@ -415,7 +415,7 @@
             <label for="weather-location">Weather location</label>
             <input id="weather-location" name="location" type="text" placeholder="Redmond, WA" minlength="2" maxlength="120" required>
             <p class="meta">Enter a city and region, or a postal code. The clock uses Pacific time.</p>
-            <div class="brain-form-actions">
+            <div class="action-row">
               <button type="submit" class="primary-setting" id="weather-location-save">Save location</button>
             </div>
             <p class="meta" id="weather-settings-status" role="status"></p>
@@ -433,7 +433,7 @@
             <h3>Your interest profile</h3>
             <p class="meta">Hearth derives interests from Memory. Follow or mute any topic above to edit the profile. Card feedback adjusts the scores.</p>
             <ul id="feed-interests" class="feed-interests"></ul>
-            <button type="submit" class="primary-setting">Save settings</button>
+            <div class="action-row"><button type="submit" class="primary-setting">Save settings</button></div>
             <p class="meta" id="feed-settings-status" role="status"></p>
           </form>
         </div>
@@ -451,7 +451,7 @@
               <p class="meta delivery-full">The digest uses the email recipient set in Reminders.</p>
             </fieldset>
             <p class="meta" id="proactivity-muted"></p>
-            <button type="submit" class="primary-setting">Save settings</button>
+            <div class="action-row"><button type="submit" class="primary-setting">Save settings</button></div>
             <p class="meta" id="proactivity-settings-status" role="status"></p>
           </form>
         </div>
@@ -476,7 +476,7 @@
                 </div>
                 <label class="check-label delivery-full"><input name="acknowledge" type="checkbox"> Acknowledge accepted mail from allowed senders</label>
               </fieldset>
-              <button type="submit" class="primary-setting">Save settings</button>
+              <div class="action-row"><button type="submit" class="primary-setting">Save settings</button></div>
               <p id="reminder-settings-feedback" class="meta" role="status"></p>
             </form>
             <div class="settings-stack">
@@ -505,7 +505,7 @@
             <label for="artifact-folder">Box folder name</label>
             <input id="artifact-folder" type="text" required maxlength="80" value="Hearth">
             <p id="artifact-settings-connection" class="meta"></p>
-            <button class="primary-setting" type="submit">Save settings</button>
+            <div class="action-row"><button class="primary-setting" type="submit">Save settings</button></div>
             <p id="artifact-settings-status" class="meta" role="status"></p>
           </form>
         </div>
@@ -575,9 +575,11 @@
             <form class="card brain-form utility-card" id="routing-test-form">
               <h3>Test routing</h3>
               <label for="routing-prompt">Prompt</label>
-              <input id="routing-prompt" maxlength="4000" required placeholder="e.g. Remind me to check the oven">
+              <div class="query-form">
+                <input id="routing-prompt" maxlength="4000" required placeholder="e.g. Remind me to check the oven">
+                <button type="submit" id="routing-test" disabled>Test routing</button>
+              </div>
               <p class="meta">Preview the order without calling a model.</p>
-              <button type="submit" id="routing-test" disabled>Test routing</button>
               <div id="routing-result" class="brain-test-result" role="status" hidden></div>
             </form>
           </div>
@@ -1028,8 +1030,10 @@
         <p class="meta" id="skill-feedback" role="status"></p>
         <div class="skill-delete-confirm" id="skill-delete-confirm" hidden>
           <p>Delete this skill? You can restore it from Timeline.</p>
-          <button type="button" class="skill-button" id="skill-delete-cancel">Cancel</button>
-          <button type="button" class="skill-button skill-danger" id="skill-delete-confirm-button">Delete skill</button>
+          <div class="action-row">
+            <button type="button" class="skill-button" id="skill-delete-cancel">Cancel</button>
+            <button type="button" class="skill-button skill-danger" id="skill-delete-confirm-button">Delete skill</button>
+          </div>
         </div>
         <div class="skill-editor-actions">
           <button type="button" class="skill-button skill-danger" id="skill-delete"><span data-icon="trash" data-icon-size="17"></span> Delete</button>

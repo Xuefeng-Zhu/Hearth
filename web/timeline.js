@@ -361,7 +361,9 @@ export function createTimeline({ api, refreshAPI, approve, undo, gatewayResults,
         return undo(action, { confirmed: true, timelineTitle: row.title, redo: !!row.redoable });
       }, "timeline-restore");
       restore.dataset.focus = "restore";
-      target.append(cancel, restore);
+      const controls = element("div", "action-row");
+      controls.append(cancel, restore);
+      target.append(controls);
     }
   }
 

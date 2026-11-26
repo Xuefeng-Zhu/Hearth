@@ -383,7 +383,9 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     const header = element("div", "artifact-card-header");
     const badges = element("div", "artifact-badges");
     const heading = element("h3");
-    const title = control(item.title, (event) => open(item.id, event.currentTarget, { kind: item.kind }), "artifact-card-title");
+    const title = control("", (event) => open(item.id, event.currentTarget, { kind: item.kind }), "artifact-card-title");
+    title.append(element("span", "", item.title));
+    title.title = item.title;
     title.dataset.artifactId = item.id;
     title.setAttribute("aria-haspopup", "dialog");
     if (page) panel.addEventListener("click", (event) => {
@@ -516,11 +518,13 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
       const yes = control("Move to Hearth Trash",
         () => mutate("delete", item, { revision: item.revision }), "artifact-control artifact-danger");
       yes.id = "artifact-confirm-delete";
-      confirm.append(yes, control("Cancel", () => {
+      const controls = element("div", "action-row");
+      controls.append(yes, control("Cancel", () => {
         confirming = false;
         renderDetail(item);
         get("artifact-actions").lastElementChild.focus();
       }));
+      confirm.append(controls);
       detailBody.append(confirm);
     }
     if (item.thread_id) {

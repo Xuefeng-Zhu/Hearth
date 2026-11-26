@@ -11,8 +11,9 @@
 .skill-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 1fr;
   gap: var(--grid-gap);
-  align-items: start;
+  align-items: stretch;
   padding: var(--card-padding);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
@@ -27,6 +28,7 @@
   color: var(--artifact-icon-text);
   background: var(--artifact-icon-bg);
 }
+.skill-card-body { min-width: 0; display: flex; flex-direction: column; }
 .skill-card h3 { margin: 0; font-size: 16px; }
 .skill-card-link {
   display: flex;
@@ -38,11 +40,12 @@
   min-height: var(--control-height);
   font: inherit;
   font-weight: 700;
+  overflow-wrap: anywhere;
   color: var(--text);
 }
 .skill-card-link:hover { color: var(--accent); text-decoration: underline; }
 .skill-card p { margin: var(--space-1) 0 var(--space-3); color: var(--secondary-text); font-size: 14px; line-height: 1.4; }
-.skill-stats { display: flex; align-items: center; gap: var(--space-1) var(--control-gap); flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.skill-stats { margin-top: auto; display: flex; align-items: center; gap: var(--space-1) var(--control-gap); flex-wrap: wrap; color: var(--muted); font-size: 12px; }
 .skill-badge, .skill-chip {
   display: inline-flex;
   align-items: center;

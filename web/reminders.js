@@ -264,7 +264,11 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
       row.cron ? `Repeats · ${row.cron} UTC` : "",
     ].filter(Boolean).join(" · ");
     if (detail) card.append(el("p", "meta", detail));
-    if (row.cancelable) card.append(button("Undo", () => cancelReminder(row.job_id || row.id)));
+    if (row.cancelable) {
+      const actions = el("div", "delivery-actions");
+      actions.append(button("Undo", () => cancelReminder(row.job_id || row.id)));
+      card.append(actions);
+    }
     return card;
   }
 
