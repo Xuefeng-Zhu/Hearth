@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import threading
 import time
 from collections import OrderedDict, deque
@@ -27,6 +28,7 @@ from .http_routes import route_for
 from .memory_sync import MemorySync
 from .reminder_config import equal, saved
 from .storage import HearthError, ROOT, Storage, iso, new_id, revision
+from .subsystem_status import SubsystemStatus
 from .threads import MAIN, Threads, compact
 
 
@@ -122,11 +124,13 @@ STATIC = {
     "/icons/icon-512.png": ("icons/icon-512.png", "image/png"),
 }
 SIDE_COMMAND = re.compile(r"/(?:side|btw)(?:\s+(.+))?", re.I | re.S)
+CLIENT_DISCONNECT = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
 
 
 class Application:
     def __init__(self, storage, checkpoints, config, *, config_path=None, gateway=None):
         self.storage = storage
+        self.subsystem_status = SubsystemStatus()
         self.threads = Threads(storage)
         self.checkpoints = checkpoints
         self.gateway = gateway or Gateway()
@@ -216,7 +220,7 @@ class Application:
             now = time.time()
             woke = previous is None or now - previous > 20
             try:
-                if not self.restore or self.restore["status"] != "restoring":
+                if not self.restoring():
                     claimed = scheduler.claim_due(self.storage, tick=woke)
                     if claimed["queued_deliveries"]:
                         self.reminders.kick()
@@ -232,9 +236,13 @@ class Application:
                         self.ideas.kick()
                         self.memory_review.kick()
                         next_home = now + 10
+                    if claimed["last_tick"] is not None:
+                        self.subsystem_status.success("scheduler")
+                        previous = time.time()
             except (HearthError, OSError):
-                pass
-            previous = time.time()
+                self.subsystem_status.failure("scheduler", "storage_error")
+            except Exception:
+                self.subsystem_status.failure("scheduler", "loop_error")
             time.sleep(2)
 
     def reload_agent(self, *, reset_brain=True):
@@ -869,8 +877,8 @@ class HTTPServer(ThreadingHTTPServer):
         super().__init__(address, Handler)
 
     def handle_error(self, request, client_address):
-        # Requests, provider failures and CLI output may contain private data.
-        pass
+        if not isinstance(sys.exception(), CLIENT_DISCONNECT):
+            self.app.subsystem_status.failure("http", "handler_error")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -905,6 +913,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-Accel-Buffering", "no")
         for name, value in (headers or {}).items():
             self.send_header(name, value)
+        self.response_status = status
         self.end_headers()
 
     def json(self, data, status=200, *, etag=None, headers=None):
@@ -926,6 +935,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def get_health(self, request):
         self.json({"ok": True, "checkpoints": self.app.checkpoints.mode})
+
+    def get_status(self, request):
+        self.json({"subsystems": self.app.subsystem_status.snapshot()})
 
     def get_state(self, request):
         query = request.query
@@ -1131,6 +1143,7 @@ class Handler(BaseHTTPRequestHandler):
         self.json(data)
 
     def dispatch(self):
+        self.response_status = None
         # BaseHTTPRequestHandler normalizes leading slashes. Match the original target instead.
         target = self.requestline.split()[1]
         path, _, query = target.partition("?")
@@ -1165,15 +1178,23 @@ class Handler(BaseHTTPRequestHandler):
         except (pages.PageError, uploads.UploadError, voice.VoiceError) as error:
             self.json({"error": str(error)}, error.status)
         except workers.WorkerStorageError:
+            self.app.subsystem_status.failure("http", "storage_error")
             self.json({"error": "Hearth could not stop the worker."}, 500)
         except HearthError as error:
             self.json({"error": str(error)}, 400)
-        except (BrokenPipeError, ConnectionResetError):
+        except CLIENT_DISCONNECT:
             return
-        except (OSError, TypeError, ValueError, KeyError, OverflowError):
+        except Exception:
+            self.app.subsystem_status.failure("http", "handler_error")
+            if self.response_status is not None:
+                self.close_connection = True
+                return
             message = route.storage_error or ("Hearth could not read workspace data." if self.command == "GET"
                                               else "Hearth could not update workspace data.")
             self.json({"error": message}, 500)
+        else:
+            if route.handler not in ("get_health", "get_status") and self.response_status in range(200, 400):
+                self.app.subsystem_status.success("http")
 
     do_GET = do_POST = dispatch
 
@@ -1668,19 +1689,15 @@ class Handler(BaseHTTPRequestHandler):
         self.stream_events(packets())
 
     def stream_events(self, packets):
-        try:
-            self.response_headers(200, "text/event-stream")
+        self.response_headers(200, "text/event-stream")
+        self.wfile.flush()
+        for packet in packets:
+            if packet is None:
+                self.wfile.write(b": Hearth is working\n\n")
+            else:
+                name, data = packet
+                self.wfile.write(f"event: {name}\ndata: {json.dumps(data)}\n\n".encode("utf-8"))
             self.wfile.flush()
-            for packet in packets:
-                if packet is None:
-                    self.wfile.write(b": Hearth is working\n\n")
-                else:
-                    name, data = packet
-                    self.wfile.write(f"event: {name}\ndata: {json.dumps(data)}\n\n".encode("utf-8"))
-                self.wfile.flush()
-        except OSError:
-            # The worker still finishes and persists the reply if the browser disconnects.
-            return
 
 
 def main():

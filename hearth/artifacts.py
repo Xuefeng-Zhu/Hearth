@@ -313,15 +313,18 @@ class Artifacts:
     def memory_rows(self, previous):
         scope, client, refresh, epoch = self.refresh_for_read()
         if refresh is None:
-            return None
+            return None, False
         remote, error = refresh.result()
-        if error or scope != self.box_scope() or epoch != self.epoch:
-            return None
+        if scope != self.box_scope() or epoch != self.epoch or self.restoring():
+            return None, False
+        if error:
+            return None, True
         with self.storage.lock():
             local = self.storage.load().get("artifacts", {})
         represented = {row["box_id"]: row for row in local.values()
                        if row.get("box_id") and row.get("box_connection") == scope[0]}
         rows = {}
+        incomplete = False
         for row in remote.values():
             linked = represented.get(row["box_id"])
             if (linked and (linked.get("deleted") or linked.get("sync") != "synced")
@@ -338,11 +341,14 @@ class Artifacts:
             try:
                 content = redact_text(client.content(row["box_id"]))
             except HearthError:
+                incomplete = True
                 if old:
                     rows[key] = old
             else:
                 rows[key] = {**row, "id": key, "content": content}
-        return rows if scope == self.box_scope() and epoch == self.epoch else None
+        if scope != self.box_scope() or epoch != self.epoch or self.restoring():
+            return None, False
+        return rows, incomplete
 
     def find(self, identity):
         if not isinstance(identity, str) or not re.fullmatch(r"(?:[a-f0-9]{32}|box-[0-9]{1,30})", identity):

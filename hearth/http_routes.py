@@ -29,6 +29,7 @@ def field_types(defaults):
 
 GET = {
     "/health": Route("get_health", during_restore=True),
+    "/api/status": Route("get_status", during_restore=True),
     "/api/state": Route("get_state", during_restore=True),
     "/api/transcript": Route("get_transcript"),
     "/api/threads": Route("get_threads"),

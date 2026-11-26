@@ -69,6 +69,7 @@ class SubsystemStatusTest(unittest.TestCase):
                 OSError("private storage fixture"), HearthError("private storage fixture"),
                 {"queued_deliveries": 0, "last_tick": "fixture"}]), \
                 patch.object(self.app, "kick_scheduler_inbox"), \
+                patch.object(self.app.home, "kick"), \
                 patch("hearth.server.time.sleep", side_effect=[None, None, StopIteration]):
             with self.assertRaises(StopIteration):
                 self.app.background_reminders()
@@ -122,3 +123,11 @@ class SubsystemStatusTest(unittest.TestCase):
             self.assertFalse(recovered["stale"])
             self.assertEqual(recovered["failure_count"], 2)
             self.assertEqual(json.loads(cache.read_bytes())["rows"][row["id"]]["revision"], "second")
+
+            with patch.object(self.app.memory_index, "replace_box_artifacts", side_effect=OSError):
+                refresh(changed)
+            failed_write = self.status("box_recall")
+            self.assertTrue(failed_write["stale"])
+            self.assertEqual(failed_write["last_success"], recovered["last_success"])
+            self.assertEqual(failed_write["last_failure_code"], "storage_error")
+            self.assertEqual(failed_write["failure_count"], 3)
