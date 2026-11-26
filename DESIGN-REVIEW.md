@@ -87,6 +87,12 @@ Paths below are relative to `/api`. Each workspace route relies on the same sing
 
 **Leave alone before November 29.** Defer a storage engine migration, scheduler rewrite, wholesale agent or web refactor, route renames, and compatibility cleanup. Preserve the existing approval defaults, worker limits, summary semantics, provider fallbacks, and Pages sandbox. Use the time for edge and wake verification and a fixture-based rehearsal of chat, approval, reminder delivery, and Page sharing. None of those operational checks were run against a live workspace for this review.
 
+## Run 50 status
+
+- **D01 · Edge check passed.** On November 26, 2026, signed-out requests to `/health` and `/api/state` each returned HTTP 302 to the Sprites login. Deploy-time enforcement and a broader route authorization test remain deferred.
+- **D02 · Light hardening complete.** Mocked fixtures cover allowlisted inbound AgentMail, Exa, Browserbase, recalled imported mail, and worker tool results. The fixtures verify that Inbox text cannot change rules or approval policy, external addresses cannot become email recipients, and protected actions wait for approval after external evidence even with Always allow. Reference excerpts now use delimited data outside system instructions. Persistent provenance across summaries and derived content, broader local mutation controls, connector-specific write scopes, and sensitive-read checks remain deferred. [Untrusted content](docs/security.md) · [Fixtures](tests/test_untrusted_content.py)
+- **Run 50 verification.** All 248 Python tests and 9 Node tests passed, and every `web/*.js` file passed `node --check`. `scripts/deploy.sh` succeeded. The deployed service returned HTTP 200 from `/health`. A normal live chat reply and a sourced web-search reply both completed. Timeline confirmed that Exa returned results for the search.
+
 ## Verification
 
 - `python -m unittest discover -s tests` passed all 202 tests with the pinned test requirements and the project PDF font.
