@@ -472,11 +472,11 @@
   .composer:focus-within, .connection-tabs button[aria-selected="true"]:focus-visible {
     border-color: var(--focus);
   }
-  .composer :is(#mic, #send, #start-call), .call-button, .call-end, .rescan, .primary,
-  .card button.primary-setting, .brain-controls #brain-save,
+  .composer :is(#mic, #send, #start-call), .call-button, .call-end, .primary,
+  .card button.primary-setting, .settings-button.primary-setting, .brain-controls #brain-save,
   .timeline-undo, .timeline-confirm .timeline-restore { border: 1px solid var(--control-border); }
-  :is(button, input, select, textarea):disabled, .rescan[aria-disabled="true"] { opacity: 1; }
-  button:disabled, .rescan[aria-disabled="true"] { cursor: default; border-style: dashed; }
+  :is(button, input, select, textarea):disabled, .settings-button[aria-disabled="true"] { opacity: 1; }
+  button:disabled, .settings-button[aria-disabled="true"] { cursor: default; border-style: dashed; }
   :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
   :is(button, textarea, input, select, a, summary):focus-visible { outline-color: var(--focus); }
   .timeline-card-head:focus-visible { outline-color: var(--focus); }

@@ -26,8 +26,29 @@ const input = byId("message");
 const send = byId("send");
 const notice = byId("notice");
 const chatScroll = byId("chat-scroll");
-const mobile = setupMobile({ nearBottom, scrollDown });
-const settingsTabs = [...document.querySelectorAll("[data-settings]")];
+const mobile = setupMobile({ nearBottom, scrollDown, refreshThreads: refreshDrawerThreads });
+const settingsGroups = [
+  ["Assistant", [
+    ["brain", "Brain", "Models and routing", "route"],
+    ["memory", "Memory", "Recall and saved facts", "book"],
+    ["skills", "Skills", "Reusable playbooks", "skill"],
+    ["search", "Search", "Web search providers", "search"],
+    ["voice", "Voice", "Calls and dictation", "mic"],
+  ]],
+  ["Connected", [
+    ["connections", "Connections", "Fly connectors and health", "plug"],
+    ["artifacts", "Artifacts", "File sync and Box storage", "files"],
+  ]],
+  ["Notifications", [
+    ["reminders", "Reminders", "Delivery and forwarded mail", "bell"],
+    ["proactivity", "Proactivity", "Suggestions and digests", "sparkle"],
+    ["approvals", "Approvals", "When Hearth asks first", "shield"],
+  ]],
+  ["App", [
+    ["home", "Home", "Weather location", "home"],
+    ["appearance", "Appearance", "Ember view and style", "image"],
+  ]],
+];
 const settingsDisclosures = new Map();
 const connectionsLabel = "Settings → Connections";
 const dateFormat = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
@@ -80,8 +101,7 @@ let poolRequest;
 let poolModels = {};
 let poolDraft = [];
 let poolDirty = false;
-let settingsSection = "brain";
-let expandedSetting;
+let settingsSection;
 let reindexPoll;
 const preferences = { memory: {}, search: {} };
 let uploading = false;
@@ -1163,6 +1183,13 @@ async function refreshState() {
   return true;
 }
 
+function refreshDrawerThreads() {
+  if (view === "chat" || view === "memory" || busy || threadBusy) return;
+  refreshState().catch((error) => {
+    if (byId("workspace-drawer").open) showNotice(error.message);
+  });
+}
+
 function renderBrain({ model, model_id: id }) {
   workspaceModel = model;
   const name = modelNames[model] || connectionState?.providers[model]?.name || model || "Unavailable";
@@ -1457,7 +1484,6 @@ function syncWorkspaceRoute() {
   if (route.section === "connections") {
     if (route.target) rememberConnectionTab(route.target);
     if (isSetting("connections")) {
-      expandSetting("connections");
       renderConnections();
       return;
     }
@@ -2114,31 +2140,25 @@ function readPreferences(feature) {
     include: scope("include"), exclude: scope("exclude") };
 }
 
-function expandSetting(section) {
-  expandedSetting = section;
-  for (const [key, disclosure] of settingsDisclosures) {
-    disclosure.setAttribute("aria-expanded", String(key === section));
-  }
-  if (mobile.isMobile()) settingsDisclosures.get(section)?.scrollIntoView({ block: "nearest" });
-}
-
 function focusSetting(section) {
-  const control = mobile.isMobile() ? settingsDisclosures.get(section)
-    : settingsTabs.find((tab) => tab.dataset.settings === section);
+  const control = settingsDisclosures.get(section);
+  const previous = control.closest(".settings-entry").previousElementSibling;
+  const anchor = previous.matches(".settings-group-label") ? previous : control;
+  anchor.scrollIntoView({ block: "start" });
   control.focus({ preventScroll: true });
 }
 
-async function openSettings(section, expanded, target) {
+async function openSettings(section, target) {
   settingsSection = section;
   clearTimeout(reindexPoll);
-  for (const item of settingsTabs) {
-    const active = item.dataset.settings === section;
-    if (active) item.setAttribute("aria-current", "page");
-    else item.removeAttribute("aria-current");
-    byId(`settings-${item.dataset.settings}`).hidden = !active;
+  for (const [key, disclosure] of settingsDisclosures) {
+    const open = key === section;
+    disclosure.setAttribute("aria-expanded", String(open));
+    byId(`settings-${key}`).hidden = !open;
   }
-  expandSetting(expanded ? section : undefined);
+  settingsDisclosures.get(section)?.scrollIntoView({ block: "nearest" });
   if (section !== "skills") skills.clearLink();
+  if (!section) return;
   if (section === "connections") {
     renderConnections();
     const mailCard = delivery.connections();
@@ -2277,7 +2297,8 @@ async function openView(nextView, updateHistory = true, section, target) {
   renderWorkspaceStatus();
   if (view === "timeline") timeline.setTodayErrors(location.hash === timelineErrorRoute);
   if (view === "settings") {
-    await openSettings(section || "brain", Boolean(section), target);
+    if (previousView !== "settings") byId("settings-view").scrollTop = 0;
+    await openSettings(section, target);
   } else if (view === "home") {
     if (previousView !== "home") byId("home-view").scrollTop = 0;
     await homePage.load();
@@ -2904,25 +2925,37 @@ byId("memory-find").addEventListener("submit", (event) => {
 byId("memory-query").addEventListener("input", (event) => {
   if (!event.target.value) findMemory();
 });
-for (const tab of settingsTabs) {
-  const section = tab.dataset.settings;
-  const panel = byId(`settings-${section}`);
-  tab.setAttribute("aria-controls", panel.id);
-  tab.addEventListener("click", () => openSettingsSection(section));
-  const disclosure = button("", () => {
-    if (expandedSetting === section) expandSetting();
-    else openSettingsSection(section);
-  });
-  const label = node("span", "settings-label");
-  label.append(...[...tab.childNodes].map((child) => child.cloneNode(true)));
-  disclosure.append(label);
-  disclosure.className = "settings-disclosure";
-  disclosure.setAttribute("aria-controls", panel.id);
-  disclosure.setAttribute("aria-expanded", "false");
-  settingsDisclosures.set(section, disclosure);
-  const heading = node("h2", "mobile-only settings-heading");
-  heading.append(disclosure);
-  byId("settings-sections").append(heading, panel);
+for (const [groupName, sections] of settingsGroups) {
+  const group = node("div", "settings-group");
+  const groupLabel = node("p", "settings-group-label", groupName);
+  groupLabel.id = `settings-group-${groupName.toLowerCase()}`;
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-labelledby", groupLabel.id);
+  group.append(groupLabel);
+  for (const [section, title, subtitle, symbol] of sections) {
+    const panel = byId(`settings-${section}`);
+    const disclosure = button("", () => openSettingsSection(isSetting(section) ? undefined : section));
+    disclosure.className = "settings-disclosure";
+    disclosure.dataset.settings = section;
+    disclosure.setAttribute("aria-controls", panel.id);
+    disclosure.setAttribute("aria-expanded", "false");
+    const copy = node("span", "settings-label");
+    const name = node("span", "settings-title", title);
+    const description = node("span", "settings-subtitle", subtitle);
+    name.id = `${panel.id}-title`;
+    description.id = `${panel.id}-subtitle`;
+    disclosure.setAttribute("aria-labelledby", name.id);
+    disclosure.setAttribute("aria-describedby", description.id);
+    copy.append(name, description);
+    disclosure.append(icon(symbol), copy, icon("chevron", 18));
+    const heading = node("h2", "settings-heading");
+    heading.append(disclosure);
+    const entry = node("div", "settings-entry");
+    entry.append(heading, panel);
+    group.append(entry);
+    settingsDisclosures.set(section, disclosure);
+  }
+  byId("settings-sections").append(group);
 }
 for (const feature of ["memory", "search"]) {
   byId(`${feature}-settings-form`).addEventListener("submit", (event) => {

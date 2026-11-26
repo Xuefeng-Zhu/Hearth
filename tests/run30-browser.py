@@ -69,8 +69,8 @@ def choose(page, label, mobile):
 
 def open_skills(page, mobile):
     choose(page, "Settings", mobile)
-    section = page.locator('.settings-disclosure[aria-controls="settings-skills"]' if mobile else '[data-settings="skills"]')
-    expect(section.locator("svg")).to_have_count(1)
+    section = page.locator('[data-settings="skills"]')
+    expect(section.locator("svg")).to_have_count(2)
     section.click()
 
 
@@ -99,7 +99,7 @@ def verify(page, origin, width, theme, output, app):
     page.goto(origin + "/#skills")
     expect(page).to_have_url(origin + "/#settings/skills")
     expect(page.get_by_role("heading", name="Settings", level=1)).to_be_visible()
-    expect(page.get_by_role("heading", name="Playbook library")).to_be_visible()
+    expect(page.locator('[data-settings="skills"]')).to_have_attribute("aria-expanded", "true")
     dinner = page.get_by_role("button", name=DINNER, exact=True)
     expect(dinner).to_be_visible()
     expect(page.locator(".skill-badge")).to_have_count(4)
@@ -199,7 +199,7 @@ def verify(page, origin, width, theme, output, app):
     choose(page, "Settings", mobile)
     approvals = page.get_by_role("button", name="Approvals", exact=True)
     approvals.click()
-    policy = page.get_by_label("Skills", exact=True)
+    policy = page.locator("#approval-settings-form").get_by_label("Skills", exact=True)
     expect(policy).to_have_value("ask")
     policy.select_option("allow")
     page.locator("#approval-settings-form").get_by_role("button", name="Save settings").click()

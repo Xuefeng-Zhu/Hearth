@@ -307,33 +307,18 @@
         <div class="timeline" id="timeline"></div>
       </section>
       <section class="view panel" id="settings-view" aria-labelledby="view-title" hidden>
-        <nav class="settings-nav" aria-label="Settings sections">
-          <button type="button" data-settings="brain" aria-current="page">Brain</button>
-          <button type="button" data-settings="connections"><span data-icon="plug"></span> Connections</button>
-          <button type="button" data-settings="skills"><span data-icon="skill"></span> Skills</button>
-          <button type="button" data-settings="memory">Memory</button>
-          <button type="button" data-settings="artifacts">Artifacts</button>
-          <button type="button" data-settings="search">Search</button>
-          <button type="button" data-settings="appearance">Appearance</button>
-          <button type="button" data-settings="voice">Voice</button>
-          <button type="button" data-settings="reminders">Reminders</button>
-          <button type="button" data-settings="home">Home</button>
-          <button type="button" data-settings="proactivity">Proactivity</button>
-          <button type="button" data-settings="approvals">Approvals</button>
-        </nav>
         <div class="settings-sections" id="settings-sections">
-        <div id="settings-skills" hidden>
-          <div class="section-intro skills-intro">
-            <div><h2>Playbook library</h2><p>Save repeatable workflows for Hearth to use in chat.</p></div>
-            <button type="button" class="skill-button skill-primary" id="skill-new"><span data-icon="plus" data-icon-size="17"></span> New skill</button>
+        <div class="settings-body" id="settings-skills" hidden>
+          <div class="settings-actions">
+            <p class="meta" id="skills-status" role="status"></p>
+            <button type="button" class="settings-button primary-setting" id="skill-new"><span data-icon="plus" data-icon-size="17"></span> New skill</button>
           </div>
-          <p class="meta" id="skills-status" role="status"></p>
           <div id="skill-list" class="skill-list" aria-label="Playbooks"></div>
         </div>
-        <div id="settings-connections" hidden>
-          <div class="section-intro connections-intro">
-            <div><h2>Fly connector catalog</h2><p class="empty" id="connection-notice" role="status">Checking connections…</p></div>
-            <button type="button" class="rescan" id="rescan-connections">Refresh</button>
+        <div class="settings-body" id="settings-connections" hidden>
+          <div class="settings-actions">
+            <p class="meta" id="connection-notice" role="status">Checking connections…</p>
+            <button type="button" class="settings-button" id="rescan-connections">Refresh</button>
           </div>
           <section id="email-hearth-connection" class="card email-hearth-card" aria-label="Email Hearth"></section>
           <div class="connection-tabs" id="connection-tabs" role="tablist" aria-label="Connector configuration">
@@ -365,8 +350,7 @@
             <div class="connection-groups"></div>
           </template>
         </div>
-        <div id="settings-approvals" hidden>
-          <div class="section-intro"><h2>Approvals</h2><p>Choose when Hearth should ask before taking an action.</p></div>
+        <div class="settings-body" id="settings-approvals" hidden>
           <form id="approval-settings-form" class="card brain-form approval-settings">
             <div id="approval-policies"></div>
             <p class="meta">Reminders and task updates can email your configured recipient. Scheduled tools still ask before sending, spending, publishing, or deleting.</p>
@@ -374,20 +358,18 @@
             <p class="meta" id="approval-settings-feedback" role="status"></p>
           </form>
         </div>
-        <div id="settings-home" hidden>
-          <div class="section-intro"><h2>Home</h2><p>Choose the location shown on your weather panel.</p></div>
+        <div class="settings-body" id="settings-home" hidden>
           <form id="weather-settings-form" class="card brain-form">
             <label for="weather-location">Weather location</label>
             <input id="weather-location" name="location" type="text" placeholder="Redmond, WA" minlength="2" maxlength="120" required>
             <p class="meta">Enter a city and region, or a postal code. The clock uses Pacific time.</p>
             <div class="brain-form-actions">
-              <button type="submit" id="weather-location-save">Save location</button>
+              <button type="submit" class="primary-setting" id="weather-location-save">Save location</button>
             </div>
             <p class="meta" id="weather-settings-status" role="status"></p>
           </form>
         </div>
-        <div id="settings-proactivity" hidden>
-          <div class="section-intro"><h2>Proactivity</h2><p>Choose when Hearth looks for timely ways to help.</p></div>
+        <div class="settings-body" id="settings-proactivity" hidden>
           <form id="proactivity-settings-form" class="card brain-form">
             <fieldset class="preference-fields delivery-form">
               <legend>For you on Home</legend>
@@ -405,8 +387,7 @@
             <p class="meta" id="proactivity-settings-status" role="status"></p>
           </form>
         </div>
-        <div id="settings-reminders" hidden>
-          <div class="section-intro"><h2>Reminders</h2><p>Choose where reminders arrive and how Hearth handles incoming email.</p></div>
+        <div class="settings-body" id="settings-reminders" hidden>
           <div class="settings-layout reminder-settings-layout">
             <form id="reminder-settings-form" class="card brain-form">
               <fieldset class="preference-fields delivery-form">
@@ -450,23 +431,18 @@
             </div>
           </div>
         </div>
-        <div id="settings-artifacts" hidden>
-          <div class="section-intro"><h2>Artifacts</h2><p>Choose where Hearth syncs your files in Box.</p></div>
+        <div class="settings-body" id="settings-artifacts" hidden>
           <form id="artifact-settings-form" class="card brain-form">
             <label class="check-label"><input id="artifact-auto-save" type="checkbox" checked> Auto-save to Box</label>
             <label for="artifact-folder">Box folder name</label>
             <input id="artifact-folder" type="text" required maxlength="80" value="Hearth">
             <p id="artifact-settings-connection" class="meta"></p>
-            <button class="primary" type="submit">Save settings</button>
+            <button class="primary-setting" type="submit">Save settings</button>
             <p id="artifact-settings-status" class="meta" role="status"></p>
           </form>
         </div>
-        <div id="settings-brain">
-          <div class="section-intro">
-            <h2>Brain</h2>
-            <p>Choose how Hearth selects a model for each turn.</p>
-            <p class="brain-active"><strong>Active model</strong> <span id="brain-active-model">Checking…</span></p>
-          </div>
+        <div class="settings-body" id="settings-brain" hidden>
+          <p class="brain-active meta"><strong>Active model</strong> <span id="brain-active-model">Checking…</span></p>
           <div class="settings-layout">
           <form class="card brain-form" id="brain-form">
             <label for="brain-provider">Routing mode</label>
@@ -539,11 +515,7 @@
           </div>
           </div>
         </div>
-        <div id="settings-memory" hidden>
-          <div class="section-intro">
-            <h2>Memory</h2>
-            <p>Choose what Hearth recalls and how it remembers new facts.</p>
-          </div>
+        <div class="settings-body" id="settings-memory" hidden>
           <div class="settings-layout">
             <form class="card brain-form preference-form" id="memory-settings-form">
               <fieldset class="preference-fields" id="memory-fields" disabled>
@@ -607,11 +579,7 @@
             </div>
           </div>
         </div>
-        <div id="settings-search" hidden>
-          <div class="section-intro">
-            <h2>Search</h2>
-            <p>Choose the connected provider Hearth uses to search the public web.</p>
-          </div>
+        <div class="settings-body" id="settings-search" hidden>
           <div class="settings-layout">
             <form class="card brain-form preference-form" id="search-settings-form">
               <fieldset class="preference-fields" id="search-fields" disabled>
@@ -669,8 +637,7 @@
             </div>
           </div>
         </div>
-        <div id="settings-appearance" hidden>
-          <div class="section-intro"><h2>Appearance</h2><p>Choose Hearth’s look in chat.</p></div>
+        <div class="settings-body" id="settings-appearance" hidden>
           <div class="card appearance-card">
             <label class="appearance-toggle"><input type="checkbox" id="avatar-enabled" checked> Show avatar in chat</label>
             <label class="mobile-only ember-view-setting" for="ember-view">
@@ -692,8 +659,7 @@
             </div>
           </div>
         </div>
-        <div id="settings-voice" hidden>
-          <div class="section-intro"><h2>Voice</h2><p>Call Hearth or dictate into the composer in any chat.</p></div>
+        <div class="settings-body" id="settings-voice" hidden>
           <form class="card brain-form voice-settings" id="call-settings-form">
             <fieldset class="preference-fields call-settings-card">
               <legend>Voice calls</legend>
@@ -724,6 +690,7 @@
           </form>
           <form class="card brain-form voice-settings" id="voice-settings-form">
             <fieldset class="preference-fields">
+              <legend>Dictation</legend>
               <div>
                 <label for="voice-engine">Transcription engine</label>
                 <select id="voice-engine">

@@ -1,6 +1,6 @@
 const mobile = matchMedia("(max-width: 760px), (max-width: 950px) and (max-height: 500px) and (pointer: coarse)");
 
-export function setupMobile({ nearBottom, scrollDown }) {
+export function setupMobile({ nearBottom, scrollDown, refreshThreads }) {
   const get = (id) => document.getElementById(id);
   const drawer = get("workspace-drawer");
   const toggle = get("open-menu");
@@ -23,6 +23,7 @@ export function setupMobile({ nearBottom, scrollDown }) {
     drawer.showModal();
     drawer.querySelector(".workspace-drawer-body").scrollTop = 0;
     toggle.setAttribute("aria-expanded", "true");
+    refreshThreads();
   });
   drawer.addEventListener("close", () => {
     if (drawer.open) return;

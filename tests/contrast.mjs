@@ -132,8 +132,8 @@ function contrastPairs({ dark, changedControls }) {
       const style = read(el);
       const sides = ["Top", "Right", "Bottom", "Left"].filter((side) =>
         parseFloat(style[`border${side}Width`]) > 0 && color(style[`border${side}Color`])[3] > 0);
-      const essentialEdge = el.matches(".settings-disclosure, .settings-nav [aria-current], .connection-tabs [aria-selected=true], "
-        + ".connection-filters :is(input, select), .connector-controls input, .rescan, .skill-primary, #skill-versions, #skill-markdown");
+      const essentialEdge = el.matches(".settings-disclosure, .connection-tabs [aria-selected=true], "
+        + ".connection-filters :is(input, select), .connector-controls input, .settings-button, .skill-primary, #skill-versions, #skill-markdown");
       if (sides.length && (dark || (essentialEdge && !el.closest(":disabled, [aria-disabled=true]")))) {
         measure(el, style[`border${sides[0]}Color`], 3, "control border", true);
       }
@@ -153,7 +153,7 @@ function contrastPairs({ dark, changedControls }) {
 }
 
 async function audit(page, state, scheme, width) {
-  const changedControls = /^Settings (Connections|Skills)|^workspace drawer$|^Chat$/.test(state);
+  const changedControls = /^Settings|^workspace drawer$|^Chat$/.test(state);
   const pairs = await page.evaluate(contrastPairs, { dark: scheme === "dark", changedControls });
   assert.ok(pairs.length, `No visible elements in ${state}`);
   measurements += pairs.length;
@@ -183,12 +183,9 @@ async function go(page, id) {
 }
 
 async function chooseSetting(page, id) {
-  const disclosure = page.locator(`.settings-disclosure[aria-controls=settings-${id}]`);
+  const disclosure = page.locator(`[data-settings=${id}]`);
   const panel = page.locator(`#settings-${id}`);
-  if (!await panel.isVisible()) {
-    const control = await disclosure.isVisible() ? disclosure : page.locator(`[data-settings=${id}]`);
-    await control.click();
-  }
+  if (!await panel.isVisible()) await disclosure.click();
   await panel.waitFor();
 }
 
@@ -354,7 +351,8 @@ async function screens(scheme, width, height) {
   await check("Settings");
   await shot("settings");
   await checkMovedSettings(page, check, (name) => save(page, `${name}-${width}-${scheme}`));
-  for (const id of ["brain", "memory", "artifacts", "search", "appearance", "voice", "reminders"]) {
+  for (const id of ["brain", "memory", "artifacts", "search", "appearance", "voice", "reminders",
+    "proactivity", "approvals", "home"]) {
     await chooseSetting(page, id);
     await check(`Settings ${id}`);
     await shot(`settings-${id}`);

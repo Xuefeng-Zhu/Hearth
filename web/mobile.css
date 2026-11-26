@@ -355,38 +355,9 @@
   .call-controls { justify-content: center; margin-top: auto; }
   .call-controls button { flex: 1 1 auto; }
 
-  .settings-nav { display: none; }
-  .settings-sections { display: grid; align-content: start; gap: 8px; }
-  .settings-heading { display: block; margin: 0; font: inherit; }
-  .settings-disclosure {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    padding: 11px 13px;
-    border: 1px solid var(--focus);
-    border-radius: 10px;
-    background: var(--paper);
-    color: inherit;
-    font-weight: 650;
-    text-align: left;
-  }
-  .settings-disclosure::after {
-    content: "";
-    width: 7px;
-    height: 7px;
-    margin-inline: 4px;
-    border-right: 2px solid var(--accent);
-    border-bottom: 2px solid var(--accent);
-    transform: rotate(45deg);
-  }
-  .settings-disclosure[aria-expanded="true"] { color: var(--accent); background: var(--accent-light); }
-  .settings-disclosure[aria-expanded="true"]::after { transform: rotate(225deg); }
-  .settings-heading:has([aria-expanded="false"]) + div { display: none; }
-  .settings-sections > div { min-width: 0; padding-block: 6px 14px; }
-  .settings-sections > div > .section-intro > h2 { display: none; }
+  .settings-body { padding: 12px; }
+  .settings-body .brain-form { padding: 14px; }
   .settings-layout, .field-pair { grid-template-columns: minmax(0, 1fr); }
-  .settings-layout > *, .preference-fields > * { min-width: 0; }
   .reminder-action-page {
     padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
       max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
