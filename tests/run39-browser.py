@@ -10,10 +10,11 @@ from unittest.mock import patch
 
 from playwright.sync_api import expect, sync_playwright
 
-from hearth import tasks
+from hearth import proactivity, tasks
 from hearth.agent import DEMO_FILES
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import ConnectorError, read_config
+from hearth.proactive_context import Context
 from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage, iso
 from hearth.threads import MAIN_ORIGIN
@@ -24,7 +25,7 @@ HOME_FIXTURE = runpy.run_path(str(HERE / "run22-browser.py"))
 THREADS = runpy.run_path(str(HERE / "run38-browser.py"))["THREADS"]
 CONTRAST = "function " + (HERE / "contrast-pairs.mjs").read_text().split("export function ", 1)[1]
 SETTINGS = ("brain", "memory", "search", "voice", "connections", "artifacts", "reminders",
-            "proactivity", "approvals", "home", "appearance")
+            "feed", "proactivity", "automations", "watchers", "approvals", "home", "appearance")
 SIZES = (("iPhone SE", 375, 667), ("iPhone 13", 390, 844), (None, 1440, 1000))
 OFFER = {
     "id": "sample-offer", "title": "Prepare for Saturday’s garden workshop",
@@ -32,6 +33,16 @@ OFFER = {
     "kind": "planning", "urgency": "soon", "action_label": "Make a rain plan",
     "expires_at": "2030-04-04T17:00:00Z",
 }
+
+
+def seed_offer(app, state, now):
+    source = "memory:topics/seattle.md"
+    context = Context(app, state)
+    row, = proactivity.candidates([{
+        **OFFER, "dedupe_key": "sample-offer", "expiry_hours": 24, "sources": [source],
+        "action": {"type": "chat", "label": OFFER["action_label"], "prompt": "Draft a weekend rain plan."},
+    }], {source: context.get(source)}, {}, context.rules, 1, now)
+    state.setdefault("proactivity", {}).setdefault("cards", {})[row["id"]] = row
 
 
 # Intrinsically wide tables, PDF sheets and authored preview frames have their own local scrolling.
@@ -81,6 +92,7 @@ def seed(app, gateway):
         app.threads.append("main", "assistant",
                            "Reference: " + "GardenWorkshopSchedule" * 12 + "\n\n" + ("The group will meet near the main entrance. " * 46))
         state = app.storage.load()
+        seed_offer(app, state, now)
         state.setdefault("workers", {})["fictional-worker"] = {
             "id": "fictional-worker", "thread_id": "main", "turn_id": prompt["id"],
             "status": "running", "title": "Compare community garden workshop schedules",
@@ -223,7 +235,8 @@ def verify(context, origin, tag, output, baseline, app):
         if output:
             page.screenshot(path=output / f"{name}-{tag}.png", animations="disabled")
 
-    expect(page.locator(".suggestion-card").first).to_be_visible()
+    expect(page.locator(".suggestion-card").first if baseline else page.get_by_role(
+        "article", name=OFFER["title"])).to_be_visible()
     capture("home")
     health = page.locator('[data-panel="connections"]')
     health.scroll_into_view_if_needed()
@@ -303,6 +316,16 @@ def verify(context, origin, tag, output, baseline, app):
     go(page, "artifacts")
     expect(page.locator(".artifact-card")).to_have_count(16)
     capture("artifacts")
+    if not baseline:
+        ask_files = page.get_by_role("button", name="Ask my files")
+        ask_files.click()
+        dialog = page.get_by_role("dialog", name="Ask my files")
+        expect(dialog.get_by_text("Connect Box in Settings to ask about your files.")).to_be_visible()
+        expect(dialog.get_by_text("Answered by Hearth from your Box files")).to_have_count(0)
+        expect(dialog.get_by_role("button", name="Ask Hearth")).to_be_disabled()
+        capture("ask-my-files-empty")
+        dialog.get_by_role("button", name="Close Ask my files").click()
+        expect(ask_files).to_be_focused()
     page.locator("#artifact-list").click()
     capture("artifacts-list")
     page.get_by_role("button", name="Pages", exact=True).click()

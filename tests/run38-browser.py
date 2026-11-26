@@ -19,7 +19,7 @@ NAV = ["Home", "Chat", "Timeline", "Artifacts", "Reminders", "Inbox", "Memory", 
 GROUPS = {
     "Assistant": ["Brain", "Memory", "Search", "Voice"],
     "Connected": ["Connections", "Artifacts"],
-    "Notifications": ["Reminders", "Proactivity", "Approvals"],
+    "Notifications": ["Reminders", "Feed", "Action suggestions", "Automations", "Watchers", "Approvals"],
     "App": ["Home", "Appearance"],
 }
 THREADS = [

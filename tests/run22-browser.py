@@ -20,7 +20,7 @@ from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage, iso
 from hearth.threads import MAIN_ORIGIN
 
-ORDER = ["Today", "Inbox to review", "Weather & clock", "Recent files", "Memory", "Activity", "Connections health"]
+ORDER = ["Today", "Feed", "Goals", "Inbox to review", "Weather & clock", "Recent files", "Memory", "Activity", "Connections health"]
 DEMO = ["Thanksgiving countdown", "Shopping list"]
 CONTRAST = """() => {
   const toRGB = (value) => (value.match(/[\\d.]+/g) || []).map(Number);
@@ -183,15 +183,16 @@ def test_dashboard(page, base, mobile, label, shots, app):
     else:
         page.locator('[data-panel="today"] .home-grip').drag_to(page.locator('[data-panel="inbox"] h2'))
         page.get_by_role("button", name="Edit layout").click()
-    expect(page.locator("#home-grid h2").first).to_have_text("Inbox to review")
+    first = "Feed"
+    expect(page.locator("#home-grid h2").first).to_have_text(first)
     page.get_by_role("button", name="Remove Today from Home").click()
     expect(page.locator('[data-panel="today"]')).to_have_count(0)
     expect(page.locator("#home-removed")).to_contain_text("Today")
     page.get_by_role("button", name="Restore", exact=True).click()
-    expect(page.locator("#home-grid h2").nth(1)).to_have_text("Today")
+    expect(page.get_by_role("heading", name="Today", exact=True)).to_be_visible()
     page.get_by_role("button", name="Done", exact=True).click()
     page.reload()
-    expect(page.locator("#home-grid h2").first).to_have_text("Inbox to review")
+    expect(page.locator("#home-grid h2").first).to_have_text(first)
 
     page.locator('[data-panel="weather"]').get_by_role("button", name="Weather settings").click()
     expect(page.get_by_label("Weather location")).to_have_value("Redmond, WA")

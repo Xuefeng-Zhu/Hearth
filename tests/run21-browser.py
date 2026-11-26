@@ -16,7 +16,7 @@ from hearth.storage import ROOT, Storage
 from test_uploads import image_bytes, pdf_bytes
 
 STAMP = "2026-11-25T01:16:00+00:00"
-ORDER = ["Home", "Chat", "Timeline", "Artifacts", "Reminders", "Inbox", "Memory", "Settings"]
+ORDER = ["Home", "Chat", "Timeline", "Artifacts", "Reminders", "Inbox", "Memory", "Skills"]
 BOOK = {"title": "Seattle travel budget", "sheets": [
     {"name": "Budget", "headers": ["TripExpenseCategory", "ProjectedCostInUSD",
                                   "DetailsForTravelPlanning", "ResponsiblePersonForPayment"],
@@ -78,8 +78,8 @@ def test_navigation(page, mobile, output, label):
         assert sidebar.evaluate("(drawer) => drawer.scrollWidth <= drawer.clientWidth")
         assert drawer_body.evaluate("""(body) => {
           const bounds = body.getBoundingClientRect();
-          const links = [...body.querySelectorAll('nav button')];
-          return body.scrollWidth <= body.clientWidth && body.scrollTop === 0 && links.length === 7
+          const links = [...body.querySelectorAll('.workspace-drawer-nav button')];
+          return body.scrollWidth <= body.clientWidth && body.scrollTop === 0 && links.length === 8
             && links.every(link => {
               const area = link.getBoundingClientRect();
               return area.width > 0 && area.height > 0 && area.top >= bounds.top && area.bottom <= bounds.bottom;
@@ -92,8 +92,9 @@ def test_navigation(page, mobile, output, label):
     else:
         sidebar = page.locator(".sidebar")
         assert sidebar.get_by_role("button", name="Settings").bounding_box()["y"] > 780
-    assert [text.strip() for text in sidebar.locator("nav button").all_text_contents()] == ORDER
-    assert sidebar.locator('nav button svg[viewBox="0 0 24 24"][aria-hidden="true"][stroke-width="1.75"]').count() == len(ORDER)
+    links = sidebar.locator('nav button:not([data-view="settings"])')
+    assert [text.strip() for text in links.all_text_contents()] == ORDER
+    assert links.locator('svg[viewBox="0 0 24 24"][aria-hidden="true"][stroke-width="1.75"]').count() == len(ORDER)
     shot(page, output, f"nav-{label}")
     if mobile:
         sidebar.get_by_role("button", name="Close menu").click()
