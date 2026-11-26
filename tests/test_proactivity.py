@@ -127,6 +127,17 @@ class ProactivityTest(unittest.TestCase):
         self.assertFalse(any("constellation" in row["text"] for row in records))
         self.assertNotIn("constellation", json.dumps(state.get("proactivity", {})))
 
+    def test_skill_suggestion_requires_a_current_playbook(self):
+        skill, _ = self.agent.skills.mutate(
+            "create", {"markdown": "---\nname: Gift research\ndescription: Find gifts.\n"
+                                   "when_to_use: Upcoming birthdays.\ntools: []\n---\nSuggest a few gifts."})
+        card, = self.run_pass(NOW, offer(action_type="skill", skill_id=skill["id"]))["suggestions"]
+        self.assertEqual(Context(self.app, self.storage.load()).skills[skill["id"]], skill["name"])
+        self.agent.skills.mutate("delete", {"id": skill["id"], "revision": skill["revision"]})
+        self.assertEqual(self.engine.list(NOW), [])
+        with self.assertRaisesRegex(HearthError, "no longer available"):
+            self.engine.update("do", {"id": card["id"]}, NOW)
+
     def test_read_only_exa_and_private_why(self):
         self.storage.write("people/maya.md", "# Picnic\n\nThe yellow banner is kept beside the striped picnic basket.")
         self.agent.config["gateway"] = {"exa": {"provider": "exa", "connection_id": "fixture"}}

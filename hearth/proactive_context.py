@@ -69,6 +69,8 @@ class Context:
         self.storage = app.storage
         self.state = state
         self.rules = forget_rules(self.storage, state)
+        self.skills = {row["id"]: row["name"] for row in app.agent.skills.listed(state)
+                       if not private_match(row["name"], self.rules) and private_text(row["name"]) == row["name"]}
         self.selection = app.agent.memory
         self.chats = {}
         self.records = {}

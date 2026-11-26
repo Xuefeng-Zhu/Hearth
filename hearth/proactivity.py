@@ -227,6 +227,9 @@ def valid(row, context, muted):
     if "action" not in row or row["kind"] in muted or private_match(json.dumps(public(row) | {"action": row["action"]}, ensure_ascii=False),
                                             context.rules):
         return False
+    action = row["action"]
+    if action["type"] == "skill" and action["skill_id"] not in context.skills:
+        return False
     return all((current := context.get(key)) and current["revision"] == revision
                for key, revision in row["sources"].items())
 
@@ -333,11 +336,9 @@ class Proactivity:
             existing = [{"title": row["title"], "kind": row["kind"]} for row in reversed(list(rows.values()))
                         if row["expires_at"] > iso(now) and valid(row, context, muted)][:16]
             agent = self.app.agent
-            skills = {row["id"]: row["name"] for row in agent.skills.list()
-                      if not private_match(row["name"], context.rules)}
             limit = min(MAX_PASS - len(resumed), remaining)
         try:
-            candidates, provider = brainstorm(agent, records, skills, muted, existing, limit, now, context.rules)
+            candidates, provider = brainstorm(agent, records, context.skills, muted, existing, limit, now, context.rules)
             status = "complete"
         except HearthError:
             candidates, provider, status = [], None, "brain-unavailable"
