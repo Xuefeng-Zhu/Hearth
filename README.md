@@ -18,6 +18,7 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 
 - **Chat with Ember.** Stream replies in Main or in separate side chats. Attach images, audio, PDFs, spreadsheets, and other supported files. Use a connected model, Smart routing across a model pool, or the local Mock brain.
 - **Delegate independent work.** Ask a connected brain to use parallel workers for a comparison or several sources. Hearth shows progress, tool steps, and Stop controls in chat, shows active workers under **Running now** on Home, and combines their findings into one reply. Set the workspace limit from 1 to 6 in **Settings → Brain → Parallel workers**. The default is 4.
+- **Get timely suggestions.** A connected brain can put offers in **Home → For you** after a memory change, new forwarded mail, or a scheduled check. Choose **Do it** to start a side chat, snooze or dismiss a card, or mute its category. [Proactivity guide](docs/proactivity.md)
 - **Stay on top of work.** Home shows reminders, Inbox, recent files, memory, activity, connector health, and Open-Meteo weather. Add panels from chat and rearrange them on Home.
 - **Make files and pages.** Create and edit DOCX, PDF, XLSX, and PPTX from chat. Preview and download artifacts, keep versions locally, and sync to Box. Build single-file HTML pages with phone and desktop previews, version history, and optional approved snapshot sharing.
 - **Reuse skills in chat.** Start with four built-in Markdown playbooks or write your own. Use **Try it** to preload a skill in a side chat, see which skill Hearth loaded, and undo edits from Timeline. [Skills guide](docs/skills.md)
@@ -89,7 +90,7 @@ The [GitHub Actions workflow](.github/workflows/deploy.yml) runs the tests first
 
 ## Configuration
 
-Use **Connections** to refresh discovery and **Settings** to configure the brain, recall, search, voice, reminders, approvals, and artifacts. Recurring tasks can delegate through the same pool. A skill can delegate by including `spawn_workers` and the worker tools it allows. [Connector defaults](config/connectors.json) ship with blank connection IDs. Local settings are saved under the workspace by default. The Sprite service saves connector settings under `~/hearth/config/`.
+Use **Connections** to refresh discovery and **Settings** to configure the brain, recall, search, voice, reminders, proactivity, approvals, and artifacts. Recurring tasks can delegate through the same pool. A skill can delegate by including `spawn_workers` and the worker tools it allows. [Connector defaults](config/connectors.json) ship with blank connection IDs. Local settings are saved under the workspace by default. The Sprite service saves connector settings under `~/hearth/config/`.
 
 | Setting | Use |
 | --- | --- |
@@ -132,6 +133,7 @@ Keep the workspace URL behind Sprite authentication. Provider API keys stay with
 - [Connectors](docs/connectors.md)
 - [Deploy](docs/deploy.md)
 - [Approvals and tasks](docs/approvals-and-tasks.md)
+- [Proactivity and the Morning brief](docs/proactivity.md)
 - [Memory](docs/memory.md)
 - [Skills](docs/skills.md)
 - [Voice](docs/voice.md)
