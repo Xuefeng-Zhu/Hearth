@@ -1,5 +1,70 @@
 # Hearth QA
 
+## Round 5
+
+Run 65, November 26, 2026 UTC. The deployed Sprite runtime matched the `925150b` checkout by SHA-256 across all 131 shipped files. The docs pass landed in that commit and the deployment bundle contains runtime files only. The round covered the integrated D02–D17 changes at the scope recorded in the [design review](DESIGN-REVIEW.md#run-63-status).
+
+The page matrix used the live workspace through an authenticated Sprites CLI HTTP relay after the TCP tunnel reset. The relay served verified static assets and forwarded API reads to the running service. It blocked the Inbox poll POST, which caused one expected 405 per profile. Stateful browser checks used a disposable fictional workspace on the same Sprite, running the deployed code with live Hugging Face and Exa, mocked Box and Pinecone, and no mail connection. Playwright Chromium supplied the browser and touch-emulated mobile profiles because the Browser plugin was unavailable. The WebKit build could not start with the available system libraries.
+
+### Page matrix
+
+Each result covers light and dark, loaded page content, and horizontal overflow in the document and sampled app panes.
+
+| Page | 375 × 667 | 390 × 844 | 1440 × 1000 |
+| --- | --- | --- | --- |
+| Home | Pass | Pass | Pass |
+| Chat | Pass | Pass | Pass |
+| Timeline | Pass | Pass | Pass |
+| Artifacts | Pass | Pass | Pass |
+| Reminders | Pass | Pass | Pass |
+| Inbox | Pass | Pass | Pass |
+| Memory | Pass | Pass | Pass |
+| Skills | Pass | Pass | Pass |
+| Settings | Pass | Pass | Pass |
+
+### Results
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Horizontal overflow | Pass | Zero overflowing documents or sampled panes across the 54 production page combinations and four mobile drawer combinations. |
+| Sampled WCAG AA contrast | Pass | Zero failures in 30,928 production samples and 5,621 fictional-workspace samples, including normal text at 4.5:1 and large text and sampled control indicators at 3:1. |
+| Mobile touch targets | Pass | All 4,040 production and 876 fictional-workspace measurements met 44 × 44 CSS px. The sample covered enabled controls, drawer controls and checkable labels. Inline prose links were excluded. Stop also measured 44 × 44 px during a reply. |
+| Keyboard Send and Stop | Pass | Both buttons showed visible Tab focus and accepted Enter. Focus returned to the composer after Send and Stop. Stop returned a successful receipt and the transcript showed **Reply stopped.** |
+| Keyboard thread switch | Pass | Tab reached the side chat, Enter opened it, and focus remained visible on the selected thread control. |
+| Live-region announcement | Pass | The polite live region updated exactly once after a completed reply and stayed unchanged after a refresh. Verified through DOM mutations. Actual screen-reader speech was outside the sample. |
+| Chat reply | Pass | The live model returned 75 for 47 + 28 and one finished reply persisted in the test thread. |
+| Exa sourced reply | Pass | The live Exa search received a pathlib query. The finished answer linked to the official Python documentation. |
+| Worker task | Pass | The delegated packing calculation reached **Done**, persisted its result, and the parent reply reported 18 labels. |
+| Always ask approval | Pass | Settings displayed **Always ask** for goal creation. The requested goal displayed **Needs approval** and the decline returned `declined`. |
+| Reminder create and cancel | Pass | Scheduled an in-app reminder for two days later. **Undo** canceled it, the UI confirmed cancellation, and the saved job reached `canceled`. Zero real emails sent. |
+| Quiet hours | Pass | Production reminder settings returned **22:00–07:00 PT** (`America/Los_Angeles`). |
+| Ask my files | Pass | Selected one mocked Box DOCX. The answer identified the blue gate, 4:15 p.m., and seven lanterns, with one citation to that file. |
+| Memory recall | Pass | The live model recalled the fictional orchard gate’s periwinkle color in a side chat. The saved reply referenced the fixture note. |
+| Artifacts listing freshness | Pass | The production listing went from `refreshing` to `fresh` with 21 rows and no Box error. A controlled refresh on the fixture kept the old row visible while loading, then showed the new file and an advanced refresh timestamp. |
+| Home stale indicator | Pass | Two injected HTTP 500 responses on the live Home page showed **Stale · Server error** while keeping existing cards visible. A live 304 cleared the indicator. The fixture also recovered on 200. |
+| Paged transcript load-older | Pass | The side chat initially rendered 50 of 90 entries. Scrolling to the top fetched an older page with HTTP 200 and rendered all 90 entries. |
+| Unchanged polls | Pass | Production `/api/state` and `/api/home` each returned 200 with an ETag, then 304 with the same ETag and an empty body. |
+| Signed-out edge | Pass | Cookie-free GETs to `/`, `/api/state`, and `/health` each returned 302 with a Location header. Redirects stayed unfollowed. |
+| Deployment health | Pass | The running Sprite returned `/health` 200 with Sprite checkpoints before testing and after cleanup. |
+| Regression suite | Pass | 315 Python tests, 16 Node tests, syntax checks for 27 web JavaScript files, and both offline Chromium smoke runs passed. |
+
+### Defects and cleanup
+
+- Zero product regressions reproduced. The existing deployment remained in service, so the round needed no corrective deploy.
+- Larger follow-ups already recorded in the design review include D02 provenance and connector scopes, D04 off-Sprite delivery recovery, D05 multi-file consistency, D11 credential lifetime and retention, and D15 rollback. [Design review](DESIGN-REVIEW.md#run-63-status)
+- The disposable Hearth workspace and its test data were removed, and its server was stopped. The relay forwarded zero production workspace write requests. Box operations were read-only throughout the round.
+
+### Screenshots
+
+The 65 images include the full fictional page matrix, four mobile drawer states, and seven functional states. Captures use the app viewport with fictional data, and an OCR check found no private Sprite or relay origin. [Round 5 screenshots](docs/screenshots/qa5/)
+
+| Evidence | Image |
+| --- | --- |
+| 375 px light and 390 px dark | [Home at 375 px](docs/screenshots/qa5/home-375-light.png), [drawer at 390 px](docs/screenshots/qa5/drawer-390-dark.png) |
+| Live model reply, worker and approval | [Reply](docs/screenshots/qa5/chat-reply-1440-light.png), [worker](docs/screenshots/qa5/chat-worker-1440-light.png), [approval](docs/screenshots/qa5/chat-approval-1440-light.png) |
+| Reminder and file answer | [Scheduled reminder](docs/screenshots/qa5/reminder-scheduled-390-dark.png), [Ask my files](docs/screenshots/qa5/ask-my-files-390-dark.png) |
+| Background refresh | [Home stale](docs/screenshots/qa5/home-stale-390-dark.png), [Artifacts refreshing](docs/screenshots/qa5/artifacts-refresh-390-dark.png) |
+
 ## Run 48
 
 Run 48 covered rolling chat summaries, Feed and Ideas, nightly Memory review, event automations, Ask my files, Goals, and the Apify watcher status. The Sprite production checks used the deployed service, and write tests ran in a disposable fictional workspace on the same Sprite. Playwright WebKit and Chromium ran locally because the Browser plugin was unavailable.
