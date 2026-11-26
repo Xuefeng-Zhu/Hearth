@@ -112,6 +112,9 @@ let workspaceModel;
 let workspaceConnectorError = false;
 let homeConnectorError = false;
 const workspaceStatusLabels = document.querySelectorAll("[data-workspace-status]");
+const refreshStatus = new Map();
+const viewRefreshPaths = { chat: "/api/state", home: "/api/home", inbox: "/api/inbox",
+  reminders: "/api/reminders", timeline: "/api/timeline" };
 let connectionRequest;
 let connectionTabPreference = localStorage.getItem(connectionTabStorage);
 let newlyConfigured = new Set();
@@ -138,7 +141,7 @@ const attachmentDraft = createAttachments({
 });
 const timelineErrorRoute = "#timeline/errors";
 const timeline = createTimeline({
-  api, approve, undo, gatewayResults, isBusy: () => busy,
+  api, refreshAPI, approve, undo, gatewayResults, isBusy: () => busy,
   onFilter() {
     if (location.hash === timelineErrorRoute) {
       history.replaceState({ hearthView: "timeline" }, "", location.pathname + location.search);
@@ -151,7 +154,7 @@ const artifactLibrary = createArtifacts({
   onFilter: selectArtifactFilter,
 });
 const automation = createAutomation({
-  api, refresh: refreshView, undo, openInbox: () => openView("inbox"), openThread: async (thread) => {
+  api, refreshAPI, refresh: refreshView, undo, openInbox: () => openView("inbox"), openThread: async (thread) => {
     activateThread(thread);
     await openView("chat");
   },
@@ -208,7 +211,7 @@ const feed = createFeed({
   },
 });
 const homePage = createHome({
-  api, openView, openWeatherSettings, openConnections, openPanelChat, openDemo, feed, approvalCard: automation.approvalCard,
+  api, refreshAPI, openView, openWeatherSettings, openConnections, openPanelChat, openDemo, feed, approvalCard: automation.approvalCard,
   openFile: (file, trigger) => artifactLibrary.open(file.id, trigger, file),
   onData(data) {
     setTimeZone(data.timezone);
@@ -227,7 +230,7 @@ const homePage = createHome({
   },
 });
 const delivery = createReminders({
-  api, openView, openSettings: openSettingsSection, onInbox: automation.inbox, currentView: () => view, currentSettings: () => settingsSection,
+  api, refreshAPI, openView, openSettings: openSettingsSection, onInbox: automation.inbox, currentView: () => view, currentSettings: () => settingsSection,
   startSending: () => {
     sendingTestReminder = true;
     renderThreads();
@@ -572,6 +575,42 @@ async function readResponse(response) {
     throw new Error(body.error || "Hearth is temporarily unavailable.");
   }
   return response.json();
+}
+
+function refreshAPI(path, { background, signal } = {}) {
+  return trackRefresh(path, background, () => api(path, undefined, signal));
+}
+
+async function trackRefresh(path, background, load) {
+  if (!refreshStatus.has(path)) refreshStatus.set(path, { attempt: 0, failures: 0 });
+  const status = refreshStatus.get(path);
+  const attempt = ++status.attempt;
+  try {
+    const data = await load();
+    if (attempt === status.attempt && status.failures) {
+      status.failures = 0;
+      renderRefreshStatus();
+    }
+    return data;
+  } catch (error) {
+    if (background && attempt === status.attempt && error.name !== "AbortError") {
+      status.failures = Math.min(status.failures + 1, 2);
+      status.disconnected = error instanceof TypeError || error.name === "TimeoutError";
+      renderRefreshStatus();
+    }
+    throw error;
+  }
+}
+
+function renderRefreshStatus() {
+  let path = viewRefreshPaths[view];
+  if (view === "reminders" && automation.tasksActive()) path = "/api/tasks";
+  if (isSetting("connections")) path = "/api/connections";
+  if (isSetting("automations")) path = "/api/event-automations";
+  const status = refreshStatus.get(path);
+  const label = status?.failures === 2
+    ? `Stale · ${status.disconnected ? (navigator.onLine ? "Disconnected" : "Offline") : "Server error"}` : "";
+  updateText(byId("refresh-status"), label);
 }
 
 function date(value) {
@@ -1413,16 +1452,20 @@ async function refreshVisibleHistory() {
   }
 }
 
-async function refreshState(actionId) {
+async function refreshState(actionId, { background } = {}) {
   const request = ++stateRequest;
   const thread = currentThread;
   const params = new URLSearchParams({ thread });
   if (actionId) params.set("action", actionId);
   const variant = params.toString();
   const headers = stateTag && stateVariant === variant ? { "If-None-Match": stateTag } : {};
-  const response = await fetch(`/api/state?${variant}`, {
-    headers, signal: AbortSignal.timeout(6000),
-  });
+  const load = async () => {
+    const response = await fetch(`/api/state?${variant}`, {
+      headers, signal: AbortSignal.timeout(6000),
+    });
+    return [response, response.status === 304 ? null : await readResponse(response)];
+  };
+  const [response, next] = await (view === "chat" ? trackRefresh("/api/state", background, load) : load());
   if (response.status === 304) {
     const current = request === stateRequest && thread === currentThread;
     if (current) {
@@ -1431,7 +1474,6 @@ async function refreshState(actionId) {
     }
     return current;
   }
-  const next = await readResponse(response);
   if (request !== stateRequest || thread !== currentThread) return false;
   if (next.thread_id !== currentThread) {
     const deleted = currentThread;
@@ -1502,7 +1544,7 @@ async function refreshPineconeHealth() {
   const entry = previous?.providers.pinecone;
   if (connectionRequest || entry?.status !== "connected" ||
       (entry.index_state === "Ready" && !connectorHasError(entry))) return;
-  const data = await api("/api/connections");
+  const data = await refreshAPI("/api/connections", { background: true, signal: AbortSignal.timeout(6000) });
   if (isSetting("connections") && !connectionRequest && connectionState === previous &&
       JSON.stringify(data.providers.pinecone) !== JSON.stringify(entry)) {
     applyConnections(data);
@@ -1892,7 +1934,7 @@ function updateConnections(operation, body = {}) {
   connectionRequest = (async () => {
     try {
       const previous = connectionState;
-      const data = await api(`/api/connections/${operation}`, body);
+      const data = await trackRefresh("/api/connections", false, () => api(`/api/connections/${operation}`, body));
       if (operation === "rescan" && previous && !data.scan_error) {
         announceNewConnections(previous, data);
       }
@@ -1912,7 +1954,7 @@ function updateConnections(operation, body = {}) {
       feedback.textContent = error.message;
       if (!connectionState) {
         try {
-          applyConnections(await api("/api/connections"));
+          applyConnections(await refreshAPI("/api/connections"));
         } catch {
           // The request message remains visible until a re-scan succeeds.
         }
@@ -2440,6 +2482,7 @@ function focusSetting(section) {
 
 async function openSettings(section, target) {
   settingsSection = section;
+  renderRefreshStatus();
   clearTimeout(reindexPoll);
   for (const [key, disclosure] of settingsDisclosures) {
     const open = key === section;
@@ -2547,13 +2590,14 @@ async function changePreferences(feature, operation) {
   }
 }
 
-async function refreshView() {
-  if (view === "home") return homePage.load();
-  if (view === "timeline") return timeline.show();
+async function refreshView(options) {
+  renderRefreshStatus();
+  if (view === "home") return homePage.load(options);
+  if (view === "timeline") return timeline.show(options);
   if (view === "artifacts") return artifactLibrary.show();
-  if (view === "reminders") return automation.tasksActive() ? automation.loadTasks() : delivery.reminders();
-  if (view === "inbox") return delivery.inbox();
-  if (isSetting("automations")) return automation.eventSettings();
+  if (view === "reminders") return automation.tasksActive() ? automation.loadTasks(options) : delivery.reminders(options);
+  if (view === "inbox") return delivery.inbox(options);
+  if (isSetting("automations")) return automation.eventSettings(options);
   if (!await refreshState()) return;
   if (view === "chat") {
     renderChat();
@@ -2595,6 +2639,7 @@ async function openView(nextView, updateHistory = true, section, target) {
   if (fromDrawer) byId("view-title").focus({ preventScroll: true });
   paintAvatars();
   renderWorkspaceStatus();
+  if (view !== "settings") renderRefreshStatus();
   if (view === "timeline") timeline.setTodayErrors(location.hash === timelineErrorRoute);
   if (view === "settings") {
     if (previousView !== "settings") byId("settings-view").scrollTop = 0;
@@ -3413,17 +3458,17 @@ async function pollForeground(immediate) {
       if (!busy) await refreshPineconeHealth();
     } else if (view === "chat" && !threadBusy) {
       const previous = state;
-      if (await refreshState() && view === "chat") {
+      if (await refreshState(undefined, { background: true }) && view === "chat") {
         if (previous !== state) renderChat();
         await refreshVisibleHistory();
       }
     } else if (!threadBusy && (view === "home" || (!busy && (["reminders", "inbox"].includes(view) ||
         isSetting("automations") || (immediate && view === "timeline"))))) {
-      await refreshView();
+      await refreshView({ background: true });
     }
     if (drawer && view !== "chat" && !threadBusy) await refreshState();
   } catch {
-    // Leave the current view intact during a transient connection failure.
+    // Refresh status is reported next to the affected view title.
   } finally {
     polling = false;
     const again = resumePoll;
@@ -3433,8 +3478,13 @@ async function pollForeground(immediate) {
 }
 
 window.addEventListener("focus", () => schedulePoll(true));
-window.addEventListener("offline", renderWorkspaceStatus);
-window.addEventListener("online", renderWorkspaceStatus);
+function updateConnectivity() {
+  renderWorkspaceStatus();
+  renderRefreshStatus();
+  if (navigator.onLine) schedulePoll(true);
+}
+window.addEventListener("offline", updateConnectivity);
+window.addEventListener("online", updateConnectivity);
 setInterval(() => { if (!document.hidden) delivery.poll(); }, 60_000);
 applyAppearance();
 renderWorkspaceStatus();

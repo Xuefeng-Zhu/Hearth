@@ -113,7 +113,7 @@ function summary(title, glyph, status) {
   return head;
 }
 
-export function createAutomation({ api, refresh, openThread, openInbox, undo }) {
+export function createAutomation({ api, refreshAPI, refresh, openThread, openInbox, undo }) {
   const dialog = get("automation-dialog");
   let dialogTrigger;
   let activeTab = "reminders";
@@ -712,10 +712,10 @@ export function createAutomation({ api, refresh, openThread, openInbox, undo }) 
     }
   }
 
-  async function eventSettings() {
+  async function eventSettings({ background } = {}) {
     const request = ++eventRequest;
     try {
-      const data = await api("/api/event-automations");
+      const data = await refreshAPI("/api/event-automations", { background, signal: AbortSignal.timeout(6000) });
       if (get("settings-automations").hidden || request !== eventRequest) return;
       eventData = data;
       get("new-event-automation").disabled = false;
@@ -731,7 +731,7 @@ export function createAutomation({ api, refresh, openThread, openInbox, undo }) 
       eventList.replaceChildren(...data.automations.map((row) => eventCard(row, expanded)));
       if (!data.automations.length) eventList.append(el("p", "meta", "No automations yet."));
     } catch (error) {
-      eventStatus.textContent = error.message;
+      if (!background && request === eventRequest) eventStatus.textContent = error.message;
     }
   }
 
@@ -795,10 +795,10 @@ export function createAutomation({ api, refresh, openThread, openInbox, undo }) 
     }
   }
 
-  async function loadTasks() {
+  async function loadTasks({ background } = {}) {
     const request = ++taskRequest;
     try {
-      const result = await api("/api/tasks");
+      const result = await refreshAPI("/api/tasks", { background, signal: AbortSignal.timeout(6000) });
       if (request !== taskRequest || activeTab !== "tasks") return;
       if (deleting?.undo_task && !deleting.undone && result.tasks.some((row) => row.id === deleting.undo_task)) {
         deleting = { ...deleting, undone: true };
@@ -825,7 +825,7 @@ export function createAutomation({ api, refresh, openThread, openInbox, undo }) 
         row.open = expanded.has(row.querySelector(".automation-run-time").textContent);
       }
     } catch (error) {
-      get("tasks-feedback").textContent = error.message;
+      if (!background && request === taskRequest) get("tasks-feedback").textContent = error.message;
     }
   }
 

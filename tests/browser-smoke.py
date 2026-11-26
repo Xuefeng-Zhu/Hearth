@@ -191,7 +191,7 @@ def stale_refresh(browser, origin):
               if (state.fault === 'offline') throw new TypeError('Disconnected fixture');
               return new Response('{"error":"Private fixture detail"}', {status: 500});
             }
-            const response = await fetch(url, options);
+            const response = await fetch(url, state.path === '/api/home' ? {...options, headers: {}} : options);
             state.recovered = response.status;
             return response;
           };
@@ -223,17 +223,17 @@ def stale_refresh(browser, origin):
             assert contrast >= 4.5
             assert not page.get_by_text("Private fixture detail").is_visible()
 
-        def recover():
+        def recover(expected_code):
             page.evaluate("""() => {
               window.refreshFixture.fault = '';
               window.dispatchEvent(new Event('focus'));
             }""")
             expect(status).to_be_empty()
-            assert page.evaluate("window.refreshFixture.recovered") == 304
+            assert page.evaluate("window.refreshFixture.recovered") == expected_code
 
         fail("/api/home", "server", "Stale · Server error")
         expect(page.get_by_role("heading", name="Today", exact=True)).to_be_visible()
-        recover()
+        recover(200)
         page.get_by_role("button", name="Open menu").click()
         page.get_by_role("dialog", name="Hearth").get_by_role("button", name="Chat", exact=True).click()
         expect(page.get_by_role("heading", name="Main", exact=True)).to_be_visible()
@@ -241,7 +241,7 @@ def stale_refresh(browser, origin):
         page.context.set_offline(True)
         fail("/api/state", "offline", "Stale · Offline")
         page.context.set_offline(False)
-        recover()
+        recover(304)
 
 
 def disconnect(browser, app, origin):

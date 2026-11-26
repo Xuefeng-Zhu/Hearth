@@ -68,7 +68,7 @@ function option(label, value) {
   return item;
 }
 
-export function createReminders({ api, openView, openSettings, startSending, stopSending, currentView, currentSettings, onInbox }) {
+export function createReminders({ api, refreshAPI, openView, openSettings, startSending, stopSending, currentView, currentSettings, onInbox }) {
   const form = get("reminder-settings-form");
   const options = get("inbox-auto-kinds");
   let backgroundPoll;
@@ -269,10 +269,10 @@ export function createReminders({ api, openView, openSettings, startSending, sto
   }
 
   let reminderSignature;
-  async function reminders() {
+  async function reminders({ background } = {}) {
     const target = get("reminders-content");
     try {
-      const result = await api("/api/reminders");
+      const result = await refreshAPI("/api/reminders", { background, signal: AbortSignal.timeout(6000) });
       if (result.timezone) setTimeZone(result.timezone);
       const signature = JSON.stringify(result);
       if (signature === reminderSignature) return;
@@ -303,7 +303,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
         }
       }
     } catch (error) {
-      get("reminders-feedback").textContent = error.message;
+      if (!background) get("reminders-feedback").textContent = error.message;
     }
   }
 
@@ -419,10 +419,10 @@ export function createReminders({ api, openView, openSettings, startSending, sto
     return article;
   }
 
-  async function inbox() {
+  async function inbox({ background } = {}) {
     const request = ++inboxRequest;
     try {
-      const result = await api("/api/inbox");
+      const result = await refreshAPI("/api/inbox", { background, signal: AbortSignal.timeout(6000) });
       if (request !== inboxRequest || currentView() !== "inbox") return;
       onInbox(result.task_notifications || [], result.approvals || []);
       if (result.settings?.timezone) setTimeZone(result.settings.timezone);
@@ -452,7 +452,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
         reconcileChildren(group, [title, ...(group === reviewGroup && !rows.length ? [reviewEmpty] : rows)]);
       }
     } catch (error) {
-      if (request === inboxRequest) get("inbox-feedback").textContent = error.message;
+      if (!background && request === inboxRequest) get("inbox-feedback").textContent = error.message;
     }
   }
 
@@ -461,7 +461,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
     try {
       const result = await api("/api/inbox/poll", manual ? { force: true } : {});
       if (currentView() === "inbox") {
-        await inbox();
+        await inbox({ background: !manual });
         if (manual) feedback.textContent = result.processed ? `Processed ${result.processed} email(s).` : "Check complete.";
       }
       if (currentView() === "settings" && currentSettings() === "connections") await connections();

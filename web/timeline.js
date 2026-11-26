@@ -202,7 +202,7 @@ function readReceipts() {
   }
 }
 
-export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onFilter }) {
+export function createTimeline({ api, refreshAPI, approve, undo, gatewayResults, isBusy, onFilter }) {
   const feed = get("timeline");
   const filterBar = get("timeline-filters");
   const query = get("timeline-search");
@@ -611,27 +611,29 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
     }
   }
 
-  function refresh() {
+  function refresh(options) {
     if (pending) {
-      queued = true;
+      queued = options || {};
       return pending;
     }
-    pending = load().finally(() => {
+    pending = load(options).finally(() => {
       pending = undefined;
       if (queued && stream) {
+        const next = queued;
         queued = false;
-        refresh();
+        refresh(next);
       }
     });
     return pending;
   }
 
-  async function load() {
+  async function load({ background } = {}) {
     const current = ++revision;
     const controller = new AbortController();
     request = controller;
     try {
-      const data = await api("/api/timeline", undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(9000)]));
+      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(9000)]);
+      const data = await refreshAPI("/api/timeline", { background, signal });
       if (current !== revision) return;
       if (data.timezone && setTimeZone(data.timezone)) cards.clear();
       const next = new Map(data.entries.map((row) => [row.id,
@@ -647,7 +649,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
       if (highlight.size) announcer.textContent = `${highlight.size} activity ${highlight.size === 1 ? "entry updated" : "entries updated"}.`;
       render();
     } catch (error) {
-      if (current !== revision) return;
+      if (background || current !== revision) return;
       feedback.hidden = false;
       feedback.textContent = error.message;
     } finally {
@@ -655,19 +657,19 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
     }
   }
 
-  async function show() {
-    if (stream) return refresh();
+  async function show(options) {
+    if (stream) return refresh(options);
     firstSnapshot = true;
     stream = new EventSource("/api/timeline/events");
     stream.addEventListener("activity", () => {
       clearTimeout(timer);
-      timer = setTimeout(refresh, 250);
+      timer = setTimeout(() => refresh({ background: true }), 250);
     });
     clock = setInterval(() => {
       if (dayKey(Date.now()) !== today) render();
       else updateTimes();
     }, 30_000);
-    await refresh();
+    await refresh(options);
   }
 
   function hide() {

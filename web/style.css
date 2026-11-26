@@ -28,6 +28,8 @@ nav { display: grid; gap: 5px; }
 main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .header { flex: none; display: flex; align-items: center; padding: 0 30px; min-height: 67px; border-bottom: 1px solid var(--border); }
 .header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+.refresh-status { flex: none; margin: 0; color: var(--text); background: var(--paper); font-size: 12px; }
+.refresh-status:not(:empty) { margin-inline-start: 8px; padding: 3px 7px; border: 1px solid var(--border); border-radius: 6px; }
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--connection-dot); }
 .notice { flex: none; margin: 10px auto 0; padding: 8px 14px; border-radius: 8px; background: var(--accent-light); color: var(--notice-text); max-width: calc(100% - 28px); font-size: 14px; overflow-wrap: anywhere; }

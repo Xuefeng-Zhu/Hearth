@@ -92,7 +92,7 @@ function updatedLabel(value) {
   return `Updated ${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
-export function createHome({ api, openView, openWeatherSettings, openConnections, openFile, openPanelChat, openDemo, feed, approvalCard, onData }) {
+export function createHome({ api, refreshAPI, openView, openWeatherSettings, openConnections, openFile, openPanelChat, openDemo, feed, approvalCard, onData }) {
   const section = get("home-view");
   const grid = get("home-grid");
   const edit = get("home-edit");
@@ -120,10 +120,10 @@ export function createHome({ api, openView, openWeatherSettings, openConnections
   const visible = () => snapshot.layout.order.filter((id) => !snapshot.layout.hidden.includes(id));
   const setFeedback = (message = "") => { feedback.textContent = message; };
 
-  async function load() {
+  async function load({ background } = {}) {
     const sequence = ++request;
     try {
-      const data = await api("/api/home", undefined, AbortSignal.timeout(15000));
+      const data = await refreshAPI("/api/home", { background, signal: AbortSignal.timeout(15000) });
       if (sequence !== request || section.hidden) return;
       const next = JSON.stringify(data);
       snapshot = data;
@@ -145,7 +145,7 @@ export function createHome({ api, openView, openWeatherSettings, openConnections
       dateKey = dailyDate(data.timezone);
       render();
     } catch (error) {
-      if (sequence === request && !section.hidden) setFeedback(error.message);
+      if (!background && sequence === request && !section.hidden) setFeedback(error.message);
     }
   }
 
