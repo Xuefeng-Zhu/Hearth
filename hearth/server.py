@@ -14,7 +14,7 @@ from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
 from . import approvals, artifacts, box, browserbase, event_automations, feed, home, inbox, memory, memory_edits, memory_purge, memory_review, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
-from . import file_questions
+from . import file_questions, goals, ideas
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -32,6 +32,7 @@ STATIC = {
     "/memory.css": ("memory.css", "text/css; charset=utf-8"),
     "/feed.js": ("feed.js", "text/javascript; charset=utf-8"),
     "/proactivity.js": ("proactivity.js", "text/javascript; charset=utf-8"),
+    "/goals.js": ("goals.js", "text/javascript; charset=utf-8"),
     "/home.js": ("home.js", "text/javascript; charset=utf-8"),
     "/home.css": ("home.css", "text/css; charset=utf-8"),
     "/workers.js": ("workers.js", "text/javascript; charset=utf-8"),
@@ -109,6 +110,7 @@ class Application:
         self.home = home.Home(self)
         self.proactivity = proactivity.Proactivity(self)
         self.feed = feed.Feed(self)
+        self.ideas = ideas.Ideas(self)
         self.memory_review = memory_review.MemoryReview(self)
         self.task_runner = tasks.Runner(self)
         self.event_runner = event_automations.Runner(self)
@@ -120,6 +122,7 @@ class Application:
         polled = self.inbox.poll(force=True)
         self.proactivity.kick()
         self.feed.kick()
+        self.ideas.kick()
         self.memory_review.kick()
         task_runs = self.task_runner.tick()
         self.event_runner.kick()
@@ -150,6 +153,7 @@ class Application:
                         self.home.kick()
                         self.proactivity.kick()
                         self.feed.kick()
+                        self.ideas.kick()
                         self.memory_review.kick()
                         next_home = now + 10
             except (HearthError, OSError):
@@ -504,6 +508,8 @@ class Application:
                     agent.chat(prompt, event, thread_id, source=source,
                                **({"task_run": task_run} if task_run else {}),
                                **({"attachments": attachments} if attachments else {}))
+                    if source is None and not task_run:
+                        self.ideas.after_chat(thread_id)
             except HearthError as error:
                 event("error", {"message": str(error)})
             except Exception:
@@ -588,6 +594,8 @@ class Application:
             return event_automations.undo_delete(self, action_id), 200
         if action and action.get("undo_task"):
             return tasks.undo_delete(self.storage, action_id), 200
+        if action and action["kind"] == "goal":
+            return goals.undo(self.storage, action_id), 200
         if action and action["kind"] == "page":
             return self.pages.undo(action_id), 200
         if action and action["kind"] == "skill":
@@ -723,6 +731,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"summary": summary})
             elif url.path == "/api/home":
                 self.json({**self.app.home.snapshot(), "checkpoints": self.app.checkpoints.mode})
+            elif url.path == "/api/goals/links":
+                self.json({"items": goals.link_options(self.app.storage.load())})
             elif url.path == "/api/feed":
                 query = parse_qs(url.query)
                 try:
@@ -938,6 +948,9 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 self.json({"error": "Hearth could not stop the worker."}, 500)
             return
+        if self.path.startswith("/api/goals/"):
+            self.post_goal()
+            return
         if self.path.startswith("/api/feed/"):
             self.post_feed()
             return
@@ -1129,11 +1142,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_feed(self):
         operations = {"/api/feed/settings": self.app.feed.save_settings, "/api/feed/feedback": self.app.feed.feedback,
-                      "/api/feed/chat": self.app.feed.chat}
+                      "/api/feed/chat": self.app.feed.chat, "/api/feed/idea": self.app.ideas.respond}
         try:
             if self.path == "/api/feed/refresh":
                 if self.body():
                     raise HearthError("A Feed refresh takes no settings.")
+                self.app.ideas.kick()
                 self.json(self.app.feed.tick(force=True))
             elif handler := operations.get(self.path):
                 with self.app.operation:
@@ -1185,6 +1199,24 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"error": str(error)}, 400)
         except OSError:
             self.json({"error": "Hearth could not update Proactivity."}, 500)
+
+    def post_goal(self):
+        try:
+            body = self.body()
+            operation = self.path.rsplit("/", 1)[-1]
+            if operation not in {"create", "update", "checkin", "delete"}:
+                raise HearthError("Choose a goal action.")
+            if "delete" in body:
+                raise HearthError("Choose a goal action using its dedicated route.")
+            with self.app.operation:
+                if self.app.restoring():
+                    self.json({"error": "A checkpoint is being restored."}, 409)
+                    return
+                tool = "goal_" + ("update" if operation == "delete" else operation)
+                result = self.app.agent.execute(tool, {**body, **({"delete": True} if operation == "delete" else {})})
+            self.json(result)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
 
     def post_home(self):
         actions = {

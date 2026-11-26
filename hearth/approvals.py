@@ -13,9 +13,10 @@ from .storage import HearthError, atomic_write, iso, new_id
 from .threads import MAIN
 
 CONNECTOR_CATEGORIES = ("send", "spend", "public", "destructive")
-CATEGORIES = (*CONNECTOR_CATEGORIES, "skills")
+CATEGORIES = (*CONNECTOR_CATEGORIES, "skills", "goals")
 DEFAULTS = dict.fromkeys(CATEGORIES, "ask")
-LABELS = {"send": "Send", "spend": "Spend", "public": "Publish", "destructive": "Delete", "skills": "Skills"}
+LABELS = {"send": "Send", "spend": "Spend", "public": "Publish", "destructive": "Delete", "skills": "Skills",
+          "goals": "Create goals"}
 READ_TOOLS = frozenset({
     "memory_read", "memory_search", "web_search", "read_artifact", "ask_files", "list_reminders", "list_recurring_tasks",
     "browse_fetch", "browse_search", "undo", "skill_load",
@@ -85,6 +86,12 @@ def connector_effects(provider, method, path, body):
 
 
 def classify(tool, args, *, prompt=""):
+    if tool == "goal_create":
+        return ("goals",)
+    if tool == "goal_update" and args.get("delete") is True:
+        return ("destructive",)
+    if tool in {"goal_update", "goal_checkin"}:
+        return ()
     if tool in READ_TOOLS or tool in LOCAL_TOOLS:
         return ()
     if tool in DELETE_TOOLS:

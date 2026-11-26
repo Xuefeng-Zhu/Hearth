@@ -194,7 +194,7 @@ def describe(row, state, now):
                      if run["task_id"] == row["id"]][:10]}
 
 
-def mutate(storage, operation, fields, *, clock=None, origin=None):
+def mutate(storage, operation, fields, *, clock=None, origin=None, watch=None, effect_id=None):
     now = clock or datetime.now(timezone.utc)
     fields = fields.copy()
     identity = fields.pop("id", None)
@@ -207,7 +207,14 @@ def mutate(storage, operation, fields, *, clock=None, origin=None):
             rows = [describe(row, state, now) for row in state["recurring_tasks"].values() if not row.get("deleted")]
             return {"tasks": rows, "timezone": ZONE}
         before = None if operation == "create" or (operation == "preview" and identity is None) else require(state, identity)
+        if operation == "create" and effect_id in state.get("recurring_tasks", {}):
+            return describe(state["recurring_tasks"][effect_id], state, now)
+        if watch and any(row.get("watch") == watch and not row.get("deleted")
+                         for row in state.get("recurring_tasks", {}).values()):
+            raise HearthError("That watcher already exists.")
         if operation in {"preview", "create", "update"}:
+            if before and before.get("watch"):
+                fields["instruction"] = before["instruction"]
             row = clean_fields(fields, now, before=before)
             if operation == "preview":
                 return {**row, "upcoming": preview(row, now)}
@@ -215,7 +222,9 @@ def mutate(storage, operation, fields, *, clock=None, origin=None):
             if before:
                 row = {**before, **row}
             else:
-                row.update(id=new_id(), created_at=iso(now), last_run=None, **(origin or {}))
+                row.update(id=effect_id or new_id(), created_at=iso(now), last_run=None, **(origin or {}))
+                if watch:
+                    row["watch"] = watch
             if changed_schedule:
                 times = preview(row, now)
                 row["next_run"] = iso(datetime.fromisoformat(times[0]).astimezone(timezone.utc)) if row["enabled"] and times else None
@@ -304,8 +313,10 @@ class Runner:
                 if run["status"] == "running":
                     saved_reply = self.saved_reply(run)
                     tools = saved_reply.get("task_tools", [])
-                    self.finish(state, run, now, saved_reply.get("content", ""), tools,
-                                (saved_reply.get("task_error") or tool_failure(tools)) if saved_reply else "The previous attempt was interrupted.",
+                    output = saved_reply.get("watch_observation") if run.get("watch") else saved_reply.get("content", "")
+                    self.finish(state, run, now, output, tools,
+                                (saved_reply.get("task_error") or tool_failure(tools)) if saved_reply and (not run.get("watch") or output or saved_reply.get("task_error"))
+                                else "The previous attempt was interrupted.",
                                 round((now - datetime.fromisoformat(run["started_at"])).total_seconds() * 1000))
                     seeded = True
             for run in runs.values():
@@ -340,6 +351,8 @@ class Runner:
                 run = {"id": key, "task_id": task["id"], "status": "running", "scheduled_at": due,
                        "started_at": iso(now), "attempts": 1, "name": task["name"], "delivery": task["delivery"],
                        "instruction": task["instruction"], "tools": [], "output": ""}
+                if task.get("watch"):
+                    run["watch"] = task["watch"]
                 self.ensure_thread(task, run)
                 runs[key] = run
                 self.storage.save(state)
@@ -436,6 +449,9 @@ class Runner:
         try:
             if run["task_id"] == BRIEF_ID and run["instruction"] == BRIEF_INSTRUCTION:
                 return self.run_brief(run, now or datetime.now(timezone.utc)), [], None, round((time.monotonic() - started) * 1000)
+            if run.get("watch"):
+                from .watchers import observe
+                return observe(run["watch"]), [], None, round((time.monotonic() - started) * 1000)
             events = self.app.enqueue(run["thread_id"], run["instruction"], source=SOURCE, task_run=run["id"])
             while (event := events.get(timeout=90)) is not None:
                 name, data = event
@@ -462,7 +478,26 @@ class Runner:
 
         status = ("retrying" if run["attempts"] == 1 else "failed") if reason else (
             "approval_needed" if any(tool["status"] == "pending" for tool in tools) else "complete")
+        notify = True
+        if run.get("watch") and not reason:
+            from .watchers import report
+            task = state["recurring_tasks"].get(run["task_id"], {})
+            if task.get("deleted"):
+                output, notify = "Watcher deleted before this check completed.", False
+            else:
+                previous = task.get("watch_baseline")
+                observation = task["watch_baseline"] = output
+                notify = bool(previous and previous["signature"] != observation["signature"])
+                output = (report(run["watch"], previous, observation) if notify else
+                          "No change detected." if previous else "Baseline saved.")
+                if notify and not self.saved_reply(run) and run["thread_id"] in self.app.threads.load_index():
+                    self.app.threads.append(run["thread_id"], "assistant", output, source=SOURCE,
+                                            task_run=run["id"], task_attempt=run["attempts"],
+                                            watch_observation=observation)
         run.update(status=status, output=output, tools=tools, reason=reason, duration_ms=duration, finished_at=iso(now))
+        if status == "complete":
+            from . import goals
+            goals.complete_linked(state, "task", run["task_id"], now)
         if status == "retrying":
             run["retry_at"] = iso(now + timedelta(minutes=1))
         else:
@@ -473,10 +508,11 @@ class Runner:
                     self.app.threads.append(run["thread_id"], "assistant", f"Task failed after two attempts. {reason}",
                                             source=SOURCE, task_run=run["id"], task_attempt=run["attempts"], task_error=reason)
             origin = {"thread_id": run["thread_id"], "thread_title": run["name"], "source": SOURCE}
-            notification(state, run["id"], {
-                "title": run["name"], **origin, "delivery": run["delivery"], "status": status,
-                "text": reason or output, "task_id": run["task_id"],
-            }, now)
+            if notify:
+                notification(state, run["id"], {
+                    "title": run["name"], **origin, "delivery": run["delivery"], "status": status,
+                    "text": reason or output, "task_id": run["task_id"],
+                }, now)
         state.setdefault("activity", []).append(timeline.entry(
             "task", f"{run['name']} · {status.replace('_', ' ')}", run,
             id=new_id(), at=iso(now), error=status == "failed",

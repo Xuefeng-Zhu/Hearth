@@ -185,7 +185,10 @@ class Home:
             "weather": {key: weather[key] for key in ("location", "value", "updated_at", "attempted_at", "error")}
                        | {"name": (weather["place"] or {}).get("name", weather["location"])},
         }
+        from .goals import list_goals
         from .workers import ACTIVE
+
+        built["goals"] = {"items": list_goals(state)}
 
         return scrub({"layout": panels.layout(state), "builtin": built, "panels": state.get("panels", {}),
                       "workers": [row for row in state.get("workers", {}).values() if row["status"] in ACTIVE],

@@ -55,9 +55,14 @@ def change_occurrence(state, item, operation, now, minutes=None):
         due = now + timedelta(minutes=minutes)
         scheduler.add_job(state, item["message"], now, at=iso(due), channel=item["channel"],
                           urgent=item["urgent"], note=item["note"],
-                          origin={key: item[key] for key in (*MAIN_ORIGIN, "source", "automation_path") if key in item})["snoozed_at"] = iso(now)
+                          origin={**{key: item[key] for key in (*MAIN_ORIGIN, "source", "automation_path",
+                                                                 "goal_id", "goal_checkin") if key in item},
+                                  "root_job_id": item.get("root_job_id", item["job_id"])})["snoozed_at"] = iso(now)
         label = f"Snoozed {minutes} min"
     item["action"] = {"label": label, "at": iso(now)}
+    if operation == "done" and not item.get("test"):
+        from . import goals
+        goals.complete_linked(state, "reminder", item.get("root_job_id", item["job_id"]), now)
     log(state, f"{label} · {item['message']}", item, now, data={"reminder_id": item["id"]})
     return item["action"]
 
@@ -174,7 +179,11 @@ class Reminders:
         selection = settings(body)
         with self.storage.lock():
             state = self.storage.load()
+            previous = saved(state)["timezone"]
             state["reminder_settings"] = selection
+            if selection["timezone"] != previous:
+                from . import goals
+                goals.reschedule_timezone(state, datetime.now(timezone.utc))
             self.storage.save(state)
         return self.info()
 

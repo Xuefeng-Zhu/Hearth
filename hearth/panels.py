@@ -20,7 +20,7 @@ from .reply_text import clean_reply
 from .storage import HearthError, iso, new_id
 
 KINDS = ("stat", "list", "checklist", "countdown", "note", "web-summary")
-BUILT_INS = ("today", "feed", "inbox", "weather", "files", "memory", "activity", "connections")
+BUILT_INS = ("today", "feed", "goals", "inbox", "weather", "files", "memory", "activity", "connections")
 TOOL_NAMES = {"create_panel", "update_panel", "delete_panel"}
 FIELDS = {"title", "kind", "source", "refresh_minutes"}
 SOURCE_TYPES = {"static": {"value"}, "brain": {"query"}, "connector": {"provider", "path", "pointer"}, "url": {"url"}}

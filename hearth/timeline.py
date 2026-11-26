@@ -141,7 +141,7 @@ def chat_entries(threads, thread_list, logged_recall):
 
 
 def entries(storage, threads, can_undo, *, pinecone=None, mail_connected=False):
-    from . import event_automations
+    from . import event_automations, goals
     from .pages import can_undo as can_undo_page
     from .skills import can_undo as can_undo_skill
     with storage.lock():
@@ -172,6 +172,8 @@ def entries(storage, threads, can_undo, *, pinecone=None, mail_connected=False):
                               data=event_automations.run_info(run)))
         jobs = {job["id"]: job for job in state["jobs"]}
         def undoable(action):
+            if action["kind"] == "goal":
+                return goals.can_undo(state, action)
             if action["kind"] == "page":
                 return can_undo_page(state, action)
             if action["kind"] == "skill":

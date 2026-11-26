@@ -51,6 +51,10 @@ def record_forget(state, identity, removed):
         state.setdefault("proactivity_forget", {})[identity] = [
             memory.forget_rule(phrases[start:start + 12]) for start in range(0, len(phrases), 12)
         ]
+    if ideas := state.get("ideas"):
+        for key in ("cards", "attempted_at", "run_id", "goal_keys"):
+            ideas.pop(key, None)
+    state.pop("goal_steps", None)
     if feed := state.get("feed"):
         # Discard derived text and any in-flight pass when a source is forgotten.
         for key in ("inferred", "cards", "feedback", "weights", "rated_topics", "saved_actions", "run_id", "attempted_at"):

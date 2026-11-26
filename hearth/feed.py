@@ -476,6 +476,9 @@ class Feed:
             page = {"running": running, "enabled": config["enabled"], "steering": config["steering"], "updated_at": data.get("updated_at"),
                     "error": data.get("error"), "cards": [], "next_cursor": None}
             if config["enabled"]:
+                if not saved and not cursor:
+                    from .ideas import public_ideas
+                    page["ideas"] = public_ideas(context, now, config)
                 rows = self.current_cards(state, now, context, config, blocked, include_review=not saved)
                 if saved:
                     live = {row["id"] for row in rows}

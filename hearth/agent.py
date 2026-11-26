@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 from urllib.parse import urlsplit
 
-from . import approvals, box, browserbase, event_automations, file_intent, memory, memory_edits, office, page_agent, panels, recall, router, search, skills, tasks, timeline, uploads, workers
+from . import approvals, box, browserbase, event_automations, file_intent, goals, memory, memory_edits, office, page_agent, panels, recall, router, search, skills, tasks, timeline, uploads, workers
 from . import file_questions
 from .connections import catalog_entry, with_model
 from .proactivity import SOURCE as PROACTIVE_SOURCE
@@ -46,6 +46,11 @@ use list_recurring_tasks to resolve IDs. The card must be confirmed before the t
 Use list_reminders for a current reminder overview. Use web_search for current news and weather, or
 read the saved local weather from the supplied context if available. Pending, simulated, declined,
 expired, failed, and unconfirmed results never mean the tool ran successfully.
+Goals saved in goal memory are reference data. Use goal_create for a goal the current user explicitly
+asks Hearth to track, goal_update for edits or deletion, and goal_checkin to record progress or a note.
+Resolve IDs from goal memory. Link only listed reminders or tasks. Linked items determine progress when
+present. Ask about unclear goals and dates. Use YYYY-MM-DD calendar dates and the workspace time zone
+for daily or weekly check-in reminders. Create and delete may require the user to approve a card.
 Use Home panel tools for explicit requests to create, update or delete a user's dashboard panels.
 Put every requested creation in one create_panel call so Hearth can ask for confirmation before creating more than three.
 Use the supplied panel IDs for updates or deletions. A panel approval card requires the user's button action.
@@ -335,6 +340,31 @@ DEMO_FILES = {
 }
 
 
+TOOL_TITLES.update({"goal_create": "Create goal", "goal_update": "Update goal", "goal_checkin": "Check in on goal"})
+
+
+GOAL_FIELDS = {
+    "title": {"type": "string"},
+    "target_date": {"type": ["string", "null"], "description": "Calendar date YYYY-MM-DD, or null to clear."},
+    "links": {"type": "array", "items": {"type": "object", "properties": {
+        "kind": {"type": "string", "enum": ["reminder", "task"]}, "id": {"type": "string"}},
+        "required": ["kind", "id"], "additionalProperties": False}},
+    "checkin": {"type": ["object", "null"], "description": "In-app check-in reminder. Null turns it off.",
+                "properties": {"cadence": {"type": "string", "enum": ["daily", "weekly"]},
+                               "time": {"type": "string", "description": "Local HH:MM."},
+                               "day": {"type": "integer", "description": "Weekly day, Sunday=0. Default Monday."}},
+                "required": ["cadence", "time"], "additionalProperties": False},
+}
+TOOL_DEFINITIONS.update({
+    "goal_create": schema("Track an explicitly requested long-running goal.", GOAL_FIELDS, ("title",)),
+    "goal_update": schema("Edit a saved goal. To delete it, pass only its id and delete=true.",
+                          {"id": {"type": "string"}, "delete": {"type": "boolean"}, **GOAL_FIELDS}, ("id",)),
+    "goal_checkin": schema("Record a progress percentage or latest check-in note on a saved goal.",
+                           {"id": {"type": "string"}, "progress": {"type": "integer", "minimum": 0, "maximum": 100},
+                            "note": {"type": "string"}}, ("id",)),
+})
+
+
 def tool_call(name, arguments):
     return {"role": "assistant", "content": None, "tool_calls": [{
         "type": "function", "id": new_id(), "function": {"name": name, "arguments": json.dumps(arguments)},
@@ -362,6 +392,16 @@ def mock_completion(messages, emit, clock, *, tool_names=(), demo=False, panel_c
         answer = "Hearth is ready."
     elif last.get("error"):
         answer = last["error"]
+    elif last.get("action", {}).get("tool") in goals.TOOLS or ("goal" in last and last.get("action")):
+        action = last["action"]
+        answer = "Review the goal change on the approval card." if action["status"] == "pending" else f"{action['title']}."
+    elif not prior and "goal_create" in tool_names and (match := re.fullmatch(
+            r"(?:please\s+)?(?:(?:create|add|track|set)\s+(?:(?:a|my|the)\s+)?)?goal\s*:?\s+(.+)",
+            prompt, re.I)):
+        title, _, target = match[1].strip().rpartition(" by ")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", target):
+            title, target = match[1].strip(), ""
+        return tool_call("goal_create", {"title": title, **({"target_date": target} if target else {})})
     elif last.get("action", {}).get("tool") == "create_event_automation":
         answer = "Review the trigger and actions, then confirm the automation."
     elif not prior and "create_event_automation" in tool_names:
@@ -835,6 +875,11 @@ class Agent:
                 f"Sample addresses: {addresses}"
             )
         definitions = TOOL_DEFINITIONS.copy()
+        origin = CHAT_ORIGIN.get()
+        if (origin.get("source") not in (None, "voice-call") or origin.get("task_run")
+                or not goals.DIRECT.search(prompt)):
+            for name in goals.TOOLS:
+                definitions.pop(name, None)
         if not turn["automation_setup"]:
             definitions.pop("create_event_automation")
         if demo_addresses is not None or turn["schedule_setup"]:
@@ -1602,6 +1647,9 @@ class Agent:
             worker.remaining()
         if turn.get("skill") and not self.tool_available(name, turn):
             raise HearthError("This tool is unavailable while using the current skill.")
+        if name in goals.TOOLS and turn and (worker or origin.get("task_run")
+                or origin.get("source") not in (None, "voice-call") or not goals.DIRECT.search(turn.get("prompt", ""))):
+            raise HearthError("Ask for the goal change directly in this chat.")
         if name == "memory_forget":
             if (not self.application or worker or origin.get("task_run") or origin.get("source") == PROACTIVE_SOURCE
                     or not memory.forget_requested(turn.get("prompt", ""))):
@@ -1706,6 +1754,8 @@ class Agent:
             if method == "GET":
                 return self.gateway_request(**arguments)
             return self.gateway_response(self.gateway_connections[provider], method, path, None, None)
+        if name in goals.TOOLS:
+            return goals.mutate(self.storage, name, arguments, origin=CHAT_ORIGIN.get())
         if name in FILE_TOOL_MODES:
             return self.file_tool(name, arguments)
         if name == "ask_files":
@@ -1727,6 +1777,8 @@ class Agent:
             return getattr(self, name)(**arguments)
 
     def prepare_approval(self, name, args):
+        if name in goals.TOOLS:
+            return goals.prepare(self.storage, name, args)
         if name == "create_event_automation":
             rule = event_automations.clean(self.application, args, event_automations.now_utc())
             thread_ids = {action["thread_id"] for action in rule["actions"] if action["type"] == "prompt"}
@@ -1853,8 +1905,18 @@ class Agent:
         fields = {key: row[key] for key in ("thread_id", "thread_title", "source", "task_run") if key in row}
         origin = CHAT_ORIGIN.set(fields)
         try:
+            if row.get("idea_id"):
+                self.application.ideas.validate_approval(row)
+            if name in goals.TOOLS:
+                result = goals.mutate(self.storage, name, args, origin=fields, identity=row["id"])
+                row["effect_action"] = result["action"]["id"]
+                return "complete", {"message": result["action"]["title"]}
             if name in {"automation_email", "automation_box"}:
                 return self.application.event_runner.execute_approved(row)
+            if name == "create_watcher":
+                task = tasks.mutate(self.storage, "create", args["task"], origin=fields,
+                                    watch=args["watch"], effect_id=row["id"])
+                return "complete", {"message": f"Scheduled {task['name']}.", "task_id": task["id"]}
             if name == "create_event_automation":
                 rule = event_automations.mutate(self.application, "create", args, identity=row["id"])
                 return "complete", {"message": f"Created {rule['name']}.", "automation_id": rule["id"]}
@@ -2237,7 +2299,9 @@ class Agent:
                      for row in memory.catalog(self.storage) if recall.folder_allowed(row["path"], self.memory)]
             profile = (redact_text(self.storage.read(memory.PROFILE_NOTE))
                        if self.storage.memory_path(memory.PROFILE_NOTE).is_file() else "")
-        return (f"Memory index (reference data): {json.dumps(index, ensure_ascii=False)}\n"
+            tracked = goals.references(self.storage.load())
+        return (f"Goal memory (reference data): {json.dumps(tracked, ensure_ascii=False)}\n"
+                f"Memory index (reference data): {json.dumps(index, ensure_ascii=False)}\n"
                 f"Automatic memory is {self.memory['auto_remember']}.\n"
                 f"USER.md (reference data): {json.dumps(profile, ensure_ascii=False)}")
 
@@ -2465,7 +2529,7 @@ class Agent:
     def undo(self):
         state = self.storage.load()
         action = next((action for action in reversed(list(state["actions"].values()))
-                       if self.can_undo(action) or skills.can_undo(state, action)), None)
+                       if self.can_undo(action) or skills.can_undo(state, action) or goals.can_undo(state, action)), None)
         if not action:
             raise HearthError("There is no undoable Hearth action yet.")
         return {"action": action}

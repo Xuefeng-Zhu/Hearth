@@ -1,6 +1,7 @@
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from .gateway_tools import redact_text
 from .reminder_config import CHANNELS, saved
@@ -56,7 +57,8 @@ def next_cron(expression, now, *, zone=None):
     raise HearthError("That cron expression has no upcoming occurrence.")
 
 
-def add_job(state, message, clock=None, *, at=None, cron=None, origin=None, channel=None, urgent=False, note="", identity=None):
+def add_job(state, message, clock=None, *, at=None, cron=None, origin=None, channel=None, urgent=False, note="", identity=None,
+            timezone_name=None):
     now = clock or datetime.now(timezone.utc)
     if not isinstance(message, str) or not message.strip() or len(message) > 800:
         raise HearthError("Provide a reminder of 1–800 characters.")
@@ -65,7 +67,7 @@ def add_job(state, message, clock=None, *, at=None, cron=None, origin=None, chan
     if cron:
         if not isinstance(cron, str) or len(cron) > 100:
             raise HearthError("Provide a valid UTC cron expression.")
-        due = next_cron(cron, now)
+        due = next_cron(cron, now, zone=ZoneInfo(timezone_name) if timezone_name else None)
     else:
         try:
             due = datetime.fromisoformat(at)
@@ -82,6 +84,8 @@ def add_job(state, message, clock=None, *, at=None, cron=None, origin=None, chan
     job = {"id": identity or new_id(), "message": redact_text(message.strip()), "note": redact_text(note.strip()),
            "next_at": iso(due), "next_fire_at": iso(due), "created_at": iso(now), "cron": cron, "status": "scheduled",
            "channel": channel, "urgent": urgent, **(origin or MAIN_ORIGIN)}
+    if timezone_name:
+        job["timezone"] = timezone_name
     state["jobs"].append(job)
     next_due(state)
     return job
@@ -125,7 +129,7 @@ def occurrence(job, now, *, test=False):
             "channel": job.get("channel", "app"), "urgent": job.get("urgent", False), "test": test,
             "scheduled_at": due, "delivered_at": iso(now), "late_minutes": late, "delivery": delivery,
             **{key: job.get(key, default) for key, default in MAIN_ORIGIN.items()},
-            **{key: job[key] for key in ("source", "automation_path") if key in job}}
+            **{key: job[key] for key in ("source", "automation_path", "goal_id", "goal_checkin", "root_job_id") if key in job}}
 
 
 def run_due(storage, clock=None, *, tick=False):
@@ -134,8 +138,15 @@ def run_due(storage, clock=None, *, tick=False):
         state = storage.load()
         due = [job for job in state["jobs"] if job["status"] == "scheduled"
                and datetime.fromisoformat(job.get("next_fire_at", job["next_at"])) <= now]
+        fired = 0
         for job in due:
+            if job.get("goal_id"):
+                from .goals import goal_job_due
+                if not goal_job_due(state, job):
+                    job.update(status="canceled", next_fire_at=None)
+                    continue
             item = occurrence(job, now)
+            fired += 1
             state["reminders"].append(item)
             if state.get("event_automations"):
                 from . import event_automations
@@ -147,7 +158,8 @@ def run_due(storage, clock=None, *, tick=False):
             if job.get("snoozed_at"):
                 job.pop("snoozed_at")
             if job.get("cron"):
-                job["next_at"] = job["next_fire_at"] = iso(next_cron(job["cron"], now))
+                job["next_at"] = job["next_fire_at"] = iso(next_cron(
+                    job["cron"], now, zone=ZoneInfo(job["timezone"]) if job.get("timezone") else None))
             else:
                 job["status"] = "complete"
                 job["next_fire_at"] = None
@@ -157,7 +169,7 @@ def run_due(storage, clock=None, *, tick=False):
             state["last_tick"] = iso(now)
         if due or old != new or tick:
             storage.save(state)
-        return len(due)
+        return fired
 
 
 def main():

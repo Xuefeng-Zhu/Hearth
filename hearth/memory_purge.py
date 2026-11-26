@@ -104,10 +104,39 @@ def scrub_state(state, rules, message_id=None):
             actions[identity] = {key: val for key, val in row.items()
                                  if key in {"id", "kind", "at", "thread_id", "status"}}
             actions[identity].update(title="Memory history removed by a forget request", status="complete")
+    scrub_goals_and_ideas(state, rules)
     origins = state.get("memory_origins", {})
     for path in list(origins):
         if memory.matches_rule(path, rules):
             origins.pop(path)
+
+
+def scrub_goals_and_ideas(state, rules):
+    ideas = state.get("ideas", {})
+    for key in ("cards", "attempted_at", "run_id", "goal_keys"):
+        ideas.pop(key, None)
+    state.pop("goal_steps", None)
+    stored = state.get("goal_memory", {})
+    removed = {identity for identity, row in stored.items() if memory.matches_rule(plain_values(row), rules)}
+    for identity in removed:
+        stored.pop(identity)
+    if removed:
+        state["jobs"] = [job for job in state["jobs"] if job.get("goal_id") not in removed]
+        state["reminders"] = [item for item in state["reminders"] if item.get("goal_id") not in removed]
+        from .scheduler import next_due
+        next_due(state)
+    undo = state.get("goal_undo", {})
+    actions = state.get("actions", {})
+    for identity, row in list(actions.items()):
+        if row.get("kind") == "goal" or str(row.get("tool", "")).startswith("goal_") or row.get("idea_id"):
+            if (row.get("goal_change") in removed or row.get("args", {}).get("id") in removed
+                    or memory.matches_rule(plain_values(row), rules)
+                    or memory.matches_rule(plain_values(undo.get(identity)), rules)):
+                undo.pop(identity, None)
+                actions[identity] = {key: row[key] for key in ("id", "kind", "at", "thread_id") if key in row}
+                actions[identity].update(title="History removed by a forget request", status="complete")
+            elif row.get("idea_id") and row["status"] == "pending":
+                row.update(status="expired", result={"message": "The source of this Idea was removed."})
 
 
 def write_json(path, value):
