@@ -14,7 +14,7 @@ const kinds = {
   browse: ["Web browsing", "monitor"], routing: ["Model routing", "route"], brain: ["Model fallback", "route"],
   voice: ["Voice", "mic"], artifact: ["Artifact", "file-text"], upload: ["Attachment", "paperclip"],
   page: ["Page", "page"], page_share: ["Page sharing", "share"],
-  skill: ["Skill", "skill"],
+  skill: ["Skill", "skill"], goal: ["Goal", "activity"],
   worker: ["Worker", "workers"],
   undo: ["Undo", "retry"], inbox: ["Inbox", "inbox"], email: ["Email", "mail"],
   approval: ["Approval", "shield"], task: ["Recurring task", "clock"], automation: ["Automation", "clock"], proactivity: ["Proactivity", "sparkle"],
@@ -83,7 +83,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["approval", "task", "automation", "proactivity", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill", "worker"]
+    action: ["approval", "task", "automation", "proactivity", "goal", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill", "worker"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -333,10 +333,11 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
     const button = card.querySelector(".timeline-undo");
     button.setAttribute("aria-expanded", String(!target.hidden));
     if (!target.hidden && !target.firstElementChild) {
-      const itemChange = ["artifact", "automation", "inbox", "reminder", "page", "skill"].includes(row.kind) || action.memory_change || action.undo_task || action.undo_automation;
+      const itemChange = ["artifact", "automation", "inbox", "reminder", "page", "skill", "goal"].includes(row.kind) || action.memory_change || action.undo_task || action.undo_automation;
       const message = row.redoable ? "Apply this memory change again?"
         : row.kind === "page" ? "Undo this page change?"
         : row.kind === "skill" ? "Undo this skill change?"
+        : row.kind === "goal" ? "Undo this goal change?"
         : row.kind === "artifact" ? "Undo this artifact change?"
           : row.kind === "inbox" ? "Undo the changes from this email?"
           : row.kind === "reminder" ? "Cancel this reminder?"

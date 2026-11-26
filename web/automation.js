@@ -3,8 +3,8 @@ import { DEFAULT_TIME_ZONE, timeFormatter } from "./time.js";
 
 const get = (id) => document.getElementById(id);
 const policyOptions = [["ask", "Always ask"], ["allow", "Allow without asking"]];
-const labels = { send: "Send messages", spend: "Spend money", public: "Publish publicly", destructive: "Delete items", skills: "Skills" };
-const marks = { send: "mail", spend: "clock", public: "share", destructive: "trash", skills: "skill" };
+const labels = { send: "Send messages", spend: "Spend money", public: "Publish publicly", destructive: "Delete items", skills: "Skills", goals: "Create goals" };
+const marks = { send: "mail", spend: "clock", public: "share", destructive: "trash", skills: "skill", goals: "activity" };
 const statuses = {
   pending: "Needs approval", expired: "Expired", declined: "Declined", cancelled: "Stopped", changing: "Execution unconfirmed",
   complete: "Completed", sent: "Sent", simulated: "Simulated", failed: "Failed", request_unknown: "Outcome unconfirmed",
@@ -220,7 +220,18 @@ export function createAutomation({ api, refresh, openThread, openInbox, undo }) 
         [action, target, text].filter(Boolean).join(" ")).join("\n"));
       if (row.request?.body != null) dataField(fields, "Request", JSON.stringify(row.request.body, null, 2));
     }
+    if (row.goal_preview) {
+      dataField(fields, "Target date", row.goal_preview.target_date);
+      const checkin = row.goal_preview.checkin;
+      if (checkin) dataField(fields, "Check-in", `${checkin.cadence === "daily" ? "Daily" :
+        ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][checkin.day]} at ${checkin.time}`);
+      if (row.goal_preview.links.length) dataField(fields, "Linked items", String(row.goal_preview.links.length));
+    }
     if (fields.childElementCount) article.append(fields);
+    if (row.upcoming?.length && !taskConfirmation) {
+      article.append(el("p", "automation-label", row.tool === "create_watcher" ? "Upcoming checks" : "Reminder time"),
+        times(row.upcoming, row.args.task?.timezone));
+    }
     if (category === "skills" && row.args?.markdown) {
       const details = el("details", "automation-result-details");
       details.append(el("summary", "", "Review proposed Markdown"), el("pre", "", row.args.markdown));
@@ -254,7 +265,7 @@ export function createAutomation({ api, refresh, openThread, openInbox, undo }) 
     if (row.effect_action && ["memory_write", "delete_memory"].includes(row.tool) && !row.effect_undone) {
       controls.append(button("Undo", "history", () => undo({ id: row.effect_action, memory_change: true })));
     }
-    if (surface !== "chat" && row.thread_id) {
+    if (!["chat", "idea", "goal"].includes(surface) && row.thread_id) {
       controls.append(button("Open chat", "message", () => openThread(row.thread_id)));
     }
     footer.append(controls);
@@ -385,7 +396,7 @@ export function createAutomation({ api, refresh, openThread, openInbox, undo }) 
   }
 
   function editor(task, trigger) {
-    openDialog(task ? "Edit recurring task" : "New recurring task", trigger);
+    openDialog(task?.watch ? "Edit watcher" : task ? "Edit recurring task" : "New recurring task", trigger);
     const form = el("form", "automation-editor");
     const name = input("name", "text", task?.name || "", 80);
     name.required = true;
@@ -413,7 +424,8 @@ export function createAutomation({ api, refresh, openThread, openInbox, undo }) 
       submit.textContent = "Preview schedule";
     });
     scheduleUI.fields.append(label("Delivery", channel));
-    form.append(label("Name", name), label("Instruction", instruction), scheduleUI.fields, label("Enabled", enabled, "automation-enabled"),
+    form.append(label("Name", name), task?.watch ? el("p", "meta", task.watch.url) : label("Instruction", instruction),
+      scheduleUI.fields, label("Enabled", enabled, "automation-enabled"),
       preview, controls, feedback);
     dialog.append(form);
     name.focus();
@@ -738,6 +750,7 @@ export function createAutomation({ api, refresh, openThread, openInbox, undo }) 
     article.append(summary(task.name, "clock", pill(task.enabled ? "complete" : "changing", task.enabled ? "Enabled" : "Paused")),
       el("p", "automation-instruction", task.instruction), controls);
     const fields = el("dl", "automation-fields");
+    if (task.watch) dataField(fields, "Watches", task.watch.url);
     dataField(fields, "Schedule", scheduleText(task.schedule));
     dataField(fields, "Next run", task.next_run ? date(task.next_run, task.timezone) : "—");
     dataField(fields, "Time zone", task.timezone);

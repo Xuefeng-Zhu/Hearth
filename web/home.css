@@ -462,3 +462,77 @@
 }
 
 #feed-settings-form input[type="number"] { border-color: var(--field-edge); }
+
+.idea-strip {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--artifact-border);
+}
+.idea-strip > h3 { margin: 0; color: var(--text); font-size: .97rem; }
+.idea-list { display: grid; gap: 8px; min-width: 0; }
+.idea-card h4 { margin: 0 0 4px; font-size: .95rem; line-height: 1.35; }
+.idea-card p { margin: 0 0 9px; font-size: .84rem; }
+.idea-card .feed-actions { gap: 5px; }
+.idea-approval:empty { display: none; }
+
+.goal-body, .goal-list { display: grid; align-content: start; gap: 10px; }
+.goal-body > * + * { margin-top: 0; }
+.goal-body > button { justify-self: start; }
+.goal-status:empty { display: none; }
+.goal-row {
+  display: grid;
+  gap: 6px;
+  padding: 11px;
+  min-width: 0;
+  border: 1px solid var(--artifact-border);
+  border-radius: 9px;
+  background: var(--panel-muted);
+}
+.goal-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.goal-heading h3 { margin: 0; font-size: .96rem; }
+.goal-heading strong { color: var(--accent); font-variant-numeric: tabular-nums; }
+.goal-row progress {
+  appearance: none;
+  width: 100%;
+  height: .5rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-light);
+  color: var(--accent);
+}
+.goal-row progress::-webkit-progress-bar { border-radius: inherit; background: var(--accent-light); }
+.goal-row progress::-webkit-progress-value { border-radius: inherit; background: var(--accent); }
+.goal-row progress::-moz-progress-bar { border-radius: inherit; background: var(--accent); }
+.goal-next { display: flex; align-items: flex-start; gap: 6px; color: var(--text); }
+.goal-next svg { flex: none; margin-top: 2px; color: var(--accent); }
+.goal-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.goal-control { min-width: 44px; min-height: 44px; }
+.goal-editor { min-width: 0; }
+.goal-editor input:not([type="checkbox"]), .goal-editor select, .goal-editor textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  font-size: 16px;
+}
+.goal-editor p { margin: 0; }
+.goal-links summary { padding-block: 11px; color: var(--accent); cursor: pointer; }
+.goal-link-options { display: grid; max-height: 11rem; overflow-y: auto; }
+.goal-editor .goal-link-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  overflow-wrap: anywhere;
+}
+.goal-link-choice input { flex: none; }
+
+.idea-list {
+  grid-auto-flow: column;
+  grid-auto-columns: min(100%, 18.5rem);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 3px;
+}
+.idea-list .idea-card { scroll-snap-align: start; }
+.idea-list .idea-card:only-child { grid-column: 1 / -1; }

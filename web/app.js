@@ -163,7 +163,7 @@ const homeWorkers = createWorkersCard({
 });
 const proactivity = createProactivity({ api });
 const feed = createFeed({
-  api, runSuggestion: (id) => chat("", { keepDraft: true, suggestion: id }),
+  api, approvalCard: automation.approvalCard, refreshHome: () => homePage.load(), runSuggestion: (id) => chat("", { keepDraft: true, suggestion: id }),
   openReview: async (id) => {
     memoryPage.selectReview(id);
     await openView("memory");
@@ -197,7 +197,7 @@ const feed = createFeed({
   },
 });
 const homePage = createHome({
-  api, openView, openWeatherSettings, openConnections, openPanelChat, openDemo, feed,
+  api, openView, openWeatherSettings, openConnections, openPanelChat, openDemo, feed, approvalCard: automation.approvalCard,
   openFile: (file, trigger) => artifactLibrary.open(file.id, trigger, file),
   onData(data) {
     setTimeZone(data.timezone);
@@ -2754,13 +2754,13 @@ async function undo(action, { confirmed = false, timelineTitle, redo = false } =
     }
     return;
   }
-  if (action.kind === "page" || action.kind === "skill") {
-    if (busy || (action.kind === "skill" && !confirmed && !window.confirm("Undo this skill change?"))) return;
+  if (["page", "skill", "goal"].includes(action.kind)) {
+    if (busy || (["skill", "goal"].includes(action.kind) && !confirmed && !window.confirm(`Undo this ${action.kind} change?`))) return;
     setBusy(true);
     try {
       await api("/api/undo", { id: action.id });
       await refreshView();
-      showNotice(action.kind === "skill" ? "Skill change undone." : "Page change undone.");
+      showNotice({ skill: "Skill change undone.", goal: "Goal change undone.", page: "Page change undone." }[action.kind]);
     } catch (error) {
       showNotice(error.message);
     } finally {

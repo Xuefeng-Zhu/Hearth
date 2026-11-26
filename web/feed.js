@@ -25,7 +25,7 @@ function button(label, callback, symbol, className = "") {
 
 const date = timeFormatter({ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-export function createFeed({ api, runSuggestion, openChat, openSource, openSettings, openReview }) {
+export function createFeed({ api, runSuggestion, openChat, openSource, openSettings, openReview, approvalCard, refreshHome }) {
   const root = element("div", "feed-widget");
   const toolbar = element("div", "feed-toolbar");
   const refreshButton = button("Refresh", refresh, "refresh");
@@ -56,7 +56,18 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
   const more = button("Show more", () => load(true));
   more.hidden = true;
   scroll.append(list, more);
-  root.append(toolbar, steeringForm, status, scroll);
+  const strip = element("section", "idea-strip");
+  const ideaHeading = element("h3", "", "Ideas");
+  ideaHeading.id = "feed-ideas-heading";
+  strip.setAttribute("aria-labelledby", ideaHeading.id);
+  const ideaList = element("div", "idea-list");
+  const ideaStatus = element("p", "feed-status");
+  ideaStatus.tabIndex = -1;
+  ideaStatus.setAttribute("role", "status");
+  const ideaApproval = element("div", "idea-approval");
+  strip.append(ideaHeading, ideaList, ideaStatus, ideaApproval);
+  strip.hidden = true;
+  root.append(strip, toolbar, steeringForm, status, scroll);
   const observer = new IntersectionObserver(([entry]) => {
     if (entry.isIntersecting && !more.hidden) load(true);
   }, { root: scroll });
@@ -76,6 +87,51 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
   let lastLoaded = 0;
   let request = 0;
   let polling;
+
+  let ideas = [];
+
+  function renderIdeas() {
+    strip.hidden = !enabled || saved || !(ideas.length || ideaApproval.childElementCount || ideaStatus.textContent);
+    ideaList.replaceChildren(...ideas.map(ideaCard));
+  }
+
+  function ideaCard(row) {
+    const card = element("article", "feed-card idea-card");
+    const heading = element("h4", "", row.title);
+    heading.id = `idea-${row.id}`;
+    card.setAttribute("aria-labelledby", heading.id);
+    const controls = element("div", "feed-actions");
+    const symbol = { chat: "message", slides: "slides", reminder: "bell", automation: "clock", watcher: "monitor" }[row.kind];
+    controls.append(button(row.action_label, () => respond("open"), symbol, "feed-primary"),
+      iconButton("x", "Dismiss", () => respond("dismiss"), "feed-icon"),
+      button("Not interested", () => respond("not-interested")));
+
+    async function respond(operation) {
+      const buttons = [...controls.querySelectorAll("button")];
+      buttons.forEach((control) => { control.disabled = true; });
+      ideaStatus.textContent = "";
+      try {
+        const result = await api("/api/feed/idea", { id: row.id, operation });
+        ideas = ideas.filter((idea) => idea.id !== row.id);
+        if (result.action) ideaApproval.replaceChildren(approvalCard(result.action, "idea"));
+        else if (!result.draft) ideaStatus.textContent = operation === "dismiss" ? "Idea dismissed." : "Similar Ideas will be hidden.";
+        renderIdeas();
+        if (result.thread) await openChat(result.thread, result.draft);
+        else if (result.action) {
+          ideaApproval.querySelector("button")?.focus();
+          await refreshHome();
+        } else ideaStatus.focus();
+      } catch (error) {
+        ideaStatus.textContent = error.message;
+        ideaStatus.focus();
+      } finally {
+        buttons.forEach((control) => { control.disabled = false; });
+      }
+    }
+
+    card.append(heading, element("p", "home-meta", row.detail), controls);
+    return card;
+  }
 
   function sourceLink(source) {
     const link = element("a", "feed-source", source.label);
@@ -227,6 +283,15 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
       const page = await api(`/api/feed?${params}`);
       if (sequence !== request) return;
       enabled = page.enabled;
+      if (!append) {
+        const incomingIdeas = page.ideas || [];
+        if (JSON.stringify(ideas) !== JSON.stringify(incomingIdeas)) {
+          ideas = incomingIdeas;
+          renderIdeas();
+        } else {
+          strip.hidden = !enabled || saved || !(ideas.length || ideaApproval.childElementCount || ideaStatus.textContent);
+        }
+      }
       updateSteering(page.steering);
       steeringForm.hidden = !enabled;
       scroll.hidden = !enabled;

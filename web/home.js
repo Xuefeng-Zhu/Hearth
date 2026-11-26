@@ -1,9 +1,11 @@
 import { icon, iconButton } from "./icons.js";
+import { createGoals } from "./goals.js";
 
 const get = (id) => document.getElementById(id);
 const demoPrompt = "Create the Thanksgiving countdown and shopping list Home panels";
 const builtIns = {
   feed: { title: "Feed", icon: "sparkle" },
+  goals: { title: "Goals", icon: "activity" },
   today: { title: "Today", icon: "bell", page: "reminders", link: "Open Reminders" },
   inbox: { title: "Inbox to review", icon: "inbox", page: "inbox", link: "Open Inbox" },
   weather: { title: "Weather & clock", icon: "cloud", page: "weather", link: "Weather settings" },
@@ -90,7 +92,7 @@ function updatedLabel(value) {
   return `Updated ${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
-export function createHome({ api, openView, openWeatherSettings, openConnections, openFile, openPanelChat, openDemo, feed, onData }) {
+export function createHome({ api, openView, openWeatherSettings, openConnections, openFile, openPanelChat, openDemo, feed, approvalCard, onData }) {
   const section = get("home-view");
   const grid = get("home-grid");
   const edit = get("home-edit");
@@ -113,6 +115,7 @@ export function createHome({ api, openView, openWeatherSettings, openConnections
   let dayFormat, shortDayFormat, timeFormat, dateTimeFormat, compactDateTime, dateKey;
   const pending = new Set();
 
+  const goals = createGoals({ api, approvalCard, reload: load });
   const titleFor = (id) => builtIns[id]?.title || snapshot.panels[id]?.title;
   const visible = () => snapshot.layout.order.filter((id) => !snapshot.layout.hidden.includes(id));
   const setFeedback = (message = "") => { feedback.textContent = message; };
@@ -430,6 +433,8 @@ export function createHome({ api, openView, openWeatherSettings, openConnections
     if (id === "feed") {
       element.append(feed.root);
       feed.show();
+    } else if (id === "goals") {
+      element.append(goals.render(row, snapshot.timezone, dateTimeFormat));
     } else {
       element.append(kind ? builtinBody(id, row) : customBody(row), sourceFooter(id, row, kind));
     }
