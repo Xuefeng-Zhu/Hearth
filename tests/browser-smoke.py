@@ -186,7 +186,7 @@ def layout_smoke(browser, origin):
         "Skills": ".section-intro",
         "Settings": ".settings-sections",
     }
-    for width, height in ((390, 844), (768, 1024), (1440, 900)):
+    for width, height in ((390, 844), (768, 1024), (1440, 900), (1920, 1080)):
         mobile = width <= 760
         with browser_page(browser, origin, viewport={"width": width, "height": height},
                           is_mobile=mobile, has_touch=mobile) as page:
@@ -229,6 +229,22 @@ def layout_smoke(browser, origin):
                     assert max(heights) - min(heights) <= 1, (width, heights)
                     if mobile:
                         assert min(heights) >= 44, (width, heights)
+                    for select in view.locator(".artifact-toolbar select").all():
+                        style = select.evaluate("""control => {
+                          const style = getComputedStyle(control);
+                          return {
+                            appearance: style.appearance,
+                            chevron: style.backgroundImage,
+                            start: parseFloat(style.paddingInlineStart),
+                            end: parseFloat(style.paddingInlineEnd),
+                          };
+                        }""")
+                        assert style["appearance"] == "none", (width, style)
+                        assert style["chevron"].endswith('/icons/chevron.svg")'), (width, style)
+                        assert style["end"] > style["start"] + 16, (width, style)
+                    kind = view.locator("#artifact-kind")
+                    kind.press("ArrowDown")
+                    expect(kind).to_have_value("plan")
 
 
 def smoke(browser, origin):
