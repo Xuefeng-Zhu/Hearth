@@ -46,6 +46,7 @@ const settingsGroups = [
     ["feed", "Feed", "Topics and steering", "sparkle"],
     ["proactivity", "Action suggestions", "Quiet hours and email digests", "bell"],
     ["automations", "Automations", "When events trigger actions", "clock"],
+    ["watchers", "Watchers", "Public pages and Apify status", "monitor"],
     ["approvals", "Approvals", "When Hearth asks first", "shield"],
   ]],
   ["App", [
@@ -2262,6 +2263,7 @@ async function openSettings(section, target) {
   if (section === "proactivity") return proactivity.settings();
   if (section === "approvals") return automation.settings();
   if (section === "automations") return automation.eventSettings();
+  if (section === "watchers") return;
   if (section === "reminders") return delivery.settings();
   if (section === "voice") {
     syncVoiceSettings();
