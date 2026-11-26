@@ -6,7 +6,7 @@ import shutil
 import threading
 import time
 from collections import deque
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -346,12 +346,8 @@ class Application:
             if effect := state["actions"].get(action.get("effect_action")):
                 action = {**action, "effect_undone": bool(effect.get("undone"))}
             actions.append(action)
-        recent = datetime.now(timezone.utc) - timedelta(seconds=4)
-        sending = set()
-        for item in scheduler.email_records(state):
-            email = item.get("delivery", {}).get("email", {})
-            if email.get("sending") or (email.get("at") and datetime.fromisoformat(email["at"]) > recent):
-                sending.add(item["thread_id"])
+        sending = {item["thread_id"] for item in scheduler.email_records(state)
+                   if item.get("delivery", {}).get("email", {}).get("sending")}
         return {"thread_id": thread_id, "threads": [
                     {**thread, "busy": thread["id"] in active,
                      **({"activity": active[thread["id"]]} if active.get(thread["id"]) else {})}
