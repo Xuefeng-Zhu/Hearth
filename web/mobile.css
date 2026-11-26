@@ -232,15 +232,6 @@
   .timeline-fields :is(input, select) { min-width: 0; }
   .timeline-summary > div { min-width: 0; }
   .delivery-intro { flex-wrap: wrap; align-items: flex-start; gap: 10px; }
-  .delivery-intro button {
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    padding: 6px 11px;
-    color: var(--accent);
-    background: var(--accent-light);
-    font-size: 14px;
-    font-weight: 650;
-  }
   .delivery-form { grid-template-columns: minmax(0, 1fr); }
   .delivery-actions, .inbox-facts, .delivery-details { overflow-wrap: anywhere; }
 

@@ -88,6 +88,7 @@
   --table-separator: #ece4ea;
   --artifact-version-border: #f0e9ee;
   --control-border: #dfd2de;
+  --field-edge: #8b758e;
   --prompt-hover-border: #af8bb8;
   --field-border: #dcd1db;
   --secondary-button-border: #e6d5e9;
@@ -245,6 +246,7 @@
     --accent-light: #402c49;
     --border: #493b4e;
     --control-border: #a292aa;
+    --field-edge: var(--control-border);
     --paper: #2c2431;
     --panel-muted: #342a39;
     --accent-fill: #865d93;
@@ -461,8 +463,20 @@
   }
 }
 
+:is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
+
+@media (prefers-color-scheme: light) {
+  .composer, .timeline-fields :is(input, select), .artifact-toolbar :is(input, select),
+  .query-form input, .avatar-view {
+    border-color: var(--field-edge);
+  }
+  .composer:focus-within { border-color: var(--focus); }
+}
+
 @media (prefers-color-scheme: dark) {
   /* Non-text edges identify controls against the app and their own surfaces. */
+  .suggestion-card button.suggestion-primary, #memory-view button.memory-primary,
+  #memory-view #memory-find button { border-color: var(--control-border); }
   .composer, .prompts button, .remembered button, .artifact-icon-button, .artifact-layout-toggle,
   .avatar-choices button, .avatar-color input, .settings-disclosure, .workspace-drawer-header button,
   .query-form input, .delivery-intro > button,
@@ -477,7 +491,6 @@
   .timeline-undo, .timeline-confirm .timeline-restore { border: 1px solid var(--control-border); }
   :is(button, input, select, textarea):disabled, .settings-button[aria-disabled="true"] { opacity: 1; }
   button:disabled, .settings-button[aria-disabled="true"] { cursor: default; border-style: dashed; }
-  :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
   :is(button, textarea, input, select, a, summary):focus-visible { outline-color: var(--focus); }
   .timeline-card-head:focus-visible { outline-color: var(--focus); }
   .timeline-filters button[aria-pressed="true"] { border-color: var(--control-border); }

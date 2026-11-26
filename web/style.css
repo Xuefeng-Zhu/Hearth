@@ -1008,6 +1008,11 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 
 /* Reminder delivery and forwarded mail use the workspace card system. */
 .delivery-intro { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.delivery-intro > button {
+  min-height: 38px; border: 1px solid var(--control-border); border-radius: 9px; padding: 6px 11px;
+  color: var(--accent); background: var(--accent-light); font-size: 14px; font-weight: 650;
+}
+.delivery-intro > button:hover { border-color: var(--focus); background: var(--nav-active); }
 .delivery-intro h2 { margin: 0; }
 .delivery-section { margin: 24px 0 28px; }
 .delivery-section > h3 { display: flex; gap: 10px; align-items: baseline; margin: 0 0 10px; font-size: 16px; }
