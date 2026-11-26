@@ -36,6 +36,8 @@ class HearthTest(unittest.TestCase):
         self.storage = Storage(scratch.name)
         self.checkpoints = LocalCheckpoints(self.storage)
         self.config = read_config(Path("config/connectors.json"))
+        # Summary workers have their own tests. Keep these fixtures synchronous at teardown.
+        self.config.setdefault("memory", {})["summarize_long_chats"] = False
         self.agent = Agent(self.storage, self.checkpoints, self.config)
 
     def chat(self, prompt):

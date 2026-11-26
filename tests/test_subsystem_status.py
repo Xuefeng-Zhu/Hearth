@@ -4,6 +4,7 @@ import threading
 import time
 import unittest
 from concurrent.futures import Future
+from contextlib import ExitStack
 from datetime import datetime
 from http.client import HTTPConnection
 from unittest.mock import Mock, patch
@@ -72,12 +73,16 @@ class SubsystemStatusTest(unittest.TestCase):
         self.assertEqual(recovered, {key: value for key, value in http.items() if key != "last_success"})
 
     def test_scheduler_loop_counts_storage_errors_and_recovers(self):
-        with patch("hearth.server.scheduler.claim_due", side_effect=[
+        with ExitStack() as stack:
+            stack.enter_context(patch("hearth.server.scheduler.claim_due", side_effect=[
                 OSError("private storage fixture"), HearthError("private storage fixture"),
-                {"queued_deliveries": 0, "last_tick": "fixture"}]), \
-                patch.object(self.app, "kick_scheduler_inbox"), \
-                patch.object(self.app.home, "kick"), \
-                patch("hearth.server.time.sleep", side_effect=[None, None, StopIteration]):
+                {"queued_deliveries": 0, "last_tick": "fixture"}]))
+            stack.enter_context(patch.object(self.app, "kick_scheduler_inbox"))
+            stack.enter_context(patch("hearth.server.time.sleep", side_effect=[None, None, StopIteration]))
+            # The loop under test owns scheduler health. Its independently tested workers can outlive the fixture.
+            for worker in (self.app.home, self.app.task_runner, self.app.event_runner, self.app.self_updates,
+                           self.app.proactivity, self.app.feed, self.app.ideas, self.app.memory_review):
+                stack.enter_context(patch.object(worker, "kick"))
             with self.assertRaises(StopIteration):
                 self.app.background_reminders()
         status = self.status("scheduler")

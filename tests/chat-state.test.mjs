@@ -124,3 +124,15 @@ test("paged rows merge by ID and refresh without losing history as the latest wi
   assert.deepEqual(f.state.pages, []);
   assert.deepEqual(f.view().transcript.messages, [fourth]);
 });
+
+test("a proposal keeps its card and accepts status changes on an older transcript page", () => {
+  const f = fixture();
+  const message = { ...reply("proposal-message", user("request")), self_update_id: "proposal" };
+  const proposal = { id: "proposal", status: "waiting" };
+  f.poll([user("recent")], { before: "older" });
+  f.apply({ type: "page", cursor: "older", page: snapshot([message], { self_updates: [proposal] }) });
+  assert.deepEqual(f.view().transcript.self_updates, [proposal]);
+  const updated = { ...proposal, status: "updated" };
+  f.apply({ type: "page", previous: f.state.pages[0], page: snapshot([message], { self_updates: [updated] }) });
+  assert.deepEqual(f.view().transcript.self_updates, [updated]);
+});
