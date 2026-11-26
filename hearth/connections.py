@@ -122,7 +122,7 @@ def connector_uses(provider):
         uses.append("Memory")
     if provider == "huggingface":
         uses.append("Voice")
-    return [*uses, "Tools"]
+    return [*uses, "Tools"] if uses else []
 
 
 def probe(gateway, config):
@@ -448,7 +448,8 @@ class Connections:
     def health(self, pinecone):
         with self.health_lock:
             selected, config = self.selected, self.config
-            known = self.found | self.saved_ids(config).keys() | selected.keys() | {"browserbase", "exa"}
+            known = self.found | self.saved_ids(config).keys() | selected.keys() | {browserbase.PROVIDER, "exa"}
+            known = {provider for provider in known if connector_uses(provider)}
             providers = [provider for provider in CATALOG if provider in known]
             providers.extend(sorted(known - CATALOG.keys()))
             cache = self.health_checks

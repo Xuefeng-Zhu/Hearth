@@ -257,7 +257,7 @@ class ConnectionsTest(unittest.TestCase):
         rows = self.app.connection_info()["providers"]
         self.assertEqual({provider: row["uses"] for provider, row in rows.items() if row["status"] == "connected"}, {
             "huggingface": ["Brain", "Memory", "Voice", "Tools"], "exa": ["Search", "Tools"],
-            "pinecone": ["Memory", "Tools"], "agentmail": ["Reminders", "Inbox", "Tools"], "codex": ["Tools"],
+            "pinecone": ["Memory", "Tools"], "agentmail": ["Reminders", "Inbox", "Tools"], "codex": [],
         })
         self.assertTrue(all(row["can_test"] for row in rows.values() if row["status"] == "connected"))
         self.assertIsNone(rows["huggingface"]["test_status"])
@@ -283,10 +283,11 @@ class ConnectionsTest(unittest.TestCase):
         self.assertIsNone(self.app.connection_info()["providers"]["exa"]["test_status"])
 
     def test_home_probes_live_provider_health_with_expiring_cache(self):
-        for name in ("browserbase", "exa", "box"):
+        for name in ("browserbase", "exa", "box", "apify", "fresh_provider"):
             self.gateway.add(name, f"conn_{name}")
         self.gateway.missing.add("browserbase")
         self.gateway.offline.add("box")
+        self.gateway.denied.add("apify")
 
         def statuses():
             pinecone = self.app.memory_index.pinecone_status(self.app.agent.config)
@@ -294,6 +295,10 @@ class ConnectionsTest(unittest.TestCase):
 
         with patch("hearth.connections.time.monotonic", return_value=100) as clock:
             self.app.scan_connections()
+            providers = self.app.connection_info()["providers"]
+            for name in ("apify", "fresh_provider"):
+                self.assertEqual(providers[name]["status"], "connected")
+                self.assertEqual(providers[name]["uses"], [])
             self.assertEqual(statuses(), {"browserbase": "not_connected", "exa": "ok", "box": "error"})
             self.assertCountEqual(self.gateway.probes, [
                 ("browserbase", "conn_browserbase", TEST_PATH, None),

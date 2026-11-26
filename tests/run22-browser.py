@@ -47,13 +47,17 @@ CONTRAST = """() => {
 
 class FixtureGateway:
     def discover(self):
-        connections = {"github": ["demo-github"], "tavily": ["demo-tavily"]}
+        connections = {"vocalbridge": ["demo-voice"], "tavily": ["demo-tavily"], "apify": ["demo-apify"]}
         return connections, set(connections)
 
     def json(self, config, path, **kwargs):
-        if (config["provider"], path) == ("github", "user"):
-            return {"login": "hearth-demo"}
+        if (config["provider"], path) == ("vocalbridge", "api/v1/agent/versions"):
+            return {"name": "Hearth demo"}
         raise ConnectorError("The connector is unavailable.", 503)
+
+    def open(self, config, path, *, timeout):
+        assert (config["provider"], path) == ("apify", "v2/users/me")
+        raise ConnectorError("Test denied.", 403)
 
     def request(self, path, body, headers, timeout):
         assert path == f"browserbase/{TEST_PATH}"
@@ -129,6 +133,7 @@ def test_dashboard(page, base, mobile, label, shots, app):
     expect(page.locator('[data-panel="inbox"] .home-rows li')).to_have_count(3)
     expect(page.get_by_text("49°F")).to_be_visible()
     statuses = page.locator('[data-panel="connections"] .home-status')
+    expect(page.locator('[data-panel="connections"]')).not_to_contain_text("Apify")
     expect(statuses.filter(has_text="OK")).to_have_count(1)
     expect(statuses.filter(has_text="Error")).to_have_count(1)
     expect(statuses.filter(has_text="Not connected")).to_have_count(2)
@@ -229,6 +234,15 @@ def test_dashboard(page, base, mobile, label, shots, app):
         stale.get_by_role("button", name="Refresh Weather bulletin").click()
         expect(stale).to_contain_text("Fresh bulletin")
     expect(stale).not_to_contain_text("The source failed.")
+
+    go(page, "Connections", mobile)
+    apify = page.locator('[data-provider="apify"]')
+    expect(apify.locator("xpath=ancestor::section/h3")).to_have_text("Available, not used")
+    apify.get_by_role("button", name="Test Apify").click()
+    expect(apify).to_contain_text("Test denied")
+    expect(apify.locator(".connection-status")).to_have_text("Not used by Hearth")
+    expect(apify.locator(".error, .unauthorized, .failed, .denied")).to_have_count(0)
+    expect(page.locator(".sidebar [data-workspace-status]")).to_have_text("Mock mode")
     assert not errors, errors
     print(f"{label}: passed, minimum sampled text contrast {min(row['ratio'] for row in contrast):.2f}:1", flush=True)
 

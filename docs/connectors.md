@@ -25,4 +25,4 @@ Hearth can create a file or upload a new version through the gateway's Box uploa
 
 ## Other providers
 
-**Not configured** lists providers from the bundled catalog. An authorized connector can be available through Hearth's generic gateway tool even when it has no dedicated feature adapter. TypeSafeAI appears in the catalog and has no dedicated brain adapter. The generic tool validates the provider-relative path and applies approval policy to the request. [Connector catalog](../config/catalog.json), [Gateway request validation](../hearth/gateway_tools.py), [Model adapters](../hearth/connectors.py)
+**Available, not used** groups providers without a dedicated Hearth feature, such as Apify and TypeSafeAI. Only connectors with a dedicated feature contribute to Home health and the sidebar connector warning. Authorized providers can still be called through Hearth's generic gateway tool, which validates the provider-relative path and applies the approval policy. [Connector catalog](../config/catalog.json), [Gateway request validation](../hearth/gateway_tools.py), [Model adapters](../hearth/connectors.py)

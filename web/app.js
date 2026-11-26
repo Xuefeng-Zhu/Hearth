@@ -1134,8 +1134,8 @@ function renderWorkspaceStatus() {
 }
 
 function connectorHasError(entry) {
-  return entry.status === "unauthorized" || ["failed", "denied"].includes(entry.test_status)
-    || entry.index_state === "Unavailable";
+  return entry.uses.length > 0 && (entry.status === "unauthorized" || ["failed", "denied"].includes(entry.test_status)
+    || entry.index_state === "Unavailable");
 }
 
 function applyConnections(data) {
@@ -1298,13 +1298,14 @@ function connectionCard(provider, entry) {
   if (newlyConfigured.delete(provider)) card.classList.add("newly-configured");
 
   const configured = entry.status === "connected";
+  const used = entry.uses.length > 0;
   const check = connectorHasError(entry) ? "error"
     : entry.index_state === "Ready" ? "ready" : entry.index_state === "Connecting" ? "checking"
       : entry.test_status === "passed" ? "ok" : entry.test_status ? "error" : "untested";
-  const status = configured ? check : entry.status;
+  const status = used ? (configured ? check : entry.status) : "not_used";
   const labels = {
     ok: "OK", ready: "Ready", checking: "Checking", error: "Error", untested: "Untested", unauthorized: "Found but not authorized",
-    not_set_up: "Not set up", unknown: "Not checked",
+    not_set_up: "Not set up", unknown: "Not checked", not_used: "Not used by Hearth",
   };
   const heading = node("div", "card-header");
   const tone = status === "ready" ? "ok" : status === "checking" ? "untested" : status;
@@ -1312,14 +1313,14 @@ function connectionCard(provider, entry) {
   card.append(heading);
   if (entry.auth) card.append(node("p", "meta", entry.auth));
   card.append(node("p", "connection-description", entry.description));
-  if (configured) {
+  if (configured && used) {
     const uses = node("p", "connection-uses");
     uses.append(node("strong", "", "Used for"), ` ${entry.uses.join(" · ")}`);
     card.append(uses);
   }
   if (Object.hasOwn(connectorSettings, provider)) card.append(connectorForm(provider, entry, connectorSettings[provider]));
   if (entry.index_error) card.append(node("p", "connection-test failed", entry.index_error));
-  else if (entry.test_detail) card.append(node("p", `connection-test ${entry.test_status}`, entry.test_detail));
+  else if (entry.test_detail) card.append(node("p", used ? `connection-test ${entry.test_status}` : "meta", entry.test_detail));
 
   const footer = node("div", "connector-footer");
   const access = node("span", "connector-access", entry.access_rule);
@@ -1451,11 +1452,18 @@ function renderConnections() {
 
 function connectionGroups(entries) {
   const groups = new Map();
+  const unused = [];
   for (const [provider, entry] of entries) {
+    const card = connectionCard(provider, entry);
+    if (!entry.uses.length) {
+      unused.push(card);
+      continue;
+    }
     const group = entry.pinned ? "Hearth essentials" : entry.category;
     if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push(connectionCard(provider, entry));
+    groups.get(group).push(card);
   }
+  if (unused.length) groups.set("Available, not used", unused);
   return [...groups].map(([name, cards]) => {
     const section = node("section", "connection-section");
     const grid = node("div", "connection-grid");

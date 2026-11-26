@@ -8,7 +8,7 @@ Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinn
 
 | Home | Chat approval | Artifacts and Pages |
 | --- | --- | --- |
-| [![Live Home with For you and Browserbase connector health](docs/screenshots/home.png)](docs/screenshots/home.png) | [![Ember beside an email approval card](docs/screenshots/chat-approval.png)](docs/screenshots/chat-approval.png) | [![HTML pages in the Artifacts library](docs/screenshots/artifacts-pages.png)](docs/screenshots/artifacts-pages.png) |
+| [![Live Home showing a demo For you card, current weather, and healthy Pinecone and Browserbase connections](docs/screenshots/home.png)](docs/screenshots/home.png) | [![Ember beside an email approval card](docs/screenshots/chat-approval.png)](docs/screenshots/chat-approval.png) | [![HTML pages in the Artifacts library](docs/screenshots/artifacts-pages.png)](docs/screenshots/artifacts-pages.png) |
 | **Recurring tasks** | **Connections** | |
 | [![Recurring task with schedule and run history](docs/screenshots/recurring-tasks.png)](docs/screenshots/recurring-tasks.png) | [![Connections catalog and Browserbase setup](docs/screenshots/connections.png)](docs/screenshots/connections.png) | |
 
