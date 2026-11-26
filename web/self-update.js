@@ -2,23 +2,30 @@ import { icon } from "./icons.js";
 
 const checkText = {
   checking: "Checking CI…", pending: "Tests running", passed: "Tests passed",
-  failed: "Tests failed", none: "No checks reported",
+  failed: "Tests failed", missing: "Required tests missing", none: "No checks reported",
 };
 const stageText = {
   publishing: "Opening pull request…", waiting: "Waiting for tests", revising: "Updating pull request…",
   discarding: "Closing pull request…", discarded: "Proposal discarded", stale: "Needs a fresh proposal",
+  behind: "Proposal is behind main",
   closed: "Pull request closed", updating: "Updating Hearth…", deploy_failed: "Deployment failed",
 };
 
-export function proposalPresentation({ status, checks, merge_sha }) {
+export function proposalPresentation({ status, checks, guard, ready, merge_sha }) {
   const complete = status === "updated";
   const editable = status === "review" || status === "waiting";
+  const waiting = status === "review" && guard === "hearth" && checks === "pending";
+  const reviewStage = ready ? "Ready to merge" : waiting ? "Waiting for tests" : "Ready for review";
   return {
-    stage: complete ? `Hearth updated to ${merge_sha.slice(0, 7)}` : stageText[status] || "Ready for review",
+    stage: complete ? `Hearth updated to ${merge_sha.slice(0, 7)}` : stageText[status] || reviewStage,
     checks: checkText[checks] || checkText.checking,
-    approve: status === "review" && checks !== "failed",
+    guard: guard === "github" ? "GitHub branch protection" : guard === "hearth"
+      ? (ready || merge_sha ? "Hearth's own checks: tests passed on an up-to-date branch" : "Hearth's own checks")
+      : "",
+    approve: status === "review" && !["failed", "missing"].includes(checks),
     revise: editable,
-    discard: editable || status === "publishing" || status === "revising" || status === "stale",
+    refresh: status === "behind",
+    discard: editable || ["publishing", "revising", "stale", "behind"].includes(status),
     complete,
   };
 }
@@ -54,7 +61,12 @@ export function updateCard(initial, { perform, announce }) {
   const summary = element("p");
   const stage = element("p", "self-update-stage");
   const checks = element("p", "self-update-checks");
+  const guard = element("p", "self-update-checks");
+  const commit = element("p", "self-update-checks", "Head commit ");
+  const sha = element("code");
+  commit.append(sha);
   const detail = element("p", "self-update-detail");
+  const warning = element("p", "self-update-detail");
   const files = element("ul", "self-update-files");
   const disclosure = element("details");
   const diff = element("pre", "self-update-diff");
@@ -70,8 +82,9 @@ export function updateCard(initial, { perform, announce }) {
   const revise = control("Request changes");
   revise.setAttribute("aria-expanded", "false");
   const discard = control("Discard");
+  const refresh = control("Refresh proposal");
   const actions = element("div", "self-update-controls");
-  actions.append(approve, revise, discard);
+  actions.append(approve, revise, refresh, discard);
   const form = element("form", "self-update-feedback");
   form.hidden = true;
   form.id = `hearth-feedback-${initial.id}`;
@@ -90,7 +103,7 @@ export function updateCard(initial, { perform, announce }) {
   const error = element("p", "self-update-detail");
   error.setAttribute("role", "alert");
   const undo = element("p", "", "Ask me to revert");
-  card.append(heading, summary, stage, checks, detail, files, disclosure, links, actions, form, error, undo);
+  card.append(heading, summary, stage, checks, guard, commit, detail, warning, files, disclosure, links, actions, form, error, undo);
 
   let row, busy = false;
   function toggleFeedback(open) {
@@ -106,8 +119,13 @@ export function updateCard(initial, { perform, announce }) {
     stage.textContent = ui.stage;
     checks.textContent = `CI · ${ui.checks}`;
     checks.hidden = ["discarded", "closed"].includes(row.status);
+    guard.textContent = ui.guard;
+    guard.hidden = checks.hidden || !ui.guard;
+    sha.textContent = row.head;
     detail.textContent = row.detail || "";
     detail.hidden = !row.detail;
+    warning.textContent = row.merge_warning || "";
+    warning.hidden = !row.merge_warning;
     if (changed) {
       files.replaceChildren(...row.files.map(({ path, added, removed }) => {
         const file = element("li");
@@ -131,8 +149,9 @@ export function updateCard(initial, { perform, announce }) {
     approve.disabled = busy || !ui.approve;
     revise.hidden = !ui.revise;
     discard.hidden = !ui.discard;
-    actions.hidden = approve.hidden && revise.hidden && discard.hidden;
-    for (const target of [revise, discard, submit, feedback, cancel]) target.disabled = busy;
+    refresh.hidden = !ui.refresh;
+    actions.hidden = approve.hidden && revise.hidden && discard.hidden && refresh.hidden;
+    for (const target of [revise, refresh, discard, submit, feedback, cancel]) target.disabled = busy;
     if (!ui.revise) toggleFeedback(false);
     undo.hidden = !ui.complete;
     announce(row, ui);
@@ -159,6 +178,7 @@ export function updateCard(initial, { perform, announce }) {
     }
   }
   approve.addEventListener("click", () => act("approve"));
+  refresh.addEventListener("click", () => act("refresh"));
   discard.addEventListener("click", () => act("discard"));
   revise.addEventListener("click", () => {
     toggleFeedback(form.hidden);
@@ -187,6 +207,15 @@ export function githubSettings(settings, save) {
   repository.autocapitalize = "none";
   const repoLabel = element("label", "", "Repository");
   repoLabel.append(repository);
+  const required = element("input");
+  required.type = "text";
+  required.value = settings.required_checks.join(", ");
+  required.maxLength = 2040;
+  required.required = true;
+  required.spellcheck = false;
+  required.autocapitalize = "none";
+  const checksLabel = element("label", "", "Required CI jobs (comma-separated)");
+  checksLabel.append(required);
   const enabled = element("input");
   enabled.type = "checkbox";
   enabled.checked = settings.enabled;
@@ -195,7 +224,7 @@ export function githubSettings(settings, save) {
   const submit = element("button", "", "Save GitHub settings");
   const error = element("p", "self-update-detail");
   error.setAttribute("role", "status");
-  form.append(repoLabel, toggle, submit, error);
+  form.append(repoLabel, checksLabel, toggle, submit, error);
   let toggleChanged = false;
   enabled.addEventListener("change", () => { toggleChanged = true; });
   repository.addEventListener("input", () => {
@@ -205,13 +234,14 @@ export function githubSettings(settings, save) {
   });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const body = { repository: repository.value.trim(), enabled: enabled.checked };
-    submit.disabled = repository.disabled = enabled.disabled = true;
+    const body = { repository: repository.value.trim(), enabled: enabled.checked,
+      required_checks: required.value.split(",").map((name) => name.trim()) };
+    submit.disabled = repository.disabled = required.disabled = enabled.disabled = true;
     try {
       await save(body);
     } catch (failure) {
       error.textContent = failure.message;
-      submit.disabled = repository.disabled = enabled.disabled = false;
+      submit.disabled = repository.disabled = required.disabled = enabled.disabled = false;
     }
   });
   return form;

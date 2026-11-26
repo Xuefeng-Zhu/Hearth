@@ -374,6 +374,7 @@ def self_update_smoke(browser, app, origin):
         "head": "a" * 40, "files": [{"path": path, "added": 1, "removed": 1}],
         "diff": f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-Old\n+{'New text. ' * 55}\n",
         "number": 66, "url": "https://github.com/Xuefeng-Zhu/Hearth/pull/66", "status": "review", "checks": "pending",
+        "guard": "hearth",
     }
     for width in (390, 1440):
         for scheme in ("light", "dark"):
@@ -385,10 +386,12 @@ def self_update_smoke(browser, app, origin):
                 card = page.get_by_role("region", name=proposal["title"])
                 expect(card.get_by_text(proposal["summary"])).to_be_visible()
                 expect(card.get_by_text(path, exact=True)).to_be_visible()
+                expect(card.get_by_text(f"Head commit {proposal['head']}", exact=True)).to_be_visible()
                 expect(card.get_by_text("+1", exact=True)).to_be_visible()
                 expect(card.get_by_text("−1", exact=True)).to_be_visible()
                 expect(card.get_by_role("link", name="Open PR #66")).to_have_attribute("href", proposal["url"])
                 expect(card.get_by_text("CI · Tests running")).to_be_visible()
+                expect(card.get_by_text("Waiting for tests", exact=True)).to_be_visible()
                 expect(card.locator("pre")).to_be_hidden()
                 card.locator("summary").click()
                 expect(card.locator("pre")).to_be_visible()
@@ -423,6 +426,16 @@ def self_update_smoke(browser, app, origin):
                 feedback.fill("Make the note shorter.")
                 card.get_by_role("button", name="Cancel").click()
                 expect(feedback).to_be_hidden()
+                app.self_updates.store({**proposal, "status": "behind"})
+                page.evaluate("window.dispatchEvent(new Event('focus'))")
+                expect(card.get_by_role("button", name="Refresh proposal")).to_be_visible()
+                expect(card.get_by_role("button", name="Approve and update")).to_be_hidden()
+                app.self_updates.store({**proposal, "checks": "passed", "ready": True})
+                page.evaluate("window.dispatchEvent(new Event('focus'))")
+                expect(card.get_by_text("Ready to merge", exact=True)).to_be_visible()
+                expect(card.get_by_text("Hearth's own checks: tests passed on an up-to-date branch")).to_be_visible()
+                if screenshots:
+                    page.screenshot(path=Path(screenshots) / f"hearth-update-ready-{width}-{scheme}.png")
                 card.get_by_role("button", name="Approve and update").click()
                 expect(card.get_by_text("Waiting for tests", exact=True)).to_be_visible()
                 app.self_updates.store({**proposal, "status": "updated", "checks": "passed", "merge_sha": "b" * 40})

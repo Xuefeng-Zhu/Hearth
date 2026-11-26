@@ -4,7 +4,8 @@ import { proposalPresentation } from "../web/self-update.js";
 
 test("a self-update card offers approval once and allows revision while waiting", () => {
   assert.deepEqual(proposalPresentation({ status: "review", checks: "none" }), {
-    stage: "Ready for review", checks: "No checks reported", approve: true, revise: true, discard: true, complete: false,
+    stage: "Ready for review", checks: "No checks reported", guard: "",
+    approve: true, revise: true, refresh: false, discard: true, complete: false,
   });
   for (const [status, checks, labels, controls] of [
     ["review", "failed", ["Ready for review", "Tests failed"], [false, true, true]],
@@ -16,6 +17,20 @@ test("a self-update card offers approval once and allows revision while waiting"
     const view = proposalPresentation({ status, checks });
     assert.deepEqual([view.stage, view.checks], labels);
     assert.deepEqual([view.approve, view.revise, view.discard], controls);
+  }
+});
+
+test("the card names the guard and offers refresh only when main moved", () => {
+  for (const [state, stage, guard, approve, refresh] of [
+    [{ status: "review", checks: "pending", guard: "hearth" }, "Waiting for tests", "Hearth's own checks", true, false],
+    [{ status: "review", checks: "missing", guard: "hearth" }, "Ready for review", "Hearth's own checks", false, false],
+    [{ status: "review", checks: "passed", guard: "hearth", ready: true },
+      "Ready to merge", "Hearth's own checks: tests passed on an up-to-date branch", true, false],
+    [{ status: "review", checks: "passed", guard: "github", ready: true }, "Ready to merge", "GitHub branch protection", true, false],
+    [{ status: "behind", checks: "passed", guard: "hearth" }, "Proposal is behind main", "Hearth's own checks", false, true],
+  ]) {
+    const view = proposalPresentation(state);
+    assert.deepEqual([view.stage, view.guard, view.approve, view.refresh], [stage, guard, approve, refresh]);
   }
 });
 

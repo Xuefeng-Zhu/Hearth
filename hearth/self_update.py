@@ -7,9 +7,10 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from urllib.parse import quote, urlencode, unquote, urlsplit
 
 from . import router, timeline
@@ -18,6 +19,7 @@ from .gateway_tools import redact_text
 from .storage import HearthError, ROOT, iso, new_id
 
 DEFAULT_REPO = "Xuefeng-Zhu/Hearth"
+DEFAULT_REQUIRED_CHECKS = ("test", "browser-smoke")
 MAX_FILES = 5
 MAX_LINES = 400
 MAX_FILE_BYTES = 96_000
@@ -57,7 +59,7 @@ REVERT_INTENT = re.compile(
     r"revert(?:\s+(?:(?:the |your )?(?:last |latest )?(?:hearth )?(?:update|change)|[0-9a-f]{7,40}))?"
     r"\s*[.!?]?\s*$", re.I)
 PUBLIC_FIELDS = ("id", "thread_id", "title", "summary", "files", "diff", "head", "number", "url",
-                 "status", "checks", "detail", "merge_sha", "run_url")
+                 "status", "checks", "guard", "ready", "detail", "merge_sha", "merge_warning", "run_url")
 TRANSIENT = {"publishing", "revising", "discarding", "review", "waiting", "updating"}
 EDITABLE = {"review", "waiting"}
 CHECK_PASS = {"success", "neutral", "skipped"}
@@ -96,7 +98,15 @@ def repo_name(value):
 def preferences(state):
     saved = state.get("self_update_settings", {})
     repo = saved.get("repository", DEFAULT_REPO)
-    return {"repository": repo, "enabled": saved.get("enabled", repo.casefold() == DEFAULT_REPO.casefold())}
+    return {"repository": repo, "enabled": saved.get("enabled", repo.casefold() == DEFAULT_REPO.casefold()),
+            "required_checks": list(saved.get("required_checks", DEFAULT_REQUIRED_CHECKS))}
+
+
+def required_check_names(values):
+    if not 1 <= len(values) <= 20 or any(not value.strip() or len(value) > 100 or
+                                         not value.isprintable() or "," in value for value in values):
+        raise HearthError("Enter 1 to 20 GitHub Actions job names, separated by commas.")
+    return list(dict.fromkeys(value.strip() for value in values))
 
 
 def guard_gateway_write(state, provider, method, path):
@@ -280,7 +290,7 @@ class GitHub:
             pass
         raise HearthError(f"GitHub did not return UTF-8 text for {path}.")
 
-    def write_commit(self, root, tree, parent, before, after, title):
+    def write_commit(self, root, tree, parents, before, after, title):
         entries = []
         for path, content in sorted(after.items()):
             if before.get(path) == content:
@@ -290,7 +300,7 @@ class GitHub:
             entries.append({"path": path, "mode": mode, "type": "blob",
                             "sha": checked_sha(blob["sha"]) if blob else None})
         root = checked_sha(self.post("git/trees", {"base_tree": root, "tree": entries})["sha"])
-        result = self.post("git/commits", {"message": title, "tree": root, "parents": [parent]})
+        result = self.post("git/commits", {"message": title, "tree": root, "parents": parents})
         return checked_sha(result["sha"]), root
 
     def pull(self, number):
@@ -317,6 +327,51 @@ class GitHub:
         strict = (checks.get("strict") is True and result.get("enforce_admins", {}).get("enabled") is True
                   and not (result.get("allow_force_pushes") or {}).get("enabled"))
         return bool(strict and names), sorted(names)
+
+    def behind(self, base_branch, base, head_branch, head):
+        try:
+            # Compare immutable SHAs so the exact base compared also goes into the merge audit.
+            behind = self.request(f"compare/{base}...{head}?per_page=1")["behind_by"]
+        except ConnectorError as error:
+            if error.status != 400:
+                raise
+            behind = self.graphql_behind(base_branch, base, head_branch, head)
+        if type(behind) is not int or behind < 0:
+            raise HearthError("GitHub did not confirm whether the proposal is up to date.")
+        return behind
+
+    def graphql_behind(self, base_branch, base, head_branch, head):
+        # Sprites can reject the REST comparison path. GitHub GraphQL exposes the same comparison.
+        owner, repo = self.repo.split("/")
+        query = """query($owner: String!, $repo: String!, $base: String!, $head: String!) {
+          repository(owner: $owner, name: $repo) {
+            ref(qualifiedName: $base) {
+              compare(headRef: $head) { behindBy baseTarget { oid } headTarget { oid } }
+            }
+          }
+        }"""
+        variables = {"owner": owner, "repo": repo, "base": f"refs/heads/{base_branch}",
+                     "head": f"refs/heads/{head_branch}"}
+        response = self.gateway.json(self.config, "graphql", {"query": query, "variables": variables},
+                                     method="POST", timeout=20)
+        if response.get("errors"):
+            raise HearthError("GitHub did not confirm whether the proposal is up to date.")
+        comparison = response["data"]["repository"]["ref"]["compare"]
+        if not comparison or comparison["baseTarget"]["oid"] != base or comparison["headTarget"]["oid"] != head:
+            raise HearthError("The branches moved during the comparison. Hearth will check again.")
+        return comparison["behindBy"]
+
+    def own_checks(self, head, required):
+        result = self.request(f"commits/{head}/check-runs?filter=latest&per_page=100")
+        runs = [run for run in result["check_runs"] if run["name"] in required
+                and run.get("head_sha") == head and (run.get("app") or {}).get("slug") == "github-actions"]
+        if any(run["status"] == "completed" and run["conclusion"] != "success" for run in runs):
+            return "failed"
+        if any(run["status"] != "completed" for run in runs):
+            return "pending"
+        if result["total_count"] > 100 or set(required) - {run["name"] for run in runs}:
+            return "missing"
+        return "passed"
 
     def checks(self, head, test_merge, required):
         def reports(sha):
@@ -370,6 +425,25 @@ def pull_body(row):
             + "\n\nProposed by Hearth on request in chat")
 
 
+def refresh_content(path, original, proposed, current):
+    if current == original:
+        return proposed
+    if current == proposed:
+        return current
+    if None not in (original, proposed, current):
+        with tempfile.TemporaryDirectory() as directory:
+            copies = [Path(directory) / name for name in ("main", "base", "proposal")]
+            for copy, content in zip(copies, (current, original, proposed)):
+                copy.write_bytes(content.encode("utf-8"))
+            try:
+                result = subprocess.run(["git", "merge-file", "--stdout", *copies], capture_output=True, timeout=10)
+            except (OSError, subprocess.SubprocessError):
+                raise HearthError(f"Hearth could not refresh {path} with Git.") from None
+            if result.returncode == 0:
+                return result.stdout.decode("utf-8")
+    raise HearthError(f"The proposal overlaps changes to {path} on the default branch. Request a fresh proposal in Chat.")
+
+
 def errors_for(error):
     if isinstance(error, ConnectorError):
         status = f" (HTTP {error.status})" if error.status else ""
@@ -395,14 +469,20 @@ class SelfUpdates:
     def settings(self):
         return preferences(self.storage.load())
 
-    def configure(self, repository, enabled):
+    def configure(self, repository, enabled, required_checks=None):
         target = repo_name(repository)
         with self.lock, self.storage.lock():
             state = self.storage.load()
-            state["self_update_settings"] = {"repository": target, "enabled": enabled}
+            old_checks = preferences(state)["required_checks"]
+            checks = old_checks if required_checks is None else required_check_names(required_checks)
+            state["self_update_settings"] = {"repository": target, "enabled": enabled, "required_checks": checks}
             for row in state.get("self_updates", {}).values():
-                if row["status"] == "waiting" and (not enabled or row["repository"].casefold() != target.casefold()):
-                    row.update(status="review", approved_head=None, detail="GitHub proposal settings changed.")
+                changed = (not enabled or row["repository"].casefold() != target.casefold()
+                           or checks != old_checks and row.get("guard") != "github")
+                # Preserve reconciliation for an in-flight merge with an unknown outcome.
+                if row["status"] in EDITABLE and changed and not row.get("merge_attempt_base"):
+                    row.update(status="review", checks="checking", ready=False, approved_head=None,
+                               detail="GitHub proposal settings changed.")
             self.storage.save(state)
         return self.settings()
 
@@ -414,7 +494,8 @@ class SelfUpdates:
             state = self.storage.load()
             state.setdefault("self_updates", {})[row["id"]] = row
             if note:
-                data = {key: row[key] for key in ("title", "number", "url", "merge_sha", "run_url") if key in row}
+                data = {key: row[key] for key in ("title", "number", "url", "merge_sha", "run_url", "merge_warning")
+                        if key in row}
                 state.setdefault("activity", []).append(timeline.entry(
                     "self_update", note, row, id=new_id(), at=iso(), provider="github", data=data))
             self.storage.save(state)
@@ -511,7 +592,10 @@ class SelfUpdates:
         if not choices or match and len(choices) != 1:
             raise HearthError("I couldn’t find a Hearth update to revert. Try its commit SHA.")
         latest = max(choices, key=lambda row: row["merged_at"])
-        _, old_tree = github.tree(latest["base"])
+        parent = latest.get("merge_base", latest["base"])
+        if latest.get("merge_attempt_base") or parent is None:
+            raise HearthError("Hearth needs to verify the merge commit’s parent before preparing a revert.")
+        _, old_tree = github.tree(parent)
         _, merged_tree = github.tree(latest["merge_sha"])
         before, after = {}, {}
         for item in latest["files"]:
@@ -543,7 +627,7 @@ class SelfUpdates:
             if github.main() != (branch, base):
                 raise HearthError("The default branch moved while I was planning. Ask again for a fresh proposal.")
             commit()
-            head, tree = github.write_commit(root, base_tree, base, before, after, title)
+            head, tree = github.write_commit(root, base_tree, [base], before, after, title)
             key = new_id()
             slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40].rstrip("-") or "change"
             row = {"id": key, "repository": repo, "base_branch": branch, "base": base,
@@ -594,41 +678,75 @@ class SelfUpdates:
             return
         if row["status"] != "review":
             raise HearthError("This proposal is no longer ready for approval.")
-        if row["checks"] == "failed":
-            raise HearthError("Resolve the failing tests before approving this proposal.")
+        if row["checks"] in {"failed", "missing"}:
+            raise HearthError("Resolve the required tests before approving this proposal.")
         row.update(status="waiting", detail="", approved_head=row["head"])
         self.store(row, "Hearth change approved")
 
     def revise(self, github, row, feedback):
         if row["status"] not in EDITABLE:
             raise HearthError("Ask for a fresh proposal if the current one can no longer be revised.")
-        if github.main() != (row["base_branch"], row["base"]):
-            self.stale(row)
-            return
         pull = github.pull(row["number"])
+        if pull.get("merged") and row.get("merge_attempt_base") and self.reconcile_merge(github, row, pull):
+            return
+        if github.main() != (row["base_branch"], row["base"]):
+            self.stale(row, refresh=row.get("guard") == "hearth")
+            return
         if not self.pull_matches(github, row, pull) or pull["state"] != "open":
             self.stale(row, "The pull request changed on GitHub. Ask for a fresh proposal.")
             return
         self.ensure_enabled(row["repository"])
         # Clear authorization before asking the brain and before modifying the branch.
+        row.pop("merge_attempt_base", None)
         row.update(status="review", approved_head=None, detail="")
         self.store(row)
         root, base_tree = github.tree(row["base"])
         request = f"Revise the existing Hearth proposal as follows:\n{feedback}"
         title, summary, before, after, files, diff = self.draft(github, base_tree, request, None, row=row)
         if github.main() != (row["base_branch"], row["base"]):
-            self.stale(row)
+            self.stale(row, refresh=row.get("guard") == "hearth")
             return
-        head, tree = github.write_commit(root, base_tree, row["head"], before, after, title)
+        head, tree = github.write_commit(root, base_tree, [row["head"]], before, after, title)
         row.update(status="revising", revision={"head": head, "tree": tree, "title": title, "summary": summary,
                                                "files": files, "diff": diff})
         self.store(row)
         self.try_step(github, row)
 
+    def refresh(self, github, row):
+        if row["status"] != "behind":
+            raise HearthError("This proposal is no longer waiting for a refresh.")
+        self.ensure_enabled(row["repository"])
+        pull = github.pull(row["number"])
+        if pull["state"] != "open" or not self.pull_matches(github, row, pull):
+            self.stale(row, "The pull request changed on GitHub. Ask for a fresh proposal.")
+            return
+        branch, base = github.main()
+        if branch != row["base_branch"]:
+            self.stale(row, "The default branch changed on GitHub. Ask for a fresh proposal.")
+            return
+        _, original = github.tree(row["base"])
+        _, proposed = github.tree(row["head"])
+        root, current = github.tree(base)
+        before, after = {}, {}
+        for item in row["files"]:
+            path = validate_path(item["path"])
+            before[path] = github.file(current, path)
+            after[path] = refresh_content(path, github.file(original, path), github.file(proposed, path), before[path])
+        files, diff = preview(before, after)
+        # Parent the replay on current main and retain the old head so updating the ref is a fast-forward.
+        parents = [base, row["head"]] if base != row["head"] else [base]
+        head, tree = github.write_commit(root, current, parents, before, after, row["title"])
+        row.update(status="revising", detail="", approved_head=None,
+                   revision={"base": base, "head": head, "tree": tree, "title": row["title"],
+                             "summary": row["summary"], "files": files, "diff": diff})
+        self.store(row)
+        self.try_step(github, row)
+
     def publish_revision(self, github, row):
         revision = row["revision"]
-        if github.main() != (row["base_branch"], row["base"]):
-            self.stale(row)
+        refreshing = "base" in revision
+        if not refreshing and github.main() != (row["base_branch"], row["base"]):
+            self.stale(row, refresh=row.get("guard") == "hearth")
             return
         branch_head = github.ref(row["branch"])
         if branch_head == row["head"]:
@@ -637,18 +755,24 @@ class SelfUpdates:
             self.stale(row, "The proposal branch changed on GitHub. Ask for a fresh proposal.")
             return
         github.post(f"pulls/{row['number']}", {"title": revision["title"], "body": pull_body(revision)}, "PATCH")
-        row.update(revision, status="review", checks="checking", detail="")
+        row.update(revision, status="review", checks="checking", ready=False, detail="")
         row.pop("revision")
-        self.store(row, "Hearth change revised")
+        self.store(row, "Hearth proposal refreshed" if refreshing else "Hearth change revised")
 
-    def stale(self, row, detail="The default branch moved. Ask for a fresh proposal before approving."):
-        row.update(status="stale", detail=detail, approved_head=None)
+    def stale(self, row, detail=None, *, refresh=False):
+        if detail is None:
+            detail = ("The default branch moved. Refresh this proposal to run fresh tests and review it again."
+                      if refresh else "The default branch moved. Ask for a fresh proposal before approving.")
+        row.pop("merge_attempt_base", None)
+        row.update(status="behind" if refresh else "stale", ready=False, detail=detail, approved_head=None)
         self.store(row)
 
     def discard(self, github, row):
         pull = github.pull(row["number"]) if row.get("number") else github.find_pull(row)
         if pull:
             if pull.get("merged") or pull.get("merged_at"):
+                if row.get("merge_attempt_base") and self.reconcile_merge(github, row, pull):
+                    return
                 row.update(status="closed", detail="This pull request was already merged on GitHub.")
                 self.store(row)
                 return
@@ -657,20 +781,31 @@ class SelfUpdates:
                 if result["state"] != "closed" or result.get("merged"):
                     raise HearthError("GitHub has not confirmed that the pull request closed.")
         github.remove_ref(row["branch"])
+        row.pop("merge_attempt_base", None)
         row.update(status="discarded", detail="")
         self.store(row, "Hearth change discarded")
+
+    def reconcile_merge(self, github, row, pull):
+        if not self.pull_matches(github, row, pull):
+            return False
+        sha = checked_sha(pull["merge_commit_sha"])
+        commit = github.commit(sha)
+        parents = [parent["sha"] for parent in commit["parents"]]
+        expected = row.get("merge_attempt_base", row["base"])
+        if parents == [expected] and commit["tree"]["sha"] == row["tree"]:
+            self.merged(github, row, sha)
+            return True
+        if row.get("merge_attempt_base") and len(parents) == 1 and parents != [expected]:
+            self.merged(github, row, sha)
+            return True
+        return False
 
     def review(self, github, row):
         pull = github.pull(row["number"])
         authorized = row["status"] == "waiting" and row.get("approved_head") == row["head"]
         if pull.get("merged"):
-            if authorized and self.pull_matches(github, row, pull):
-                sha = checked_sha(pull["merge_commit_sha"])
-                commit = github.commit(sha)
-                if ([parent["sha"] for parent in commit["parents"]] == [row["base"]]
-                        and commit["tree"]["sha"] == row["tree"]):
-                    self.merged(row, sha)
-                    return
+            if authorized and self.reconcile_merge(github, row, pull):
+                return
             row.update(status="closed", detail="This pull request was merged on GitHub outside this approval.")
             self.store(row)
             return
@@ -681,58 +816,108 @@ class SelfUpdates:
         if not self.pull_matches(github, row, pull):
             self.stale(row, "The pull request changed on GitHub. Ask for a fresh proposal.")
             return
-        if github.main() != (row["base_branch"], row["base"]) or pull.get("mergeable_state") == "behind":
-            self.stale(row)
+        before = dict(row)
+        strict, required = github.protected_checks(row["base_branch"])
+        row["guard"] = "github" if strict else "hearth"
+        branch, base = github.main()
+        if branch != row["base_branch"]:
+            self.stale(row, "The default branch changed on GitHub. Ask for a fresh proposal.")
+            return
+        if not strict and github.behind(branch, base, row["branch"], row["head"]) > 0:
+            self.stale(row, refresh=True)
+            return
+        if base != row["base"] or strict and pull.get("mergeable_state") == "behind":
+            self.stale(row, refresh=not strict)
+            return
+        if not strict and pull.get("draft") is not False:
+            self.stale(row, "This pull request is a draft. Ask for a fresh proposal.")
             return
         if pull.get("mergeable") is False or pull.get("mergeable_state") == "dirty":
             self.stale(row, "This pull request has conflicts. Ask for a fresh proposal.")
             return
-        strict, required = github.protected_checks(row["base_branch"])
-        test_merge = pull.get("merge_commit_sha") if pull.get("mergeable") else None
-        checks = github.checks(row["head"], test_merge, required)
+        if strict:
+            test_merge = pull.get("merge_commit_sha") if pull.get("mergeable") else None
+            checks = github.checks(row["head"], test_merge, required)
+        else:
+            checks = github.own_checks(row["head"], self.settings()["required_checks"])
+        if row["checks"] != checks:
+            row["detail"] = ""
+        row.update(checks=checks, ready=checks == "passed" and pull.get("mergeable") is True)
         if not authorized:
-            if row["checks"] != checks:
-                row.update(checks=checks)
+            if row != before:
                 self.store(row)
             return
         if checks == "failed":
-            row.update(status="review", checks=checks, approved_head=None,
+            row.pop("merge_attempt_base", None)
+            row.update(status="review", approved_head=None,
                        detail="Tests failed. Review the checks on GitHub or request changes.")
+        elif checks == "missing":
+            row.update(detail="")
         elif checks == "pending" or pull.get("mergeable") is not True:
             row.update(checks="pending", detail="")
-        elif not strict:
-            row.update(status="review", checks=checks, approved_head=None,
-                       detail="GitHub must enforce up-to-date branches before Hearth can safely merge.")
         else:
-            self.ensure_enabled(row["repository"])
-            # The SHA pins the reviewed head. Strict branch protection closes the race on the base.
-            if github.main() != (row["base_branch"], row["base"]):
-                self.stale(row)
-                return
-            try:
-                result = github.post(f"pulls/{row['number']}/merge", {
-                    "merge_method": "squash", "sha": row["approved_head"]}, "PUT")
-            except ConnectorError as error:
-                if error.status not in {403, 405, 409, 422}:
-                    raise
-                if github.main() != (row["base_branch"], row["base"]):
-                    self.stale(row)
-                    return
-                row.update(status="review", checks=checks, approved_head=None,
-                           detail="GitHub blocked the merge. Review the pull request before approving again.")
-            else:
-                if result.get("merged") is not True:
-                    raise HearthError("GitHub did not confirm the merge.")
-                self.merged(row, checked_sha(result["sha"]))
-                return
-        if self.rows()[row["id"]] != row:
+            self.merge(github, row, strict, base)
+            return
+        if row != before:
             self.store(row)
 
-    def merged(self, row, sha):
+    def merge(self, github, row, strict, base):
+        self.ensure_enabled(row["repository"])
+        if not strict:
+            pull = github.pull(row["number"])
+            if (pull["state"] != "open" or not self.pull_matches(github, row, pull)
+                    or pull.get("draft") is not False or pull.get("mergeable") is not True
+                    or pull.get("mergeable_state") == "dirty"):
+                # The next poll handles the updated PR state without using these CI results.
+                row.update(checks="checking", ready=False)
+                self.store(row)
+                return
+            # Persist the compared base before the request so a lost response can be audited.
+            row["merge_attempt_base"] = base
+            self.store(row)
+        if github.main() != (row["base_branch"], base):
+            self.stale(row, refresh=not strict)
+            return
+        try:
+            result = github.post(f"pulls/{row['number']}/merge", {
+                "merge_method": "squash", "sha": row["approved_head"]}, "PUT")
+        except ConnectorError as error:
+            if error.status not in {403, 405, 409, 422}:
+                raise
+            if github.main() != (row["base_branch"], base):
+                self.stale(row, refresh=not strict)
+                return
+            row.pop("merge_attempt_base", None)
+            row.update(status="review", ready=False, approved_head=None,
+                       detail="GitHub blocked the merge. Review the pull request before approving again.")
+            self.store(row)
+        else:
+            if result.get("merged") is not True:
+                raise HearthError("GitHub did not confirm the merge.")
+            self.merged(github, row, checked_sha(result["sha"]))
+
+    def merged(self, github, row, sha):
         row.update(status="updating", merge_sha=sha, merged_at=iso(), merged_time=time.time(), detail="")
         self.store(row, "Hearth change merged")
+        if row.get("merge_attempt_base"):
+            self.verify_merge_base(github, row)
+
+    def verify_merge_base(self, github, row):
+        # Main may have advanced again. Inspect the squash commit itself for the parent it used.
+        github.ref(row["base_branch"], optional=True)
+        commit = github.commit(row["merge_sha"])
+        parents = [checked_sha(parent["sha"]) for parent in commit["parents"]]
+        expected = row.pop("merge_attempt_base")
+        row["merge_base"] = parents[0] if len(parents) == 1 else None
+        row["detail"] = ""
+        if parents != [expected]:
+            actual = parents[0][:7] if len(parents) == 1 else "an unexpected parent list"
+            row["merge_warning"] = f"Main moved during the merge. Hearth checked {expected[:7]} and GitHub merged onto {actual}."
+        self.store(row, row.get("merge_warning"))
 
     def deploy(self, github, row):
+        if row.get("merge_attempt_base"):
+            self.verify_merge_base(github, row)
         sha = row["merge_sha"]
         if self.app.version == sha:
             row.update(status="updated", detail="")
@@ -766,8 +951,9 @@ class SelfUpdates:
                 self.deploy(github, row)
         except (HearthError, KeyError, TypeError, ValueError, OSError) as error:
             detail = errors_for(error)
-            if row.get("detail") != detail:
+            if row.get("detail") != detail or row.get("ready"):
                 row["detail"] = detail
+                row["ready"] = False
                 self.store(row)
 
     def act(self, operation, identity, thread_id, head, feedback=""):
@@ -784,6 +970,8 @@ class SelfUpdates:
                 if not feedback or len(feedback) > 4000 or EXTERNAL_DIRECTION.search(feedback):
                     raise HearthError("Type the requested changes directly in the card (up to 4,000 characters).")
                 self.revise(self.client(row["repository"]), row, feedback)
+            elif operation == "refresh":
+                self.refresh(self.client(row["repository"]), row)
             elif operation == "discard":
                 if row["status"] in {"discarded", "closed"}:
                     return public(row)
@@ -817,7 +1005,8 @@ class SelfUpdates:
             try:
                 for row in due[:2]:
                     self.last_poll[row["id"]] = time.monotonic()
-                    if row["status"] == "updating" and self.app.version == row["merge_sha"]:
+                    if (row["status"] == "updating" and self.app.version == row["merge_sha"]
+                            and not row.get("merge_attempt_base")):
                         self.deploy(None, row)
                         continue
                     try:

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from contextlib import nullcontext
 from urllib.parse import parse_qs, urlsplit
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from hearth import approvals, self_update
 from hearth.checkpoints import LocalCheckpoints
@@ -25,11 +25,17 @@ REPO = self_update.DEFAULT_REPO
 
 class GitHubGateway:
     def __init__(self):
-        self.writes, self.brain, self.replies = [], [], []
+        self.reads, self.writes, self.brain, self.replies = [], [], [], []
         self.refs = {"main": BASE}
         self.blobs, self.trees, self.commits = {}, {}, {}
         self.pending, self.failed, self.strict = False, False, True
         self.force_pushes, self.missing_required, self.conflicts = False, False, False
+        self.draft, self.mergeable = False, True
+        self.rest_compare = True
+        self.graphql_head = None
+        self.jobs = {"test": "success", "browser-smoke": "success"}
+        self.check_source, self.check_head = "github-actions", None
+        self.move_on_merge = False
         self.pull, self.runs = None, []
         self.interrupt = None
         self.install(BASE, None, {DOC: "# Improve Hearth\n"})
@@ -58,14 +64,30 @@ class GitHubGateway:
         branch = self.pull["branch"]
         return {**self.pull, "head": {"ref": branch, "sha": self.refs[branch], "repo": {"full_name": REPO}},
                 "base": {"ref": "main", "sha": self.refs["main"], "repo": {"full_name": REPO}},
-                "mergeable": not self.conflicts, "mergeable_state": "dirty" if self.conflicts else "clean"}
+                "draft": self.draft, "mergeable": False if self.conflicts else self.mergeable,
+                "mergeable_state": "dirty" if self.conflicts else "clean"}
+
+    def ancestors(self, sha):
+        parents = {parent["sha"] for parent in self.commits[sha]["parents"]}
+        return {sha}.union(*(self.ancestors(parent) for parent in parents))
 
     def json(self, config, path, body=None, headers=None, *, method="GET", **options):
         assert config["connection_id"] == "gateway-fixture"
+        if path == "graphql":
+            assert method == "POST" and "behindBy baseTarget { oid } headTarget { oid }" in body["query"]
+            variables = body["variables"]
+            assert variables["owner"] + "/" + variables["repo"] == REPO
+            base = self.refs[variables["base"].removeprefix("refs/heads/")]
+            head = self.graphql_head or self.refs[variables["head"].removeprefix("refs/heads/")]
+            comparison = {"behindBy": len(self.ancestors(base) - self.ancestors(head)),
+                          "baseTarget": {"oid": base}, "headTarget": {"oid": head}}
+            return {"data": {"repository": {"ref": {"compare": comparison}}}}
         assert path == f"repos/{REPO}" or path.startswith(f"repos/{REPO}/")
         route = urlsplit(path.removeprefix(f"repos/{REPO}").lstrip("/"))
         name = route.path
-        if method != "GET":
+        if method == "GET":
+            self.reads.append(name)
+        else:
             self.writes.append((method, name, body))
         if not name:
             return {"default_branch": "main"}
@@ -82,7 +104,7 @@ class GitHubGateway:
         if name.startswith("git/refs/heads/"):
             branch = name.removeprefix("git/refs/heads/")
             assert branch.startswith("hearth/improve-") and not body["force"]
-            assert self.commits[body["sha"]]["parents"] == [{"sha": self.refs[branch]}]
+            assert self.refs[branch] in self.ancestors(body["sha"])
             self.refs[branch] = body["sha"]
             return {}
         if name == "git/blobs":
@@ -107,7 +129,7 @@ class GitHubGateway:
                               "size": len(self.blobs[sha])} for path, sha in tree.items()]}
         if name == "git/commits":
             sha = self.identity(body)
-            self.commits[sha] = {"tree": {"sha": body["tree"]}, "parents": [{"sha": body["parents"][0]}]}
+            self.commits[sha] = {"tree": {"sha": body["tree"]}, "parents": [{"sha": parent} for parent in body["parents"]]}
             return {"sha": sha}
         if name.startswith("git/commits/"):
             return self.commits[name.split("/")[-1]]
@@ -130,15 +152,27 @@ class GitHubGateway:
                 raise ConnectorError("Forbidden", 403)
             return {"required_status_checks": {"strict": True, "checks": [{"context": "test"}]},
                     "enforce_admins": {"enabled": True}, "allow_force_pushes": {"enabled": self.force_pushes}}
+        if name.startswith("compare/"):
+            if not self.rest_compare:
+                raise ConnectorError("Comparison path rejected", 400)
+            base, head = name.removeprefix("compare/").split("...")
+            return {"behind_by": len(self.ancestors(base) - self.ancestors(head))}
         if name.endswith("/check-runs"):
-            runs = [] if self.missing_required else [
-                {"name": "test", "status": "in_progress" if self.pending else "completed",
-                 "conclusion": "failure" if self.failed else "success", "app": {"id": 1}}]
+            sha = name.split("/")[1]
+            jobs = self.jobs
+            if self.strict and not self.force_pushes:
+                jobs = {} if self.missing_required else {
+                    "test": None if self.pending else "failure" if self.failed else "success"}
+            runs = [{"name": job, "status": "in_progress" if result is None else "completed",
+                     "conclusion": result, "app": {"id": 1, "slug": self.check_source},
+                     "head_sha": self.check_head or sha} for job, result in jobs.items()]
             return {"check_runs": runs, "total_count": len(runs)}
         if name.endswith("/status"):
             return {"statuses": []}
         if name == "pulls/66/merge":
             assert method == "PUT" and body == {"sha": self.refs[self.pull["branch"]], "merge_method": "squash"}
+            if self.move_on_merge:
+                self.refs["main"] = NEW_BASE
             self.commits[MERGE] = {"tree": self.commits[body["sha"]]["tree"], "parents": [{"sha": self.refs["main"]}]}
             self.refs["main"] = MERGE
             self.pull.update(state="closed", merged=True, merge_commit_sha=MERGE)
@@ -210,6 +244,7 @@ class SelfUpdateTest(unittest.TestCase):
         self.assertIn("+A new line.", proposal["diff"])
         self.assertIn("/pull/66", proposal["url"])
         self.assertEqual(self.poll(proposal)["checks"], "passed")
+        self.assertEqual(self.row(proposal)["guard"], "github")
         self.assert_no_merge()
         with self.assertRaisesRegex(HearthError, "latest diff"):
             self.act("approve", {**proposal, "head": NEW_BASE})
@@ -222,6 +257,7 @@ class SelfUpdateTest(unittest.TestCase):
         self.assert_no_merge()
         self.gateway.pending = False
         self.assertEqual(self.poll(proposal)["status"], "updating")
+        self.assertFalse(any(path.startswith("compare/") for path in self.gateway.reads))
         self.gateway.runs = [
             {"head_sha": MERGE, "head_branch": "other", "event": "push", "id": 99,
              "status": "completed", "conclusion": "failure"},
@@ -269,12 +305,10 @@ class SelfUpdateTest(unittest.TestCase):
         self.assertEqual(self.poll(proposal)["status"], "updating")
         self.assertEqual(sum(method == "PUT" for method, _, _ in self.gateway.writes), 1)
 
-    def test_stale_conflicts_failure_and_unverified_protection_block_merge(self):
+    def test_strict_protection_stale_conflicts_and_check_failure_block_merge(self):
         for field, value, state, detail in (
             ("conflicts", True, "stale", "conflicts"),
             ("failed", True, "review", "Tests failed"),
-            ("strict", False, "review", "enforce up-to-date"),
-            ("force_pushes", True, "review", "enforce up-to-date"),
             ("missing_required", True, "waiting", ""),
             ("base", NEW_BASE, "stale", "default branch moved"),
         ):
@@ -295,6 +329,156 @@ class SelfUpdateTest(unittest.TestCase):
                     self.gateway.refs["main"] = original
                 else:
                     setattr(self.gateway, field, original)
+
+    def test_own_guard_checks_the_approved_head_and_waits_for_job_completion(self):
+        for field, value in (("strict", False), ("force_pushes", True)):
+            with self.subTest(field=field), patch.object(self.gateway, field, value):
+                approvals.settings(self.storage, dict.fromkeys(approvals.CONNECTOR_CATEGORIES, "allow"))
+                proposal = self.propose()
+                with patch.object(self.gateway, "jobs", {"test": "success", "browser-smoke": None}):
+                    row = self.poll(proposal)
+                    self.assertEqual((row["status"], row["guard"], row["checks"], row["ready"]),
+                                     ("review", "hearth", "pending", False))
+                    self.act("approve", proposal)
+                    self.assertEqual(self.poll(proposal)["status"], "waiting")
+                    self.assert_no_merge()
+                self.assertEqual(self.poll(proposal)["status"], "updating")
+                self.assertIn(("PUT", "pulls/66/merge", {"sha": proposal["head"], "merge_method": "squash"}),
+                              self.gateway.writes)
+                self.assertIn(f"compare/{BASE}...{proposal['head']}", self.gateway.reads)
+                self.assertNotIn(f"commits/{proposal['head']}/status", self.gateway.reads)
+                self.assertEqual(self.gateway.reads[-2:], ["git/ref/heads/main", f"git/commits/{MERGE}"])
+                self.assertEqual(self.row(proposal)["merge_base"], BASE)
+                self.assertNotIn("merge_warning", self.row(proposal))
+                self.gateway.refs["main"] = BASE
+                self.gateway.writes.clear()
+
+    def test_own_guard_blocks_ineligible_pull_requests_and_unsuccessful_checks(self):
+        self.gateway.strict = False
+        for field, value, status, checks in (
+            ("jobs", {"test": "failure", "browser-smoke": "success"}, "review", "failed"),
+            ("jobs", {"test": "success", "browser-smoke": "cancelled"}, "review", "failed"),
+            ("jobs", {"test": "neutral", "browser-smoke": "success"}, "review", "failed"),
+            ("jobs", {"test": "success", "browser-smoke": "skipped"}, "review", "failed"),
+            ("jobs", {"test": "success"}, "waiting", "missing"),
+            ("check_source", "another-app", "waiting", "missing"),
+            ("check_head", NEW_BASE, "waiting", "missing"),
+            ("main", NEW_BASE, "behind", "checking"),
+            ("head", NEW_BASE, "stale", "checking"),
+            ("draft", True, "stale", "checking"),
+            ("mergeable", False, "stale", "checking"),
+            ("mergeable", None, "waiting", "pending"),
+            ("state", "closed", "closed", "checking"),
+        ):
+            with self.subTest(field=field, value=value):
+                proposal = self.propose()
+                self.act("approve", proposal)
+                branch = self.row(proposal)["branch"]
+                if field in {"main", "head"}:
+                    mutation = patch.dict(self.gateway.refs, {"main" if field == "main" else branch: value})
+                elif field == "state":
+                    mutation = patch.dict(self.gateway.pull, {"state": value})
+                else:
+                    mutation = patch.object(self.gateway, field, value)
+                with mutation:
+                    row = self.poll(proposal)
+                    self.assertEqual((row["status"], row["checks"]), (status, checks))
+                    self.assertFalse(row.get("ready"))
+                    self.assert_no_merge()
+                    if status in {"stale", "behind"}:
+                        self.assertIsNone(row["approved_head"])
+                self.act("discard", proposal)
+
+    def test_own_guard_uses_the_jobs_configured_in_github_settings(self):
+        self.gateway.strict = False
+        self.updates.configure(REPO, True, [" lint ", "lint"])
+        self.assertEqual(self.updates.settings()["required_checks"], ["lint"])
+        for invalid in ([], [""], ["one,two"]):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(HearthError, "job names"):
+                self.updates.configure(REPO, True, invalid)
+        proposal = self.propose()
+        self.assertEqual(self.poll(proposal)["checks"], "missing")
+        self.gateway.jobs["lint"] = "success"
+        row = self.poll(proposal)
+        self.assertTrue(row["ready"])
+        self.assert_no_merge()
+        self.act("approve", proposal)
+        self.assertEqual(self.poll(proposal)["status"], "updating")
+
+    def test_graphql_compare_requires_matching_shas_when_gateway_rejects_rest_compare(self):
+        self.gateway.strict = False
+        self.gateway.rest_compare = False
+        proposal = self.propose()
+        self.act("approve", proposal)
+        self.gateway.graphql_head = BASE
+        row = self.poll(proposal)
+        self.assertEqual(row["status"], "waiting")
+        self.assertIn("branches moved during the comparison", row["detail"])
+        self.assert_no_merge()
+        self.gateway.graphql_head = None
+        self.assertEqual(self.poll(proposal)["status"], "updating")
+
+    def test_refresh_replays_the_diff_and_requires_a_new_approval_and_checks(self):
+        self.gateway.strict = False
+        proposal = self.propose()
+        self.act("approve", proposal)
+        self.gateway.refs["main"] = NEW_BASE
+        self.assertEqual(self.poll(proposal)["status"], "behind")
+        refreshed = self.act("refresh", proposal)
+        row = self.row(proposal)
+        self.assertEqual(row["base"], NEW_BASE)
+        self.assertEqual(refreshed["number"], proposal["number"])
+        self.assertNotEqual(refreshed["head"], proposal["head"])
+        self.assertEqual(refreshed["diff"], proposal["diff"])
+        self.assertEqual((refreshed["status"], refreshed["checks"]), ("review", "checking"))
+        self.assertIsNone(row["approved_head"])
+        github = self.updates.client(REPO)
+        _, tree = github.tree(refreshed["head"])
+        self.assertEqual(github.file(tree, "README.md"), "Unrelated change\n")
+        with self.assertRaisesRegex(HearthError, "latest diff"):
+            self.act("approve", proposal)
+        with patch.object(self.gateway, "check_head", proposal["head"]):
+            self.assertEqual(self.poll(proposal)["checks"], "missing")
+        self.assertTrue(self.poll(proposal)["ready"])
+        self.assert_no_merge()
+        self.act("approve", refreshed)
+        self.assertEqual(self.poll(proposal)["status"], "updating")
+
+    def test_refresh_merges_disjoint_edits_and_blocks_overlapping_edits(self):
+        for current, outcome in [
+                ("Heading on main\n\nUnchanged\n\nOld tail\n",
+                 "Heading on main\n\nUnchanged\n\nNew tail\n"),
+                ("Old heading\n\nUnchanged\n\nMain tail\n", None)]:
+            with self.subTest(current=current):
+                original = "Old heading\n\nUnchanged\n\nOld tail\n"
+                proposed = "Old heading\n\nUnchanged\n\nNew tail\n"
+                if outcome is None:
+                    with self.assertRaisesRegex(HearthError, "overlaps changes"):
+                        self_update.refresh_content(DOC, original, proposed, current)
+                else:
+                    self.assertEqual(self_update.refresh_content(DOC, original, proposed, current), outcome)
+
+    def test_main_move_during_squash_is_reported_and_survives_deployment(self):
+        for interrupt in (None, "merge"):
+            with self.subTest(interrupt=interrupt):
+                self.gateway.strict = False
+                self.gateway.refs["main"] = BASE
+                self.gateway.move_on_merge = True
+                self.app.version = None
+                proposal = self.propose()
+                self.gateway.interrupt = interrupt
+                self.act("approve", proposal)
+                if interrupt:
+                    self.assertEqual(self.poll(proposal)["status"], "waiting")
+                row = self.poll(proposal)
+                self.assertEqual(row["status"], "updating")
+                self.assertEqual(row["merge_base"], NEW_BASE)
+                self.assertIn("Main moved during the merge", row["merge_warning"])
+                event = self.storage.load()["activity"][-1]
+                self.assertEqual((event["title"], event["data"]["merge_warning"]),
+                                 (row["merge_warning"], row["merge_warning"]))
+                self.app.version = MERGE
+                self.assertEqual(self.poll(proposal)["merge_warning"], row["merge_warning"])
 
     def test_deploy_failure_and_version_validation(self):
         proposal = self.propose()
@@ -360,7 +544,8 @@ class SelfUpdateTest(unittest.TestCase):
         self.assertFalse(self.gateway.writes)
 
     def test_settings_and_generic_writes(self):
-        self.assertEqual(self.updates.settings(), {"repository": REPO, "enabled": True})
+        self.assertEqual(self.updates.settings(), {"repository": REPO, "enabled": True,
+                                                  "required_checks": ["test", "browser-smoke"]})
         self.updates.configure("other/project", False)
         self.assertFalse(self.updates.settings()["enabled"])
         with self.assertRaisesRegex(HearthError, "Enable proposals"):

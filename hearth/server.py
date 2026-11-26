@@ -1308,7 +1308,7 @@ class Handler(BaseHTTPRequestHandler):
     def post_self_update(self, request):
         body = request.body
         if request.operation == "settings":
-            self.app.self_updates.configure(body["repository"], body["enabled"])
+            self.app.self_updates.configure(body["repository"], body["enabled"], body.get("required_checks"))
             return self.app.connection_info()
         try:
             return self.app.self_updates.act(request.operation, body["id"], body["thread_id"],
