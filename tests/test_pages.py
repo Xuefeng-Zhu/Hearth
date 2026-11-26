@@ -227,7 +227,7 @@ class PageHTTPTests(Running, unittest.TestCase):
         status, headers, approved = request(self.origin, shared)
         self.assertEqual(status, 200)
         self.assertEqual(headers["Content-Security-Policy"], page_policy.PUBLIC_CSP)
-        self.assertEqual(request(self.origin, shared, {"change": "x"})[0], 404)
+        self.assertEqual(request(self.origin, shared, {"change": "x"})[0], 405)
         self.chat("Make the header green.")
         self.assertEqual(approved, request(self.origin, shared)[2])
         self.json("/api/pages/revoke", {"id": identity})

@@ -327,7 +327,7 @@ class HearthTest(unittest.TestCase):
                     b'{"data":' + b"[" * 1500 + b"]" * 1500 + b"}"):
             with self.assertRaises(HTTPError) as error:
                 opener.open(Request(base + "/api/chat", data=raw, headers={"Content-Type": "application/json"}))
-            self.assertEqual(error.exception.code, 400)
+            self.assertEqual(error.exception.code, 413 if len(raw) > 24_000 else 400)
         self.assertFalse(get("/api/state")["messages"])
         with opener.open(base + "/api/state", timeout=5) as response:
             original_tag = response.headers["ETag"]
