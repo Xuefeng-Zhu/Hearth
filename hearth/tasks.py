@@ -106,9 +106,9 @@ def clean_fields(fields, now, *, before=None):
                 at = local
             if at <= now:
                 raise ValueError
-        except (ValueError, TypeError):
+            clean["at"] = iso(at.astimezone(timezone.utc))
+        except (ValueError, TypeError, OverflowError):
             raise HearthError("Choose a future date and time that exists in your time zone.") from None
-        clean["at"] = iso(at.astimezone(timezone.utc))
     elif kind == "interval":
         minutes = schedule.get("minutes")
         if type(minutes) is not int or not 1 <= minutes <= 525600:

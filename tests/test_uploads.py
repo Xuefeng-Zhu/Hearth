@@ -14,6 +14,7 @@ from reportlab.pdfgen import canvas
 from hearth import office, uploads
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import ConnectorError, read_config
+from hearth.http_requests import RequestError, receive_multipart
 from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage
 
@@ -84,8 +85,9 @@ class UploadsTest(unittest.TestCase):
         self.assertEqual(bad.exception.code, 413)
         bad.exception.close()
         body, content_type = multipart("interrupted.txt", b"hello")
-        with self.assertRaises(uploads.UploadError):
-            uploads.receive(io.BytesIO(body[:-9]), len(body) - 9, content_type, io.BytesIO())
+        with self.assertRaises(RequestError):
+            receive_multipart(io.BytesIO(body[:-9]), len(body) - 9, content_type, io.BytesIO(),
+                              max_bytes=uploads.MAX_BYTES)
         self.assertEqual(len(list(self.app.uploads.directory("main").iterdir())), 1)
         self.assertEqual(len(self.data("/api/timeline")["entries"]), 1)
 

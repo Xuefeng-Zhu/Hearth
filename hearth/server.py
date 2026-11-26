@@ -18,10 +18,12 @@ from urllib.parse import parse_qs, quote, urlsplit
 from . import approvals, artifacts, box, browserbase, event_automations, feed, home, inbox, memory, memory_edits, memory_purge, memory_review, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
 from . import file_questions, goals, ideas
 from .agent import Agent, require_text
-from .checkpoints import LocalCheckpoints, SpriteCheckpoints
+from .checkpoints import LocalCheckpoints, RestoreInProgress, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
 from .connectors import Gateway, read_config
 from .gateway_tools import redact_text, scrub
+from .http_requests import Request, RequestError, body_length, read_json, receive_multipart
+from .http_routes import route_for
 from .memory_sync import MemorySync
 from .reminder_config import equal, saved
 from .storage import HearthError, ROOT, Storage, iso, new_id, revision
@@ -30,6 +32,17 @@ from .threads import MAIN, Threads, compact
 
 class ChatStopped(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class HTTPResult:
+    data: dict
+    status: int
+
+
+@dataclass(frozen=True)
+class ChatStream:
+    events: SimpleQueue
 
 
 class PollCache:
@@ -701,17 +714,16 @@ class Application:
             if not pending:
                 return
 
-    def update_thread(self, operation, body):
-        if operation == "create" and not body:
+    def update_thread(self, operation, thread_id, *, title=None, message_id=None):
+        if operation == "create":
             with self.storage.lock():
                 return self.threads.create()
-        thread_id = body.get("thread_id")
         if operation == "delete":
             with self.turn_lock:
                 if isinstance(thread_id, str) and thread_id in self.turns:
                     raise HearthError("Wait for this chat to finish before deleting it.")
         with self.storage.lock():
-            if operation == "reset" and body.keys() == {"thread_id"}:
+            if operation == "reset":
                 thread = self.threads.describe(thread_id)
                 checkpoint = self.checkpoints.create("Before resetting a Hearth chat summary")
                 self.threads.reset_summary(thread_id)
@@ -719,26 +731,23 @@ class Application:
                                                thread_id=thread_id, thread_title=thread["title"])
                 return {"summary": "", "action": action}
             self.threads.require_side(thread_id)
-            if operation == "rename" and body.keys() == {"thread_id", "title"}:
-                title = " ".join(redact_text(require_text(body["title"], 80)).split())
+            if operation == "rename":
+                title = " ".join(redact_text(title).split())
                 thread = self.threads.rename(thread_id, title)
                 if self.agent.memory["include_chat"]:
                     self.memory_sync.request()
                 return thread
-            if operation == "delete" and body.keys() == {"thread_id"}:
+            if operation == "delete":
                 thread = self.threads.describe(thread_id)
-                try:
-                    checkpoint = self.checkpoints.create("Before deleting a Hearth side chat")
-                    self.threads.delete(thread_id)
-                    if self.agent.memory["include_chat"]:
-                        self.memory_sync.request()
-                except OSError:
-                    raise HearthError("Hearth could not checkpoint and delete this chat.") from None
+                checkpoint = self.checkpoints.create("Before deleting a Hearth side chat")
+                self.threads.delete(thread_id)
+                if self.agent.memory["include_chat"]:
+                    self.memory_sync.request()
                 return self.agent.add_action("thread", "Side chat deleted", status="complete", checkpoint=checkpoint,
                                              thread_id=thread_id, thread_title=thread["title"])
-            if operation == "share" and body.keys() == {"thread_id", "message_id"}:
+            if operation == "share":
                 messages = self.threads.messages(thread_id)
-                message = next((item for item in messages if item["id"] == body["message_id"]), None)
+                message = next((item for item in messages if item["id"] == message_id), None)
                 if not message:
                     raise HearthError("That message no longer exists.")
                 thread = self.threads.describe(thread_id)
@@ -765,27 +774,26 @@ class Application:
             action = state["actions"].get(action_id)
             event_run = action_id in state.get("event_runs", {})
         if event_run:
-            return event_automations.undo_run(self, action_id), 200
+            return event_automations.undo_run(self, action_id)
         if action and action.get("undo_automation"):
-            return event_automations.undo_delete(self, action_id), 200
+            return event_automations.undo_delete(self, action_id)
         if action and action.get("undo_task"):
-            return tasks.undo_delete(self.storage, action_id), 200
+            return tasks.undo_delete(self.storage, action_id)
         if action and action["kind"] == "goal":
-            return goals.undo(self.storage, action_id), 200
+            return goals.undo(self.storage, action_id)
         if action and action["kind"] == "page":
-            return self.pages.undo(action_id), 200
+            return self.pages.undo(action_id)
         if action and action["kind"] == "skill":
-            return self.agent.skills.undo(action_id), 200
+            return self.agent.skills.undo(action_id)
         if action and action["kind"] == "reminder":
-            return self.reminders.cancel(action["job"]["id"]), 200
+            return self.reminders.cancel(action["job"]["id"])
         if action and action.get("memory_change"):
-            return self.replay_memory(action_id), 200
-        self.start_restore(action_id)
-        return self.restore, 202
+            return self.replay_memory(action_id)
+        return self.start_restore(action_id)
 
     def start_restore(self, action_id):
         if self.restoring():
-            raise HearthError("A checkpoint is being restored.")
+            raise RestoreInProgress("A checkpoint is being restored.")
         if self.workers.busy():
             raise HearthError("Wait for worker tools to finish before restoring a checkpoint.")
         if self.reindex_running() or self.memory_sync.running:
@@ -805,7 +813,7 @@ class Application:
             if not stack.enter_context(scheduler.workspace_lock(self.storage, "scheduler-restore", timeout=0.25)):
                 raise HearthError("The scheduler is busy. Try restoring again.")
             barrier = stack.pop_all()
-        self.restore = {"action_id": action_id, "status": "restoring"}
+        self.restore = restore = {"action_id": action_id, "status": "restoring"}
         try:
             self.artifacts.reset()
             threading.Thread(target=self.restore_checkpoint, args=(action, barrier), daemon=True).start()
@@ -813,6 +821,7 @@ class Application:
             barrier.close()
             self.restore = {"action_id": action_id, "status": "failed"}
             raise
+        return restore
 
     def restore_checkpoint(self, action, barrier):
         with barrier:
@@ -873,7 +882,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def response_headers(self, status, content_type, length=None, *, email_preview=False, etag=None,
-                         disposition=None, inline_pdf=False, page_csp=None):
+                         disposition=None, inline_pdf=False, page_csp=None, headers=None):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         if length is not None:
@@ -894,617 +903,503 @@ class Handler(BaseHTTPRequestHandler):
                          + ("; style-src 'unsafe-inline'; script-src 'none'" if email_preview else "")))
         if content_type == "text/event-stream":
             self.send_header("X-Accel-Buffering", "no")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
 
-    def json(self, data, status=200, *, etag=None):
+    def json(self, data, status=200, *, etag=None, headers=None):
         content_type = "application/json; charset=utf-8"
         candidates = self.headers.get("If-None-Match", "").split(",")
         if etag is not None and any(tag.strip().removeprefix("W/") in (etag, "*") for tag in candidates):
             self.response_headers(304, content_type, etag=etag)
             return
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.response_headers(status, content_type, len(body), etag=etag)
+        self.response_headers(status, content_type, len(body), etag=etag, headers=headers)
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def get_static(self, request):
+        filename, content_type = STATIC[request.path]
+        body = (ROOT / "web" / filename).read_bytes()
+        self.response_headers(200, content_type, len(body))
         self.wfile.write(body)
 
-    def do_GET(self):
-        url = urlsplit(self.path)
-        try:
-            if static := STATIC.get(url.path):
-                filename, content_type = static
-                body = (ROOT / "web" / filename).read_bytes()
-                self.response_headers(200, content_type, len(body))
-                self.wfile.write(body)
-            elif url.path == "/health":
-                self.json({"ok": True, "checkpoints": self.app.checkpoints.mode})
-            elif url.path == "/api/state":
-                query = parse_qs(url.query)
-                thread_id = query.get("thread", [MAIN])[0]
-                data, etag = self.app.state_poll(thread_id, query.get("action", [None])[0])
-                self.json(data, etag=etag)
-            elif url.path == "/api/transcript":
-                query = parse_qs(url.query)
-                self.json(self.app.transcript_page(query.get("thread", [MAIN])[0], query.get("before", [None])[0]))
-            elif url.path == "/api/threads":
-                offset = parse_qs(url.query).get("offset", ["0"])[0]
-                if not offset.isascii() or not offset.isdigit() or len(offset) > 9:
-                    raise HearthError("Choose a valid thread list offset.")
-                self.json(self.app.thread_page(int(offset)))
-            elif url.path == "/api/threads/summary":
-                thread_id = parse_qs(url.query).get("thread", [MAIN])[0]
-                with self.app.storage.lock():
-                    summary = self.app.threads.summary(thread_id)
-                self.json({"summary": summary})
-            elif url.path == "/api/home":
-                data, etag = self.app.home_poll()
-                self.json(data, etag=etag)
-            elif url.path == "/api/goals/links":
-                self.json({"items": goals.link_options(self.app.storage.load())})
-            elif url.path == "/api/feed":
-                query = parse_qs(url.query)
-                try:
-                    limit = int(query.get("limit", ["4"])[0])
-                except ValueError:
-                    raise HearthError("Choose a valid Feed page size.") from None
-                self.json(self.app.feed.list(cursor=query.get("cursor", [""])[0], limit=limit,
-                                             saved=query.get("saved", ["0"])[0] == "1"))
-            elif url.path == "/api/feed/settings":
-                self.json(self.app.feed.get_settings())
-            elif url.path == "/api/proactivity/settings":
-                self.json(self.app.proactivity.get_settings())
-            elif url.path == "/api/proactivity/pass":
-                if not equal(self.headers.get("X-Hearth-Tick-Token"), self.app.reminders.tick_token):
-                    self.json({"error": "Scheduler token required."}, 401)
-                else:
-                    self.json(self.app.proactivity.last())
-            elif url.path == "/api/home/settings":
-                self.json(self.app.home.settings())
-            elif url.path == "/api/connections":
-                self.json(self.app.connection_info())
-            elif url.path == "/api/voice/call/status":
-                self.json(self.app.call_status())
-            elif url.path == "/api/brain":
-                self.json(self.app.brain_info())
-            elif url.path == "/api/brain/models":
-                provider = parse_qs(url.query).get("provider", [None])[0]
-                self.json(self.app.connections.brain_models(provider))
-            elif url.path == "/api/checkpoints":
-                self.json({"checkpoints": self.app.timeline()})
-            elif url.path == "/api/timeline":
-                self.json(self.app.timeline_info())
-            elif url.path == "/api/timeline/events":
-                origin = self.headers.get("Origin")
-                if self.headers.get("Sec-Fetch-Site") not in (None, "none", "same-origin") or (
-                    origin and not self.same_origin(origin)
-                ):
-                    raise HearthError("Open Timeline from Hearth.")
-                with self.app.activity.subscribe() as events:
-                    self.stream_events(events)
-            elif url.path == "/api/skills":
-                self.json({"skills": self.app.agent.skills.list()})
-            elif url.path == "/api/skills/detail":
-                params = parse_qs(url.query)
-                self.json(self.app.agent.skills.detail(params.get("id", [None])[0], params.get("version", [None])[0]))
-            elif url.path == "/api/memory/settings":
-                self.json(self.app.memory_info())
-            elif url.path == "/api/memory/review":
-                self.json(self.app.memory_review.get())
-            elif url.path == "/api/search/settings":
-                self.json(self.app.search_info())
-            elif url.path.startswith("/api/browse/screenshots/"):
-                name = url.path.removeprefix("/api/browse/screenshots/")
-                try:
-                    domain = parse_qs(url.query).get("domain", ["fly.io"])[0][:253]
-                    body = (browserbase.demo_image(domain) if name == "demo.png"
-                            else browserbase.screenshot_path(self.app.storage, name).read_bytes())
-                except (FileNotFoundError, HearthError):
-                    self.json({"error": "Browser screenshot not found."}, 404)
-                else:
-                    self.response_headers(200, "image/png", len(body))
-                    self.wfile.write(body)
-            elif url.path == "/api/approvals":
-                self.json({"approvals": approvals.records(self.app.storage)})
-            elif url.path == "/api/approvals/settings":
-                self.json(approvals.policy(self.app.storage.load()))
-            elif url.path == "/api/event-automations":
-                with self.app.storage.lock():
-                    state = self.app.storage.load()
-                    result = {"automations": event_automations.describe(state),
-                              "threads": self.app.threads.list(),
-                              "reminders": [{"id": row["id"], "message": row["message"]} for row in state["jobs"]
-                                            if row["status"] == "scheduled"],
-                              "timezone": saved(state)["timezone"], "feed_kinds": event_automations.FEED_KINDS}
-                self.json(result)
-            elif url.path == "/api/tasks":
-                self.json(tasks.mutate(self.app.storage, "list", {}))
-            elif url.path == "/api/reminders/settings":
-                self.json(self.app.reminders.info())
-            elif url.path == "/api/reminders":
-                self.json(self.app.reminders.list())
-            elif url.path == "/api/inbox":
-                self.json(self.app.inbox.list())
-            elif url.path == "/api/reminders/outbox":
-                identity = parse_qs(url.query).get("id", [""])[0]
-                email = self.app.reminders.outbox(identity)
-                body = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
-                        '<meta name="viewport" content="width=device-width,initial-scale=1">'
-                        '<title>Hearth reminder email</title></head><body style="margin:0">'
-                        + email["html"] + "</body></html>").encode("utf-8")
-                self.response_headers(200, "text/html; charset=utf-8", len(body), email_preview=True)
-                self.wfile.write(body)
-            elif url.path == "/api/pages":
-                with self.app.storage.lock():
-                    zone = saved(self.app.storage.load())["timezone"]
-                self.json({"pages": self.app.pages.listing(), "timezone": zone})
-            elif url.path == "/api/pages/detail":
-                self.json(self.app.pages.detail(parse_qs(url.query).get("id", [None])[0]))
-            elif url.path.startswith(("/pages/", "/p/")):
-                self.get_page(url)
-            elif url.path == "/api/artifacts":
-                force = parse_qs(url.query).get("refresh") == ["1"]
-                self.json(self.artifact_times(self.app.artifacts.list(force=force)))
-            elif url.path in {"/api/uploads/detail", "/api/uploads/file"}:
-                self.get_upload(url)
-            elif url.path == "/api/artifacts/settings":
-                self.json(self.app.artifacts.info())
-            elif url.path == "/api/artifacts/detail":
-                identity = parse_qs(url.query).get("id", [None])[0]
-                self.json(self.artifact_times(self.app.artifacts.detail(identity)))
-            elif url.path == "/api/artifacts/file":
-                params = parse_qs(url.query)
-                identity = params.get("id", [None])[0]
-                inline = params.get("inline") == ["1"]
-                with self.app.artifacts.download(identity, inline=inline) as (item, stream):
-                    page = item["kind"] == "page"
-                    content_type = "text/html; charset=utf-8" if page else box.FORMATS.get(
-                        item["format"], "application/octet-stream")
-                    mode = "inline" if inline else "attachment"
-                    filename = quote(item["filename"], safe="")
-                    size = stream.seek(0, 2)
-                    stream.seek(0)
-                    self.response_headers(200, content_type, size, inline_pdf=inline,
-                                          disposition=f"{mode}; filename*=UTF-8''{filename}",
-                                          page_csp=page_policy.CSP if page else None)
-                    shutil.copyfileobj(stream, self.wfile, box.TRANSFER_CHUNK)
-            elif url.path == "/api/memory/reindex":
-                self.json(self.app.memory_sync_info())
-            elif url.path == "/api/memory/chat":
-                params = parse_qs(url.query)
-                thread = params.get("thread", [None])[0]
-                message = params.get("message", [None])[0]
-                self.json(self.app.chat_memory(thread, message))
-            elif url.path == "/api/memory":
-                params = parse_qs(url.query)
-                path, identity = (params.get(key, [None])[0] for key in ("path", "id"))
-                storage = self.app.storage
-                with storage.lock():
-                    if path or identity:
-                        path = memory.resolve(storage, path=path, id=identity)
-                        raw = storage.read(path)
-                        content = redact_text(raw)
-                        meta, note, header = memory.parse(path, content)
-                        data = {"path": path, "content": content, "body": note, "header_lines": header,
-                                "meta": meta, "revision": memory.revision(raw)}
-                    else:
-                        rows = memory.catalog(storage)
-                        data = {"files": [row["path"] for row in rows], "index": rows,
-                                **memory.profile_record(storage),
-                                "forget_rules": len(memory.standing_rules(storage))}
-                self.json(data)
-            else:
-                self.json({"error": "Page not found."}, 404)
-        except HearthError as error:
-            self.json({"error": str(error)}, error.status if isinstance(error, pages.PageError) else 400)
-        except OSError:
-            self.json({"error": "Hearth could not read workspace data."}, 500)
+    def get_health(self, request):
+        self.json({"ok": True, "checkpoints": self.app.checkpoints.mode})
 
-    def body(self, limit=24_000):
-        if self.headers.get_content_type() != "application/json":
-            raise HearthError("Expected a JSON request.")
+    def get_state(self, request):
+        query = request.query
+        thread_id = query.get("thread", [MAIN])[0]
+        data, etag = self.app.state_poll(thread_id, query.get("action", [None])[0])
+        self.json(data, etag=etag)
+
+    def get_transcript(self, request):
+        query = request.query
+        self.json(self.app.transcript_page(query.get("thread", [MAIN])[0], query.get("before", [None])[0]))
+
+    def get_threads(self, request):
+        offset = request.query.get("offset", ["0"])[0]
+        if not offset.isascii() or not offset.isdigit() or len(offset) > 9:
+            raise HearthError("Choose a valid thread list offset.")
+        self.json(self.app.thread_page(int(offset)))
+
+    def get_threads_summary(self, request):
+        thread_id = request.query.get("thread", [MAIN])[0]
+        with self.app.storage.lock():
+            summary = self.app.threads.summary(thread_id)
+        self.json({"summary": summary})
+
+    def get_home(self, request):
+        data, etag = self.app.home_poll()
+        self.json(data, etag=etag)
+
+    def get_goals_links(self, request):
+        self.json({"items": goals.link_options(self.app.storage.load())})
+
+    def get_feed(self, request):
+        query = request.query
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= limit:
-                raise ValueError
-            self.connection.settimeout(15)
-            raw = self.rfile.read(length)
-            if len(raw) != length:
-                raise ValueError
-            body = json.loads(raw)
-            # JSON escapes can represent lone surrogates, which Hearth cannot store as UTF-8.
-            json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            limit = int(query.get("limit", ["4"])[0])
+        except ValueError:
+            raise HearthError("Choose a valid Feed page size.") from None
+        self.json(self.app.feed.list(cursor=query.get("cursor", [""])[0], limit=limit,
+                                     saved=query.get("saved", ["0"])[0] == "1"))
+
+    def get_feed_settings(self, request):
+        self.json(self.app.feed.get_settings())
+
+    def get_proactivity_settings(self, request):
+        self.json(self.app.proactivity.get_settings())
+
+    def get_proactivity_pass(self, request):
+        self.json(self.app.proactivity.last())
+
+    def get_home_settings(self, request):
+        self.json(self.app.home.settings())
+
+    def get_connections(self, request):
+        self.json(self.app.connection_info())
+
+    def get_voice_call_status(self, request):
+        self.json(self.app.call_status())
+
+    def get_brain(self, request):
+        self.json(self.app.brain_info())
+
+    def get_brain_models(self, request):
+        provider = request.query.get("provider", [None])[0]
+        self.json(self.app.connections.brain_models(provider))
+
+    def get_checkpoints(self, request):
+        self.json({"checkpoints": self.app.timeline()})
+
+    def get_timeline(self, request):
+        self.json(self.app.timeline_info())
+
+    def get_timeline_events(self, request):
+        with self.app.activity.subscribe() as events:
+            self.stream_events(events)
+
+    def get_skills(self, request):
+        self.json({"skills": self.app.agent.skills.list()})
+
+    def get_skills_detail(self, request):
+        params = request.query
+        self.json(self.app.agent.skills.detail(params.get("id", [None])[0], params.get("version", [None])[0]))
+
+    def get_memory_settings(self, request):
+        self.json(self.app.memory_info())
+
+    def get_memory_review(self, request):
+        self.json(self.app.memory_review.get())
+
+    def get_search_settings(self, request):
+        self.json(self.app.search_info())
+
+    def get_screenshot(self, request):
+        name = request.params["name"]
+        try:
+            domain = request.query.get("domain", ["fly.io"])[0][:253]
+            body = (browserbase.demo_image(domain) if name == "demo.png"
+                    else browserbase.screenshot_path(self.app.storage, name).read_bytes())
+        except (FileNotFoundError, HearthError):
+            self.json({"error": "Browser screenshot not found."}, 404)
+        else:
+            self.response_headers(200, "image/png", len(body))
+            self.wfile.write(body)
+
+    def get_approvals(self, request):
+        self.json({"approvals": approvals.records(self.app.storage)})
+
+    def get_approvals_settings(self, request):
+        self.json(approvals.policy(self.app.storage.load()))
+
+    def get_event_automations(self, request):
+        with self.app.storage.lock():
+            state = self.app.storage.load()
+            result = {"automations": event_automations.describe(state),
+                      "threads": self.app.threads.list(),
+                      "reminders": [{"id": row["id"], "message": row["message"]} for row in state["jobs"]
+                                    if row["status"] == "scheduled"],
+                      "timezone": saved(state)["timezone"], "feed_kinds": event_automations.FEED_KINDS}
+        self.json(result)
+
+    def get_tasks(self, request):
+        self.json(tasks.mutate(self.app.storage, "list", {}))
+
+    def get_reminders_settings(self, request):
+        self.json(self.app.reminders.info())
+
+    def get_reminders(self, request):
+        self.json(self.app.reminders.list())
+
+    def get_inbox(self, request):
+        self.json(self.app.inbox.list())
+
+    def get_reminders_outbox(self, request):
+        identity = request.query.get("id", [""])[0]
+        email = self.app.reminders.outbox(identity)
+        body = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
+                '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<title>Hearth reminder email</title></head><body style="margin:0">'
+                + email["html"] + "</body></html>").encode("utf-8")
+        self.response_headers(200, "text/html; charset=utf-8", len(body), email_preview=True)
+        self.wfile.write(body)
+
+    def get_pages(self, request):
+        with self.app.storage.lock():
+            zone = saved(self.app.storage.load())["timezone"]
+        self.json({"pages": self.app.pages.listing(), "timezone": zone})
+
+    def get_pages_detail(self, request):
+        self.json(self.app.pages.detail(request.query.get("id", [None])[0]))
+
+    def get_artifacts(self, request):
+        force = request.query.get("refresh") == ["1"]
+        self.json(self.artifact_times(self.app.artifacts.list(force=force)))
+
+    def get_artifacts_settings(self, request):
+        self.json(self.app.artifacts.info())
+
+    def get_artifacts_detail(self, request):
+        identity = request.query.get("id", [None])[0]
+        self.json(self.artifact_times(self.app.artifacts.detail(identity)))
+
+    def get_artifacts_file(self, request):
+        params = request.query
+        identity = params.get("id", [None])[0]
+        inline = params.get("inline") == ["1"]
+        with self.app.artifacts.download(identity, inline=inline) as (item, stream):
+            page = item["kind"] == "page"
+            content_type = "text/html; charset=utf-8" if page else box.FORMATS.get(
+                item["format"], "application/octet-stream")
+            mode = "inline" if inline else "attachment"
+            filename = quote(item["filename"], safe="")
+            size = stream.seek(0, 2)
+            stream.seek(0)
+            self.response_headers(200, content_type, size, inline_pdf=inline,
+                                  disposition=f"{mode}; filename*=UTF-8''{filename}",
+                                  page_csp=page_policy.CSP if page else None)
+            shutil.copyfileobj(stream, self.wfile, box.TRANSFER_CHUNK)
+
+    def get_memory_reindex(self, request):
+        self.json(self.app.memory_sync_info())
+
+    def get_memory_chat(self, request):
+        params = request.query
+        thread = params.get("thread", [None])[0]
+        message = params.get("message", [None])[0]
+        self.json(self.app.chat_memory(thread, message))
+
+    def get_memory(self, request):
+        params = request.query
+        path, identity = (params.get(key, [None])[0] for key in ("path", "id"))
+        storage = self.app.storage
+        with storage.lock():
+            if path or identity:
+                path = memory.resolve(storage, path=path, id=identity)
+                raw = storage.read(path)
+                content = redact_text(raw)
+                meta, note, header = memory.parse(path, content)
+                data = {"path": path, "content": content, "body": note, "header_lines": header,
+                        "meta": meta, "revision": memory.revision(raw)}
+            else:
+                rows = memory.catalog(storage)
+                data = {"files": [row["path"] for row in rows], "index": rows,
+                        **memory.profile_record(storage),
+                        "forget_rules": len(memory.standing_rules(storage))}
+        self.json(data)
+
+    def dispatch(self):
+        # BaseHTTPRequestHandler normalizes leading slashes. Match the original target instead.
+        target = self.requestline.split()[1]
+        path, _, query = target.partition("?")
+        methods, params = route_for(path, STATIC) if "#" not in target else ({}, {})
+        if not methods:
+            self.json({"error": "Page not found."}, 404)
+            return
+        route = methods.get(self.command)
+        if route is None:
+            self.json({"error": "Method not allowed."}, 405, headers={"Allow": ", ".join(methods)})
+            return
+        try:
+            if route.origin:
+                self.require_origin()
+            if route.tick_token and not equal(self.headers.get("X-Hearth-Tick-Token"), self.app.reminders.tick_token):
+                raise RequestError("Scheduler token required.", 401)
+            if not route.during_restore:
+                self.require_ready()
+            body = self.read_body(route) if self.command == "POST" else None
+            request = Request(path, parse_qs(query), params, body, route.operation)
+            result = self.handle_route(route, request)
+            if isinstance(result, ChatStream):
+                self.stream_chat(result.events)
+            elif isinstance(result, HTTPResult):
+                self.json(result.data, result.status)
+            elif result is not None:
+                self.json(result)
+        except RestoreInProgress:
+            self.json({"error": "A checkpoint is being restored."}, 503, headers={"Retry-After": "2"})
+        except RequestError as error:
+            self.json({"error": str(error)}, error.status, headers=error.headers)
+        except (pages.PageError, uploads.UploadError, voice.VoiceError) as error:
+            self.json({"error": str(error)}, error.status)
+        except workers.WorkerStorageError:
+            self.json({"error": "Hearth could not stop the worker."}, 500)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except (OSError, TypeError, ValueError, KeyError, OverflowError):
+            message = route.storage_error or ("Hearth could not read workspace data." if self.command == "GET"
+                                              else "Hearth could not update workspace data.")
+            self.json({"error": message}, 500)
+
+    do_GET = do_POST = dispatch
+
+    def send_error(self, code, message=None, explain=None):
+        if code == 501:
+            # The base server uses 501 for methods without a do_* method.
+            self.dispatch()
+        else:
+            super().send_error(code, message, explain)
+
+    def require_origin(self):
+        origin = self.headers.get("Origin")
+        if self.headers.get("Sec-Fetch-Site") not in (None, "none", "same-origin") or (
+            origin is not None and not self.same_origin(origin)
+        ):
+            message = "Open Timeline from Hearth." if self.command == "GET" else "Send this request from Hearth."
+            raise RequestError(message, 403)
+
+    def require_ready(self):
+        if self.app.restoring():
+            raise RestoreInProgress
+
+    def handle_route(self, route, request):
+        handler = getattr(self, route.handler)
+        timeout = route.lock_timeout
+        if timeout is None:
+            if not route.during_restore:
+                self.require_ready()
+            return handler(request)
+        if not self.app.operation.acquire(timeout=timeout):
+            self.require_ready()
+            raise RequestError("Hearth is working on another action.", 409)
+        try:
+            self.require_ready()
+            return handler(request)
+        finally:
+            self.app.operation.release()
+
+    def read_body(self, route):
+        mime = self.headers.get_content_type()
+        if route.media == "json" and mime != "application/json":
+            raise RequestError("Expected a JSON request.")
+        if route.media == "audio" and mime not in voice.AUDIO_TYPES:
+            raise RequestError("Use a WebM, Ogg, MP4, or WAV audio recording.", 415)
+        if route.media == "multipart" and mime != "multipart/form-data":
+            raise RequestError("Expected a multipart file upload.", 415)
+        length = body_length(self.headers, route.limit)
+        if route.media == "none":
+            return None
+        if not length:
+            message = {"json": "Expected a JSON request.", "audio": "No audio recording was received.",
+                       "multipart": "No attachment was received."}
+            raise RequestError(message[route.media])
+        self.connection.settimeout(30 if route.media == "multipart" else 15)
+        if route.media != "json":
+            return length
+        try:
+            body = read_json(self.rfile, length)
         except TimeoutError:
-            raise HearthError("The request timed out.") from None
-        except (ValueError, RecursionError):
-            raise HearthError("Invalid or oversized request.") from None
-        if not isinstance(body, dict):
-            raise HearthError("Expected a JSON object.")
+            raise RequestError("The request timed out.", 408) from None
+        if not route.shape(body):
+            raise RequestError("Invalid request fields.")
         return body
 
     def artifact_times(self, result):
         with self.app.storage.lock():
             return {**result, "timezone": saved(self.app.storage.load())["timezone"]}
 
-    def do_POST(self):
-        origin = self.headers.get("Origin")
-        if self.headers.get("Sec-Fetch-Site") not in (None, "none", "same-origin") or (
-            origin is not None and not self.same_origin(origin)
-        ):
-            self.json({"error": "Send this request from Hearth."}, 403)
-            return
-        if self.path == "/api/scheduler/tick":
-            if not equal(self.headers.get("X-Hearth-Tick-Token"), self.app.reminders.tick_token):
-                self.json({"error": "Scheduler token required."}, 401)
-            elif self.app.restore and self.app.restore["status"] == "restoring":
-                self.json({"error": "A checkpoint is being restored."}, 409)
-            else:
-                try:
-                    self.json(self.app.scheduler_tick())
-                except (HearthError, OSError):
-                    self.json({"error": "Hearth could not run the scheduler tick."}, 500)
-            return
-        if self.path.startswith(("/api/approvals/", "/api/tasks/", "/api/event-automations/")):
-            self.post_automation()
-            return
-        if self.path == "/api/workers/stop":
-            try:
-                body = self.body()
-                if body.keys() - {"turn_id", "id"}:
-                    raise HearthError("Choose a worker or a batch to stop.")
-                turn_id = require_text(body.get("turn_id"), 40)
-                identity = require_text(body["id"], 40) if "id" in body else None
-                self.json(self.app.workers.stop(turn_id, identity))
-            except HearthError as error:
-                self.json({"error": str(error)}, 400)
-            except OSError:
-                self.json({"error": "Hearth could not stop the worker."}, 500)
-            return
-        if self.path == "/api/chat/stop":
-            try:
-                body = self.body()
-                thread = require_text(body.get("thread_id"), 40)
-                reply = require_text(body.get("reply_id"), 40)
-                self.json(self.app.stop_reply(thread, reply))
-            except HearthError as error:
-                self.json({"error": str(error)}, 400)
-            return
-        if self.path.startswith("/api/goals/"):
-            self.post_goal()
-            return
-        if self.path.startswith("/api/feed/"):
-            self.post_feed()
-            return
-        if self.path.startswith("/api/memory/review/"):
-            self.post_memory_review()
-            return
-        if self.path.startswith("/api/proactivity/"):
-            self.post_proactivity()
-            return
-        if self.path.startswith("/api/home/"):
-            self.post_home()
-            return
-        if self.path.startswith(("/api/reminders/", "/api/inbox/")):
-            self.post_reminders()
-            return
-        if self.path.startswith("/api/pages/"):
-            self.post_pages()
-            return
-        if self.path.startswith("/api/artifacts/"):
-            self.post_artifact()
-            return
-        if urlsplit(self.path).path in {"/api/uploads", "/api/uploads/box"}:
-            self.post_upload(urlsplit(self.path))
-            return
-        if self.path.startswith("/api/voice/call/"):
-            self.post_call()
-            return
-        if urlsplit(self.path).path in {"/api/voice/transcribe", "/api/voice/redact"}:
-            self.post_voice()
-            return
-        routes = {"/api/chat", "/api/approve", "/api/undo", "/api/redo",
-                  "/api/connections/rescan", "/api/connections/test", "/api/connections/settings",
-                  "/api/brain/test", "/api/brain/settings", "/api/brain/route", "/api/threads/create", "/api/threads/rename",
-                  "/api/threads/delete", "/api/threads/share", "/api/threads/summary/reset",
-                  "/api/memory/settings", "/api/memory/test",
-                  "/api/memory/search", "/api/memory/reindex", "/api/memory/sync", "/api/memory/forget",
-                  "/api/memory/write", "/api/memory/move", "/api/memory/profile",
-                  "/api/search/settings", "/api/search/test", "/api/browse/settings", "/api/browse/approve",
-                  "/api/skills/create", "/api/skills/save", "/api/skills/delete", "/api/skills/duplicate", "/api/skills/try"}
-        if self.path not in routes:
-            self.json({"error": "Page not found."}, 404)
-            return
+    def post_scheduler_tick(self, request):
         try:
-            large = self.path.startswith(("/api/skills/", "/api/memory/"))
-            body = self.body(limit=160_000 if large else 24_000)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
-            return
-        if self.app.restore and self.app.restore["status"] == "restoring":
-            self.json({"error": "A checkpoint is being restored."}, 409)
-            return
-        if self.path == "/api/brain/route":
-            try:
-                self.json(self.update_brain(body))
-            except HearthError as error:
-                self.json({"error": str(error)}, 400)
-            return
-        accepting_chat = self.path in {"/api/chat", "/api/browse/approve"} or self.path.startswith("/api/threads/")
-        if self.path in {"/api/connections/rescan", "/api/connections/test", "/api/memory/search"}:
-            # Background discovery can overlap with a connector test or memory search.
-            acquired = self.app.operation.acquire(timeout=5)
-        else:
-            acquired = self.app.operation.acquire(blocking=accepting_chat)
-        if not acquired:
-            self.json({"error": "Hearth is working on another action."}, 409)
-            return
-        status = 200
-        stream = None
-        try:
-            if self.app.restore and self.app.restore["status"] == "restoring":
-                result, status = {"error": "A checkpoint is being restored."}, 409
-            else:
-                if self.path == "/api/chat":
-                    identities = body.get("attachment_ids", [])
-                    prompt = body.get("message", "")
-                    prompt = "" if identities and isinstance(prompt, str) and not prompt.strip() else require_text(prompt, 4_000)
-                    stream = self.app.enqueue(body.get("thread_id", MAIN), prompt, attachment_ids=identities,
-                                              stoppable=True)
-                elif self.path == "/api/browse/approve" and body.keys() == {"id", "thread_id"}:
-                    stream = self.app.enqueue(body["thread_id"], "", approval=require_text(body["id"], 40))
-                elif self.path == "/api/browse/settings":
-                    self.app.connections.save_preferences("browsing", browserbase.settings(body))
-                    self.app.reload_agent(reset_brain=False)
-                    result = self.app.agent.browsing
-                elif self.path == "/api/browse/approve":
-                    raise HearthError("Invalid browser approval.")
-                elif self.path.startswith("/api/threads/"):
-                    result = self.app.update_thread(self.path.rsplit("/", 1)[-1], body)
-                elif self.path.startswith("/api/skills/"):
-                    operation = self.path.rsplit("/", 1)[-1]
-                    library = self.app.agent.skills
-                    if operation == "try":
-                        if body.keys() != {"id"}:
-                            raise HearthError("Choose a skill to try.")
-                        with self.app.storage.lock():
-                            skill = library.require(self.app.storage.load(), identity=body["id"])
-                            result = self.app.threads.create(title=skill["name"], skill={key: skill[key] for key in ("id", "name")})
-                    else:
-                        result, _ = library.mutate(operation, body)
-                elif self.path.startswith("/api/connections/"):
-                    result = self.update_connections(body)
-                elif self.path.startswith("/api/brain/"):
-                    result = self.update_brain(body)
-                elif self.path.startswith(("/api/memory/", "/api/search/")):
-                    result = self.update_preferences(body)
-                else:
-                    action_id = require_text(body.get("id"), 40)
-                    if self.path == "/api/approve":
-                        with self.app.storage.lock():
-                            action = self.app.storage.load()["actions"].get(action_id, {})
-                        result = (self.app.pages.approve_share(action_id) if action.get("kind") == "page_share"
-                                  else self.app.agent.approve(action_id))
-                    elif self.path == "/api/redo":
-                        result = self.app.replay_memory(action_id, redo=True)
-                    else:
-                        result, status = self.app.undo_action(action_id)
-        except HearthError as error:
-            result, status = {"error": str(error)}, error.status if isinstance(error, pages.PageError) else 400
-        except OSError:
-            result, status = {"error": "Hearth could not update workspace data."}, 500
-        finally:
-            self.app.operation.release()
-        if stream is not None:
-            self.stream_chat(stream)
-        else:
-            self.json(result, status)
+            return self.app.scheduler_tick()
+        except HearthError:
+            raise RequestError("Hearth could not run the scheduler tick.", 500) from None
 
-    def get_page(self, url):
+    def post_stop(self, request):
+        body = request.body
+        if request.operation == "workers":
+            turn_id = require_text(body["turn_id"], 40)
+            identity = require_text(body["id"], 40) if "id" in body else None
+            return self.app.workers.stop(turn_id, identity)
+        return self.app.stop_reply(require_text(body["thread_id"], 40), require_text(body["reply_id"], 40))
+
+    def post_chat(self, request):
+        body = request.body
+        identities = body.get("attachment_ids", [])
+        prompt = body.get("message", "")
+        prompt = "" if identities and not prompt.strip() else require_text(prompt, 4_000)
+        try:
+            events = self.app.enqueue(body.get("thread_id", MAIN), prompt, attachment_ids=identities, stoppable=True)
+        except uploads.UploadError as error:
+            raise RequestError(str(error)) from None
+        return ChatStream(events)
+
+    def post_browse_approve(self, request):
+        body = request.body
+        return ChatStream(self.app.enqueue(body["thread_id"], "", approval=require_text(body["id"], 40)))
+
+    def post_browse_settings(self, request):
+        self.app.connections.save_preferences("browsing", browserbase.settings(request.body))
+        self.app.reload_agent(reset_brain=False)
+        return self.app.agent.browsing
+
+    def post_thread(self, request):
+        body, operation = request.body, request.operation
+        title = require_text(body["title"], 80) if operation == "rename" else None
+        return self.app.update_thread(operation, body.get("thread_id"), title=title, message_id=body.get("message_id"))
+
+    def post_skills(self, request):
+        body, operation = request.body, request.operation
+        library = self.app.agent.skills
+        if operation == "try":
+            with self.app.storage.lock():
+                skill = library.require(self.app.storage.load(), identity=body["id"])
+                return self.app.threads.create(title=skill["name"], skill={key: skill[key] for key in ("id", "name")})
+        result, _ = library.mutate(operation, body)
+        return result
+
+    def post_action(self, request):
+        action_id = require_text(request.body["id"], 40)
+        if request.operation == "approve":
+            with self.app.storage.lock():
+                action = self.app.storage.load()["actions"].get(action_id, {})
+            return (self.app.pages.approve_share(action_id) if action.get("kind") == "page_share"
+                    else self.app.agent.approve(action_id))
+        if request.operation == "redo":
+            return self.app.replay_memory(action_id, redo=True)
+        result = self.app.undo_action(action_id)
+        return HTTPResult(result, 202) if result.get("status") == "restoring" else result
+
+    def get_page(self, request):
         disposition = None
         csp = page_policy.CSP
-        if url.path.startswith("/p/"):
-            raw = self.app.pages.shared(url.path.removeprefix("/p/"))
+        if "token" in request.params:
+            raw = self.app.pages.shared(request.params["token"])
             csp = page_policy.PUBLIC_CSP
         else:
-            match = re.fullmatch(r"/pages/([a-f0-9]{32})(?:/v/([1-9][0-9]{0,8}))?", url.path)
-            if not match:
-                raise pages.PageError("Page not found.", 404)
-            row, raw = self.app.pages.document(match[1], int(match[2]) if match[2] else None)
-            if parse_qs(url.query).get("download") == ["1"]:
+            version = request.params.get("version")
+            row, raw = self.app.pages.document(request.params["id"], int(version) if version else None)
+            if request.query.get("download") == ["1"]:
                 name = quote(artifacts.filename(row["title"], "html"), safe="")
                 disposition = f"attachment; filename*=UTF-8''{name}"
         self.response_headers(200, "text/html; charset=utf-8", len(raw), disposition=disposition,
                               page_csp=csp)
         self.wfile.write(raw)
 
-    def post_pages(self):
-        try:
-            body = self.body()
-            identity = require_text(body.get("id"), 32)
-            with self.app.operation:
-                if self.app.restoring():
-                    raise pages.PageError("A checkpoint is being restored.", 409)
-                if self.path == "/api/pages/revert":
-                    result = self.app.pages.revert(identity, body.get("version"), body.get("current"))
-                elif self.path == "/api/pages/share":
-                    result = self.app.pages.request_share(identity, body.get("version"))
-                elif self.path == "/api/pages/revoke":
-                    result = self.app.pages.revoke(identity)
-                elif self.path == "/api/pages/box":
-                    result = self.app.pages.save_box(identity, body.get("version"))
-                else:
-                    raise pages.PageError("Page not found.", 404)
-            self.json(result)
-        except HearthError as error:
-            self.json({"error": str(error)}, error.status if isinstance(error, pages.PageError) else 400)
-        except OSError:
-            self.json({"error": "Hearth could not update the page."}, 500)
+    def post_pages(self, request):
+        body, operation = request.body, request.operation
+        identity = require_text(body["id"], 32)
+        if operation == "revert":
+            return self.app.pages.revert(identity, body["version"], body["current"])
+        if operation == "share":
+            return self.app.pages.request_share(identity, body["version"])
+        if operation == "revoke":
+            return self.app.pages.revoke(identity)
+        return self.app.pages.save_box(identity, body["version"])
 
-    def post_memory_review(self):
+    def post_memory_review(self, request):
         review = self.app.memory_review
-        try:
-            body = self.body()
-            with self.app.operation:
-                if self.app.restoring():
-                    self.json({"error": "A checkpoint is being restored."}, 409)
-                    return
-                if self.path == "/api/memory/review/settings":
-                    result = review.configure(body)
-                elif self.path == "/api/memory/review/decision":
-                    result = review.decide(body)
-                elif self.path == "/api/memory/review/run" and not body:
-                    result = review.kick(force=True)
-                else:
-                    raise HearthError("Invalid Memory review request.")
-            self.json(result)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
-        except OSError:
-            self.json({"error": "Hearth could not update Memory review."}, 500)
+        if request.operation == "settings":
+            return review.configure(request.body)
+        if request.operation == "decision":
+            return review.decide(request.body)
+        return review.kick(force=True)
 
-    def post_feed(self):
-        operations = {"/api/feed/settings": self.app.feed.save_settings, "/api/feed/feedback": self.app.feed.feedback,
-                      "/api/feed/chat": self.app.feed.chat, "/api/feed/idea": self.app.ideas.respond}
-        try:
-            if self.path == "/api/feed/refresh":
-                if self.body():
-                    raise HearthError("A Feed refresh takes no settings.")
-                self.app.ideas.kick()
-                result = self.app.feed.tick(force=True)
-                timeline.record(self.app.storage, "feed", "Feed refresh requested",
-                                {"thread_id": "", "thread_title": "Workspace"},
-                                data={"detail": result["status"], "card_count": len(result["cards"])})
-                self.json(result)
-            elif handler := operations.get(self.path):
-                with self.app.operation:
-                    if self.app.restoring():
-                        self.json({"error": "A checkpoint is being restored."}, 409)
-                        return
-                    result = handler(self.body())
-                self.json(result)
-            else:
-                self.json({"error": "Page not found."}, 404)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
-        except OSError:
-            self.json({"error": "Hearth could not update the Feed."}, 500)
+    def post_feed(self, request):
+        if request.operation == "refresh":
+            self.app.ideas.kick()
+            result = self.app.feed.tick(force=True)
+            timeline.record(self.app.storage, "feed", "Feed refresh requested",
+                            {"thread_id": "", "thread_title": "Workspace"},
+                            data={"detail": result["status"], "card_count": len(result["cards"])})
+            return result
+        return {"settings": self.app.feed.save_settings, "feedback": self.app.feed.feedback,
+                "chat": self.app.feed.chat, "idea": self.app.ideas.respond}[request.operation](request.body)
 
-    def post_proactivity(self):
-        operation = self.path.rsplit("/", 1)[-1]
-        if operation not in {"pass", "settings", "do", "dismiss", "snooze", "block"}:
-            self.json({"error": "Page not found."}, 404)
-            return
-        if operation == "pass" and not equal(self.headers.get("X-Hearth-Tick-Token"), self.app.reminders.tick_token):
-            self.json({"error": "Scheduler token required."}, 401)
-            return
-        stream = None
-        try:
-            body = self.body()
-            if operation == "pass":
-                if body:
-                    raise HearthError("A proactive pass takes no settings.")
-                result = self.app.proactivity.tick(force=True)
-            else:
-                with self.app.operation:
-                    if self.app.restoring():
-                        self.json({"error": "A checkpoint is being restored."}, 409)
-                        return
-                    if operation == "settings":
-                        result = self.app.proactivity.save_settings(body)
-                    elif operation == "do":
-                        result, prompt = self.app.proactivity.update(operation, body)
-                        if prompt is not None:
-                            stream = self.app.enqueue(result["id"], prompt, source=proactivity.SOURCE)
-                    else:
-                        result = self.app.proactivity.update(operation, body)
-            if stream is not None:
-                self.stream_chat(stream)
-            else:
-                self.json(result)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
-        except OSError:
-            self.json({"error": "Hearth could not update Proactivity."}, 500)
+    def post_proactivity(self, request):
+        body, operation = request.body, request.operation
+        if operation == "pass":
+            return self.app.proactivity.tick(force=True)
+        if operation == "settings":
+            return self.app.proactivity.save_settings(body)
+        if operation == "do":
+            result, prompt = self.app.proactivity.update(operation, body)
+            if prompt is not None:
+                return ChatStream(self.app.enqueue(result["id"], prompt, source=proactivity.SOURCE))
+            return result
+        return self.app.proactivity.update(operation, body)
 
-    def post_goal(self):
-        try:
-            body = self.body()
-            operation = self.path.rsplit("/", 1)[-1]
-            if operation not in {"create", "update", "checkin", "delete"}:
-                raise HearthError("Choose a goal action.")
-            if "delete" in body:
-                raise HearthError("Choose a goal action using its dedicated route.")
-            with self.app.operation:
-                if self.app.restoring():
-                    self.json({"error": "A checkpoint is being restored."}, 409)
-                    return
-                tool = "goal_" + ("update" if operation == "delete" else operation)
-                result = self.app.agent.execute(tool, {**body, **({"delete": True} if operation == "delete" else {})})
-            self.json(result)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
+    def post_goal(self, request):
+        operation = request.operation
+        if operation == "delete":
+            return self.app.agent.execute("goal_update", {**request.body, "delete": True})
+        return self.app.agent.execute("goal_" + operation, request.body)
 
-    def post_home(self):
-        actions = {
-            "/api/home/layout": self.app.home.adjust,
-            "/api/home/checklist": self.app.home.toggle,
-            "/api/home/settings": self.app.home.save_settings,
-            "/api/home/chat": lambda body: self.app.home.panel_chat(body.get("id")),
-        }
-        try:
-            if self.app.restoring():
-                self.json({"error": "A checkpoint is being restored."}, 409)
-                return
-            body = self.body()
-            if self.path == "/api/home/refresh":
-                identity = body.get("id")
-                if identity == "weather":
-                    self.app.home.refresh_weather()
-                    result = self.app.home.settings()
-                else:
-                    result, _ = self.app.home.panels.refresh(identity)
-                self.json(result)
-            elif self.path in actions:
-                with self.app.operation:
-                    if self.app.restoring():
-                        self.json({"error": "A checkpoint is being restored."}, 409)
-                        return
-                    result = actions[self.path](body)
-                self.json(result)
-            else:
-                self.json({"error": "Page not found."}, 404)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
-        except OSError:
-            self.json({"error": "Hearth could not update the Home panel."}, 500)
+    def post_home(self, request):
+        body, operation = request.body, request.operation
+        service = self.app.home
+        if operation == "refresh":
+            if body["id"] == "weather":
+                service.refresh_weather()
+                return service.settings()
+            result, _ = service.panels.refresh(body["id"])
+            return result
+        if operation == "chat":
+            return service.panel_chat(body["id"])
+        return {"layout": service.adjust, "checklist": service.toggle,
+                "settings": service.save_settings}[operation](body)
 
-    def post_upload(self, url):
-        try:
-            if self.app.restore and self.app.restore["status"] == "restoring":
-                raise uploads.UploadError("A checkpoint is being restored.", 409)
-            if url.path == "/api/uploads/box":
-                body = self.body()
-                result = self.app.uploads.save_box(body.get("thread_id"), body.get("id"))
-                self.json(result)
-            else:
-                thread_id = parse_qs(url.query).get("thread", [MAIN])[0]
-                try:
-                    length = int(self.headers.get("Content-Length", "0"))
-                except ValueError:
-                    length = 0
-                self.connection.settimeout(30)
-                result = self.app.uploads.stage(thread_id, self.rfile, length, self.headers.get("Content-Type", ""))
-                self.json(result, 201)
-        except uploads.UploadError as error:
-            self.json({"error": str(error)}, error.status)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
-        except OSError:
-            self.json({"error": "Hearth could not save the attachment."}, 500)
+    def post_upload(self, request):
+        thread_id = request.query.get("thread", [MAIN])[0]
+        content_type = self.headers.get("Content-Type", "")
 
-    def get_upload(self, url):
-        params = parse_qs(url.query)
+        def receive(output):
+            return receive_multipart(self.rfile, request.body, content_type, output, max_bytes=uploads.MAX_BYTES)
+
+        return HTTPResult(self.app.uploads.stage(thread_id, receive), 201)
+
+    def post_upload_box(self, request):
+        return self.app.uploads.save_box(request.body["thread_id"], request.body["id"])
+
+    def get_upload(self, request):
+        params = request.query
         thread_id = params.get("thread", [MAIN])[0]
         identity = params.get("id", [""])[0]
         try:
-            if url.path.endswith("/detail"):
+            if request.operation == "detail":
                 self.json(self.app.uploads.detail(thread_id, identity))
                 return
             row, directory = self.app.uploads.get(thread_id, identity)
@@ -1530,167 +1425,91 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    def post_automation(self):
-        try:
-            body = self.body(limit=48_000 if self.path.startswith("/api/event-automations/") else 24_000)
-            operation = self.path.rsplit("/", 1)[-1]
-            with self.app.operation:
-                if self.app.restoring():
-                    self.json({"error": "A checkpoint is being restored."}, 409)
-                    return
-                if self.path.startswith("/api/approvals/"):
-                    if operation == "settings":
-                        result = approvals.settings(self.app.storage, body)
-                        self.app.memory_index.changed()
-                    elif operation in {"approve", "edit", "decline"}:
-                        result = approvals.decide(self.app.agent, require_text(body.get("id"), 40), operation,
-                                                  body.get("changes"))
-                    else:
-                        raise HearthError("Choose an approval action.")
-                elif self.path.startswith("/api/event-automations/"):
-                    if operation == "delete" and body.keys() == {"id"}:
-                        result = self.app.agent.execute("delete_event_automation", body)
-                    elif operation in {"create", "update"}:
-                        result = event_automations.mutate(self.app, operation, body)
-                    else:
-                        raise HearthError("Choose an automation action.")
-                elif operation == "delete" and body.keys() == {"id"}:
-                    result = self.app.agent.execute("delete_recurring_task", body)
-                    action = result["action"]
-                    if action["status"] == "pending":
-                        with self.app.storage.lock():
-                            self.app.threads.append(MAIN, "assistant", action["title"] + "?", action_ids=[action["id"]])
-                elif operation in {"preview", "create", "update", "pause", "run"}:
-                    result = tasks.mutate(self.app.storage, operation, body)
-                    if operation == "run":
-                        self.app.task_runner.kick()
-                else:
-                    raise HearthError("Choose a recurring task action.")
-            self.json(result)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
-        except (OSError, TypeError, ValueError):
-            self.json({"error": "Hearth could not update automation data."}, 400)
+    def post_approvals(self, request):
+        body, operation = request.body, request.operation
+        if operation == "settings":
+            result = approvals.settings(self.app.storage, body)
+            self.app.memory_index.changed()
+            return result
+        return approvals.decide(self.app.agent, require_text(body["id"], 40), operation, body.get("changes"))
 
-    def post_reminders(self):
-        try:
-            body = self.body()
-            if self.app.restore and self.app.restore["status"] == "restoring":
-                self.json({"error": "A checkpoint is being restored."}, 409)
-                return
-            operation = self.path.rsplit("/", 1)[-1]
-            if self.path.startswith("/api/inbox/"):
-                if operation == "poll" and (not body or (body.keys() == {"force"} and body["force"] is True)):
-                    result = {"processed": self.app.inbox.poll(force=bool(body), manual=bool(body))}
-                elif operation in {"accept", "edit", "dismiss", "undo"}:
-                    result = self.app.inbox.update(operation, body)
-                else:
-                    raise HearthError("Invalid inbox request.")
-            elif operation == "settings":
-                result = self.app.reminders.save(body)
-            elif operation == "test":
-                result = self.app.reminders.test(body.get("channel"))
-            elif operation in ("inspect", "action") and body.keys() == {"token"}:
-                result = self.app.reminders.use_token(body["token"], apply=operation == "action")
-            elif operation == "cancel":
-                result = self.app.reminders.cancel(body.get("id"))
-            elif operation == "create":
-                allowed = {"message", "at", "cron", "note", "channel", "urgent"}
-                if "message" not in body or not body.keys() <= allowed:
-                    raise HearthError("Enter a reminder title and a time.")
+    def post_event_automations(self, request):
+        if request.operation == "delete":
+            return self.app.agent.execute("delete_event_automation", request.body)
+        return event_automations.mutate(self.app, request.operation, request.body)
+
+    def post_tasks(self, request):
+        body, operation = request.body, request.operation
+        if operation == "delete":
+            result = self.app.agent.execute("delete_recurring_task", body)
+            action = result["action"]
+            if action["status"] == "pending":
                 with self.app.storage.lock():
-                    state = self.app.storage.load()
-                    result = scheduler.add_job(state, **body)
-                    self.app.storage.save(state)
-            else:
-                raise HearthError("Invalid reminder request.")
-            self.json(result)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
-        except OSError:
-            self.json({"error": "Hearth could not update workspace data."}, 500)
+                    self.app.threads.append(MAIN, "assistant", action["title"] + "?", action_ids=[action["id"]])
+            return result
+        result = tasks.mutate(self.app.storage, operation, body)
+        if operation == "run":
+            self.app.task_runner.kick()
+        return result
 
-    def post_artifact(self):
-        operation = self.path.removeprefix("/api/artifacts/")
-        if operation not in {"settings", "retry", "delete", "undo", "ask"}:
-            self.json({"error": "Page not found."}, 404)
-            return
-        try:
-            body = self.body(24_000 if operation == "ask" else 8 * box.MAX_BYTES)
-            if operation == "ask":
-                if self.app.restore and self.app.restore["status"] == "restoring":
-                    self.json({"error": "A checkpoint is being restored."}, 409)
-                    return
-                result = file_questions.ask(self.app.agent, body)
-                if result.get("source"):
-                    timeline.record(self.app.storage, "artifact", "Answered a question about Box files",
-                                    {"thread_id": "", "thread_title": "Workspace"},
-                                    provider="box", data={"citation_count": len(result["citations"])})
-            elif operation == "settings":
-                with self.app.operation:
-                    if self.app.restore and self.app.restore["status"] == "restoring":
-                        self.json({"error": "A checkpoint is being restored."}, 409)
-                        return
-                    result = self.update_artifacts(operation, body)
-            elif self.app.restoring():
-                self.json({"error": "A checkpoint is being restored."}, 409)
-                return
-            else:
-                result = self.update_artifacts(operation, body)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
-        except TimeoutError:
-            self.json({"error": "The request timed out."}, 408)
-        except OSError:
-            self.json({"error": "Hearth could not update workspace data."}, 500)
-        else:
-            self.json(result)
+    def post_inbox(self, request):
+        body, operation = request.body, request.operation
+        if operation == "poll":
+            if body.get("force") is False:
+                raise RequestError("Invalid inbox request.")
+            return {"processed": self.app.inbox.poll(force=bool(body), manual=bool(body))}
+        return self.app.inbox.update(operation, body)
 
-    def update_artifacts(self, operation, body):
+    def post_reminders(self, request):
+        body, operation = request.body, request.operation
+        if operation == "settings":
+            return self.app.reminders.save(body)
+        if operation == "test":
+            return self.app.reminders.test(body.get("channel"))
+        if operation in ("inspect", "action"):
+            return self.app.reminders.use_token(body["token"], apply=operation == "action")
+        if operation == "cancel":
+            return self.app.reminders.cancel(body["id"])
+        with self.app.storage.lock():
+            state = self.app.storage.load()
+            result = scheduler.add_job(state, **body)
+            self.app.storage.save(state)
+        return result
+
+    def post_artifact(self, request):
+        body, operation = request.body, request.operation
         service = self.app.artifacts
+        if operation == "ask":
+            result = file_questions.ask(self.app.agent, body)
+            if result.get("source"):
+                timeline.record(self.app.storage, "artifact", "Answered a question about Box files",
+                                {"thread_id": "", "thread_title": "Workspace"},
+                                provider="box", data={"citation_count": len(result["citations"])})
+            return result
         if operation == "settings":
             self.app.connections.save_preferences("artifacts", box.settings(body))
             self.app.reload_agent(reset_brain=False)
             self.app.memory_sync.request("startup")
             return service.info()
-        if operation == "undo" and body.keys() == {"id"}:
+        if operation == "undo":
             return service.undo(require_text(body["id"], 40))
         return service.mutate(operation, body)
 
-    def post_call(self):
-        operation = self.path.removeprefix("/api/voice/call/")
-        if operation not in ("token", "query", "report"):
-            self.json({"error": "Page not found."}, 404)
-            return
-        try:
-            body = self.body(voice_call.MAX_REPORT_BYTES if operation == "report" else 24_000)
-            if operation == "token":
-                if body:
-                    raise HearthError("Invalid call token request.")
-                result = self.app.call_token()
-            else:
-                with self.app.operation:
-                    if self.app.restore and self.app.restore["status"] == "restoring":
-                        raise voice.VoiceError("A checkpoint is being restored.", 409)
-                    if operation == "report":
-                        result = voice_call.save_report(self.app.threads, body)
-                        if self.app.agent.memory["include_chat"]:
-                            self.app.memory_sync.request()
-                    else:
-                        if body.keys() != {"thread_id", "query"}:
-                            raise HearthError("Invalid call query.")
-                        events = self.app.enqueue(body["thread_id"], require_text(body["query"], 4_000),
-                                                  source=voice_call.SOURCE)
-                if operation == "query":
-                    result = self.call_reply(events)
-        except voice.VoiceError as error:
-            self.json({"error": str(error)}, error.status)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
-        except OSError:
-            self.json({"error": "Hearth could not update workspace data."}, 500)
-        else:
-            self.json(result)
+    def post_call_token(self, request):
+        return self.app.call_token()
+
+    def post_call_report(self, request):
+        result = voice_call.save_report(self.app.threads, request.body)
+        if self.app.agent.memory["include_chat"]:
+            self.app.memory_sync.request()
+        return result
+
+    def post_call_query(self, request):
+        body = request.body
+        with self.app.operation:
+            self.require_ready()
+            events = self.app.enqueue(body["thread_id"], require_text(body["query"], 4_000), source=voice_call.SOURCE)
+        return self.call_reply(events)
 
     def same_origin(self, origin):
         try:
@@ -1718,80 +1537,51 @@ class Handler(BaseHTTPRequestHandler):
             pass
         raise voice.VoiceError("Hearth is still working. Check the thread for the reply.", 504)
 
-    def post_voice(self):
-        url = urlsplit(self.path)
-        params = parse_qs(url.query)
-        thread_id = params.get("thread", [None])[0]
-        whisper = url.path == "/api/voice/transcribe"
-        try:
-            if not whisper:
-                body = self.body()
-                text = voice.clean_transcript(require_text(body.get("text"), 4000))
-            else:
-                content_type = self.headers.get_content_type()
-                if content_type not in voice.AUDIO_TYPES:
-                    raise voice.VoiceError("Use a WebM, Ogg, MP4, or WAV audio recording.", 415)
-                try:
-                    length = int(self.headers.get("Content-Length", "0"))
-                except ValueError:
-                    length = 0
-                if length > voice.MAX_AUDIO:
-                    raise voice.VoiceError("The recording exceeds the 8 MiB limit.", 413)
-                if length <= 0:
-                    raise voice.VoiceError("No audio recording was received.")
-                connection = self.app.memory_index.hf_entry(self.app.agent.config)
-                language = params.get("language", ["auto"])[0]
-                self.connection.settimeout(15)
-                try:
-                    data = self.rfile.read(length)
-                except TimeoutError:
-                    raise voice.VoiceError("The audio upload timed out.", 408) from None
-                if len(data) != length:
-                    raise voice.VoiceError("The audio upload was interrupted.")
-                text = voice.transcribe(self.app.gateway, connection, data, content_type, language)
-        except voice.VoiceError as error:
-            self.json({"error": str(error)}, error.status)
-        except HearthError as error:
-            self.json({"error": str(error)}, 400)
+    def post_voice(self, request):
+        thread_id = request.query.get("thread", [None])[0]
+        whisper = request.operation == "transcribe"
+        if whisper:
+            try:
+                data = self.rfile.read(request.body)
+            except TimeoutError:
+                raise RequestError("The audio upload timed out.", 408) from None
+            if len(data) != request.body:
+                raise RequestError("The audio upload was interrupted.")
+            connection = self.app.memory_index.hf_entry(self.app.agent.config)
+            language = request.query.get("language", ["auto"])[0]
+            text = voice.transcribe(self.app.gateway, connection, data, self.headers.get_content_type(), language)
         else:
-            if thread_id is not None:
-                try:
-                    with self.app.storage.lock():
-                        thread = self.app.threads.describe(thread_id)
-                    timeline.record(self.app.storage, "voice", "Voice input transcribed",
-                                    {"thread_id": thread["id"], "thread_title": thread["title"]},
-                                    provider="huggingface" if whisper else None,
-                                    data={"engine": "Whisper" if whisper else "Browser"})
-                except (HearthError, OSError):
-                    # Dictation still returns text if its chat was removed or logging failed.
-                    pass
-            self.json({"text": text})
+            text = voice.clean_transcript(require_text(request.body["text"], 4000))
+        if thread_id is not None:
+            try:
+                with self.app.storage.lock():
+                    thread = self.app.threads.describe(thread_id)
+                timeline.record(self.app.storage, "voice", "Voice input transcribed",
+                                {"thread_id": thread["id"], "thread_title": thread["title"]},
+                                provider="huggingface" if whisper else None,
+                                data={"engine": "Whisper" if whisper else "Browser"})
+            except (HearthError, OSError):
+                # Dictation still returns text if its chat was removed or logging failed.
+                pass
+        return {"text": text}
 
-    def update_connections(self, body):
-        if self.path == "/api/connections/rescan" and not body:
+    def post_connections(self, request):
+        body, operation = request.body, request.operation
+        if operation == "rescan":
             self.app.scan_connections(sync_memory=True)
-        elif self.path == "/api/connections/test" and body.keys() == {"provider"}:
+        elif operation == "test":
             self.app.connections.test(body["provider"])
             self.app.connection_state = self.app.connections.report()
-        elif self.path == "/api/connections/settings" and body.keys() == {"provider", "value"}:
+        else:
             previous = self.app.memory_index.target(self.app.agent.config)
             self.app.connections.save(body["provider"], body["value"])
             self.app.reload_agent(reset_brain=False)
             if previous != self.app.memory_index.target(self.app.agent.config):
                 self.app.memory_sync.request("startup")
-        else:
-            raise HearthError("Invalid connection request.")
         return self.app.connection_info()
 
-    def update_brain(self, body):
-        operation = self.path.rsplit("/", 1)[-1]
-        allowed = {"provider", "model", "pool"}
-        if operation == "route":
-            allowed.add("prompt")
-        if operation == "settings":
-            allowed.add("parallel_workers")
-        if body.keys() - allowed or not {"provider", "model"} <= body.keys():
-            raise HearthError("Invalid brain settings.")
+    def post_brain(self, request):
+        body, operation = request.body, request.operation
         connections = self.app.connections
         selection = connections.brain_selection(body["provider"], body["model"])
         pool = validate_pool(body["pool"]) if "pool" in body else None
@@ -1809,61 +1599,59 @@ class Handler(BaseHTTPRequestHandler):
         prompt = require_text(body["prompt"], 4_000) if "prompt" in body else None
         return self.app.routing_preview(mode, models, stats, prompt)
 
-    def update_preferences(self, body):
-        _, _, feature, operation = self.path.split("/")
+    def post_memory(self, request):
+        body, operation = request.body, request.operation
         agent = self.app.agent
+        if operation == "search":
+            return agent.memory_search(**body)
+        if operation == "sync":
+            return self.app.memory_sync.request("sync")
+        if operation == "reindex":
+            if self.app.memory_index.available(agent.config)["pinecone"]:
+                return self.app.memory_sync.request("rebuild")
+            return self.app.start_reindex()
+        if operation == "forget":
+            return self.app.forget_memory(body)
+        storage = self.app.storage
+        with storage.lock():
+            if operation == "profile":
+                current = memory.profile_record(storage)
+                if body["revision"] != current["revision"]:
+                    raise HearthError("The profile changed. Reload Memory before saving.")
+                profile = memory.normalize_profile(body["profile"])
+                data, _, _ = memory.parse(memory.PROFILE_NOTE, storage.read(memory.PROFILE_NOTE)
+                                          if current["revision"] else "")
+                data["profile"] = profile
+                note = memory.render(data, "\n" + body["notes"].strip() + "\n")
+                return agent.write_memory_notes([{"path": memory.PROFILE_NOTE, "content": note}])
+            path = memory.resolve(storage, path=body["path"])
+            if body["revision"] != memory.revision(storage.read(path)):
+                raise HearthError("The note changed. Reload it before saving.")
+            if operation == "write":
+                return agent.write_memory_notes([{"path": path, "content": body["content"]}])
+            return agent.move_memory_note(body["target"], path=path)
+
+    def post_preference_test(self, request):
+        body = request.body
+        agent = self.app.agent
+        if request.operation == "search":
+            return agent.run_search(body["query"], search.settings(body["selection"]))
+        query = redact_text(require_text(body["query"], 1_000))
+        filters = {key: body[key] for key in ("kind", "thread_id") if key in body}
+        return self.app.memory_index.run(agent.config, recall.settings(body["selection"]), query,
+                                         filters=filters, budget=10)
+
+    def post_preference_settings(self, request):
+        feature = request.operation
+        if feature == "memory" and self.app.reindex_running():
+            raise HearthError("Wait for memory reindexing to finish before saving settings.")
+        selection = (recall if feature == "memory" else search).settings(request.body)
+        self.app.connections.save_preferences(feature, selection)
+        self.app.reload_agent(reset_brain=False)
         if feature == "memory":
-            if operation == "search" and "query" in body and body.keys() <= {"query", "kind", "thread_id"}:
-                return agent.memory_search(**body)
-            if operation == "sync" and not body:
-                return self.app.memory_sync.request("sync")
-            if operation == "reindex" and not body:
-                if self.app.memory_index.available(agent.config)["pinecone"]:
-                    return self.app.memory_sync.request("rebuild")
-                return self.app.start_reindex()
-            if operation == "forget":
-                return self.app.forget_memory(body)
-            storage = self.app.storage
-            if operation == "profile" and body.keys() == {"profile", "notes", "revision"}:
-                with storage.lock():
-                    current = memory.profile_record(storage)
-                    if body["revision"] != current["revision"]:
-                        raise HearthError("The profile changed. Reload Memory before saving.")
-                    profile = memory.normalize_profile(body["profile"])
-                    if not isinstance(body["notes"], str):
-                        raise HearthError("Enter the profile notes as text.")
-                    data, _, _ = memory.parse(memory.PROFILE_NOTE, storage.read(memory.PROFILE_NOTE)
-                                              if current["revision"] else "")
-                    data["profile"] = profile
-                    note = memory.render(data, "\n" + body["notes"].strip() + "\n")
-                    return agent.write_memory_notes([{"path": memory.PROFILE_NOTE, "content": note}])
-            if operation in {"write", "move"} and body.keys() == {"path", "revision", "content" if operation == "write" else "target"}:
-                with storage.lock():
-                    path = memory.resolve(storage, path=body["path"])
-                    if body["revision"] != memory.revision(storage.read(path)):
-                        raise HearthError("The note changed. Reload it before saving.")
-                    if operation == "write":
-                        return agent.write_memory_notes([{"path": path, "content": body["content"]}])
-                    return agent.move_memory_note(body["target"], path=path)
-        if operation == "test" and {"selection", "query"} <= body.keys():
-            if feature == "search" and body.keys() == {"selection", "query"}:
-                return agent.run_search(body["query"], search.settings(body["selection"]))
-            if feature == "memory" and body.keys() <= {"selection", "query", "kind", "thread_id"}:
-                query = redact_text(require_text(body["query"], 1_000))
-                filters = {key: body[key] for key in ("kind", "thread_id") if key in body}
-                return self.app.memory_index.run(agent.config, recall.settings(body["selection"]), query,
-                                                 filters=filters, budget=10)
-        if operation == "settings":
-            if feature == "memory" and self.app.reindex_running():
-                raise HearthError("Wait for memory reindexing to finish before saving settings.")
-            selection = (recall if feature == "memory" else search).settings(body)
-            self.app.connections.save_preferences(feature, selection)
-            self.app.reload_agent(reset_brain=False)
-            if feature == "memory":
-                self.app.memory_sync.request()
-                return self.app.memory_info()
-            return self.app.search_info()
-        raise HearthError("Invalid settings request.")
+            self.app.memory_sync.request()
+            return self.app.memory_info()
+        return self.app.search_info()
 
     def stream_chat(self, events):
         def packets():

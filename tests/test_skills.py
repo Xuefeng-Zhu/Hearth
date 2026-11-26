@@ -77,7 +77,7 @@ class SkillsTest(unittest.TestCase):
         rows = self.app.timeline_info()["entries"]
         self.assertTrue(next(row for row in rows if row["action_id"] == deletion["id"])["undoable"])
         self.assertFalse(next(row for row in rows if row["action_id"] == edit["id"])["undoable"])
-        self.assertEqual(self.app.undo_action(deletion["id"])[1], 200)
+        self.assertTrue(self.app.undo_action(deletion["id"])["undone"])
         library = skills.Skills(Storage(self.storage.root), TOOL_DEFINITIONS)
         self.assertEqual(library.detail(identity)["content"], revised["content"])
         library.undo(edit["id"])

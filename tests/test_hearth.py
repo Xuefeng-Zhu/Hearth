@@ -314,7 +314,7 @@ class HearthTest(unittest.TestCase):
         original = get(path)["content"]
         for route in ("/api/chat", "/api/approve", "/api/undo", "/api/redo", "/api/threads/create",
                       "/api/connections/rescan", "/api/brain/settings", "/api/memory/forget",
-                      "/api/search/test", "/api/artifacts/create", "/api/inbox/poll",
+                      "/api/search/test", "/api/artifacts/settings", "/api/inbox/poll",
                       "/api/reminders/create", "/api/voice/redact", "/api/voice/transcribe?language=en",
                       "/api/voice/call/token", "/api/scheduler/tick"):
             for headers in ({"Sec-Fetch-Site": "cross-site"}, {"Sec-Fetch-Site": "same-site"},

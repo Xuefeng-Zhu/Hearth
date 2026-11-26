@@ -22,11 +22,9 @@ from defusedxml.common import DefusedXmlException
 from pillow_heif import register_heif_opener
 from pypdf import PdfReader
 from pypdf.errors import PyPdfError
-from python_multipart import MultipartParser
-from python_multipart.exceptions import MultipartParseError
-from python_multipart.multipart import parse_options_header
 
 from . import box, memory, office, timeline, voice
+from .checkpoints import RestoreInProgress
 from .connectors import ConnectorError
 from .gateway_tools import redact_text
 from .reply_text import clean_reply
@@ -37,10 +35,8 @@ MAX_FILES = 10
 MAX_TEXT = 12_000
 EXTRACTION_CACHE_SIZE = 64
 VISION_CACHE_SIZE = 16
-MAX_HEADER = 8_192
 CHUNK = 64 * 1024
 IDENTITY = re.compile(r"[a-f0-9]{32}")
-BOUNDARY = re.compile(rb"[\x21-\x7e]{1,70}")
 CITATION = re.compile(r"\[\[(A[1-9][0-9]*)\]\]")
 VISION_MODELS = ("Qwen/Qwen3-VL-235B-A22B-Instruct:fastest", "moonshotai/Kimi-K3.1-Pro:fastest")
 IMAGE_TYPES = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp",
@@ -73,88 +69,6 @@ def safe_filename(name):
     suffix = suffix[:16]
     stem = stem.encode("utf-8")[:220 - len(suffix.encode("utf-8"))].decode("utf-8", "ignore").rstrip(" .")
     return (stem or "attachment") + suffix
-
-
-def receive(stream, length, content_type, output):
-    """Read a single file part in bounded chunks without buffering it in memory."""
-    media_type, options = parse_options_header(content_type)
-    boundary = options.get(b"boundary", b"")
-    if media_type.lower() != b"multipart/form-data" or not BOUNDARY.fullmatch(boundary):
-        raise UploadError("Expected a multipart file upload.", 415)
-    if length > MAX_BYTES + 2 * MAX_HEADER:
-        raise UploadError("Each attachment can be up to 20 MB.", 413)
-    if length <= 0:
-        raise UploadError("No attachment was received.")
-    headers = {}
-    field, value = bytearray(), bytearray()
-    header_size = size = parts = 0
-    filename = None
-    finished = False
-
-    def start():
-        nonlocal parts
-        parts += 1
-        if parts != 1:
-            raise UploadError("Send one file in each upload request.")
-
-    def extend(target, data, left, right):
-        nonlocal header_size
-        header_size += right - left
-        if header_size > MAX_HEADER or len(headers) >= 24:
-            raise UploadError("The attachment headers are too large.", 413)
-        target.extend(data[left:right])
-
-    def header_end():
-        headers[bytes(field).lower()] = bytes(value)
-        field.clear()
-        value.clear()
-
-    def headers_finished():
-        nonlocal filename
-        disposition, params = parse_options_header(headers.get(b"content-disposition", b""))
-        name = params.get(b"filename", b"")
-        if disposition != b"form-data" or params.get(b"name") != b"file" or not name:
-            raise UploadError("Expected a file part named file.")
-        filename = safe_filename(name.decode("utf-8", "replace"))
-
-    def write(data, left, right):
-        nonlocal size
-        size += right - left
-        if size > MAX_BYTES:
-            raise UploadError("Each attachment can be up to 20 MB.", 413)
-        output.write(memoryview(data)[left:right])
-
-    def end():
-        nonlocal finished
-        finished = True
-
-    parser = MultipartParser(boundary, {
-        "on_part_begin": start,
-        "on_header_field": lambda *args: extend(field, *args),
-        "on_header_value": lambda *args: extend(value, *args),
-        "on_header_end": header_end,
-        "on_headers_finished": headers_finished,
-        "on_part_data": write,
-        "on_end": end,
-    })
-    try:
-        remaining = length
-        while remaining:
-            data = stream.read(min(CHUNK, remaining))
-            if not data:
-                break
-            remaining -= len(data)
-            parser.write(data)
-        parser.finalize()
-    except TimeoutError:
-        raise UploadError("The attachment upload timed out.", 408) from None
-    except MultipartParseError:
-        raise UploadError("The multipart attachment is malformed.") from None
-    if remaining or not finished or parts != 1 or filename is None:
-        raise UploadError("The attachment upload was interrupted.")
-    if not size:
-        raise UploadError("The attachment is empty.")
-    return filename, size
 
 
 def encoding_for(path, header):
@@ -445,7 +359,7 @@ class Uploads:
     def directory(self, thread_id):
         return self.threads.root / thread_id / "uploads"
 
-    def stage(self, thread_id, stream, length, content_type):
+    def stage(self, thread_id, receive):
         with self.storage.lock():
             self.threads.require(thread_id)
         identity = new_id()
@@ -454,7 +368,8 @@ class Uploads:
             staging.mkdir()
             path = staging / "file"
             with path.open("wb") as output:
-                filename, size = receive(stream, length, content_type, output)
+                filename, size = receive(output)
+            filename = safe_filename(filename)
             fmt, mime, extra = sniff(path, filename)
             stem, suffix = os.path.splitext(filename)
             if suffix.lower().lstrip(".") not in EXTENSIONS.get(fmt, {fmt}):
@@ -470,8 +385,8 @@ class Uploads:
                    "format": fmt, "mime": mime, "at": iso(), **extra}
             self.write(staging, row)
             with self.app.operation:
-                if self.app.restore and self.app.restore["status"] == "restoring":
-                    raise UploadError("A checkpoint is being restored.", 409)
+                if self.app.restoring():
+                    raise RestoreInProgress("A checkpoint is being restored.")
                 with self.storage.lock():
                     thread = self.threads.describe(thread_id)
                     destination = self.directory(thread_id) / identity
@@ -545,8 +460,8 @@ class Uploads:
 
     def save_box(self, thread_id, identity):
         with self.app.operation:
-            if self.app.restore and self.app.restore["status"] == "restoring":
-                raise UploadError("A checkpoint is being restored.", 409)
+            if self.app.restoring():
+                raise RestoreInProgress("A checkpoint is being restored.")
             row, directory = self.get(thread_id, identity)
             if row.get("box_url"):
                 return public(row)

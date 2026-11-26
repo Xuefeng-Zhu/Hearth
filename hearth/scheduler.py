@@ -126,7 +126,7 @@ def add_job(state, message, clock=None, *, at=None, cron=None, origin=None, chan
             if due.tzinfo is None or due <= now:
                 raise ValueError
             due = due.astimezone(timezone.utc)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             raise HearthError("Use a future ISO date with a time zone.") from None
     channel = saved(state)["channel"] if channel is None else channel
     if not isinstance(channel, str) or channel not in CHANNELS or type(urgent) is not bool:

@@ -10,6 +10,10 @@ from .storage import HearthError, iso, new_id
 SPRITE_ID = re.compile(r"v\d+(?:[.\-]\d+)*")
 
 
+class RestoreInProgress(HearthError):
+    pass
+
+
 class LocalCheckpoints:
     mode = "local"
 

@@ -6,6 +6,8 @@ from http.client import HTTPConnection
 from unittest.mock import patch
 
 from hearth.checkpoints import LocalCheckpoints
+from hearth.http_requests import read_json
+from hearth.http_routes import POST
 from hearth.connectors import read_config
 from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage
@@ -103,6 +105,14 @@ class HTTPBoundaryTest(unittest.TestCase):
             ("/api/approvals/approve", {"id": "sample", "changes": []}, 400),
             ("/api/tasks/update", {"schedule": {}, "id": []}, 400),
             ("/api/tasks/preview", {"name": "n", "instruction": "i", "schedule": {"type": "interval",
+                                    "minutes": True}}, 400),
+            ("/api/tasks/preview", {"name": "n", "instruction": "i", "schedule": {"type": "interval",
+                                    "minutes": 0}}, 400),
+            ("/api/tasks/preview", {"name": "n", "instruction": "i", "schedule": {"type": "once",
+                                    "at": "9999-12-31T23:59:59-23:59"}}, 400),
+            ("/api/tasks/preview", {"name": "n", "instruction": "i", "schedule": {"type": "weekly",
+                                    "days": [1], "time": "09:00", "cron": "0 9 * * 1"}}, 200),
+            ("/api/tasks/preview", {"name": "n", "instruction": "i", "schedule": {"type": "interval",
                                     "minutes": 2, "extra": 1}}, 400),
             ("/api/event-automations/create", {"name": "Example", "trigger": {"type": []},
                                               "actions": []}, 400),
@@ -110,6 +120,16 @@ class HTTPBoundaryTest(unittest.TestCase):
         ):
             with self.subTest(path=path, body=body):
                 self.assertEqual(self.request("POST", path, body)[0], expected)
+
+    def test_every_json_route_requires_an_object_and_rejects_unknown_fields(self):
+        with patch.object(self.app.reminders, "tick_token", "test-tick"):
+            for path, route in POST.items():
+                if route.media != "json":
+                    continue
+                for body in (b"false", {"unexpected_field": 1}):
+                    with self.subTest(path=path, body=body):
+                        status, _, _ = self.request("POST", path, body, **{"X-Hearth-Tick-Token": "test-tick"})
+                        self.assertEqual(status, 400)
 
     def test_body_limits_and_framing(self):
         for path, limit, mime in (
@@ -168,3 +188,17 @@ class HTTPBoundaryTest(unittest.TestCase):
             self.assertEqual(self.request("POST", "/api/scheduler/tick")[0], 401)
         finally:
             self.app.restore = None
+
+    def test_restore_started_while_reading_body_is_rechecked(self):
+        def begin_restore(stream, length):
+            body = read_json(stream, length)
+            self.app.restore = {"action_id": "sample", "status": "restoring"}
+            return body
+
+        for path, body in (("/api/home/refresh", {"id": "weather"}), ("/api/threads/create", {})):
+            with self.subTest(path=path), patch("hearth.server.read_json", side_effect=begin_restore):
+                try:
+                    status, headers, _ = self.request("POST", path, body)
+                    self.assertEqual((status, headers.get("Retry-After")), (503, "2"))
+                finally:
+                    self.app.restore = None

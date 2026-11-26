@@ -74,8 +74,7 @@ class IdeasGoalsTest(unittest.TestCase):
         self.assertEqual(goals.list_goals(self.storage.load()), [])
         entry = next(item for item in self.app.timeline_info()["entries"] if item.get("action_id") == deleted["effect_action"])
         self.assertTrue(entry["undoable"])
-        restored, code = self.app.undo_action(deleted["effect_action"])
-        self.assertEqual(code, 200)
+        restored = self.app.undo_action(deleted["effect_action"])
         self.assertTrue(restored["undone"])
         self.assertEqual(goals.list_goals(self.storage.load())[0]["target_date"], "2030-04-10")
 
