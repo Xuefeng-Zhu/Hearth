@@ -1,5 +1,6 @@
 import { icon, iconButton } from "./icons.js";
 import { createGoals } from "./goals.js";
+import { threadMenuPosition } from "./thread-menu.js";
 
 const get = (id) => document.getElementById(id);
 const demoPrompt = "Create the Thanksgiving countdown and shopping list Home panels";
@@ -16,6 +17,14 @@ const builtIns = {
 };
 const kindIcons = { stat: "activity", list: "list", checklist: "check", countdown: "clock", note: "file-text",
   "web-summary": "monitor" };
+const quickPanels = {
+  countdown: "Ask me for the target date in Chat.",
+  checklist: "Start with an empty checklist.",
+  list: "Start with an empty list.",
+  note: "Use “Write a note here.” as the starter text.",
+  stat: "Start with a value of 0.",
+  "web-summary": "Ask me for the public page URL in Chat.",
+};
 const calendar = { weekday: "long", month: "long", day: "numeric" };
 const number = new Intl.NumberFormat();
 const standardTime = { hour: "numeric", minute: "2-digit" };
@@ -92,23 +101,50 @@ function updatedLabel(value) {
   return `Updated ${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
-export function createHome({ api, refreshAPI, openView, openWeatherSettings, openConnections, openFile, openPanelChat, openDemo, feed, approvalCard, onData }) {
+export function panelRequestPrompt(description) {
+  const text = description.trim();
+  return text ? `Create one Home panel from this description. Ask me in Chat for any required details.\n\n${text}` : "";
+}
+
+export function panelRequestFeedback(turn) {
+  const actions = [...(turn?.actions?.values() || [])].filter((action) => action.kind === "panel");
+  const titles = actions.filter((action) => action.status === "complete").flatMap((action) => action.panel_titles || []);
+  if (titles.length === 1) return { message: `${titles[0]} added to Home.` };
+  if (titles.length) return { message: `${titles.length} panels added to Home.` };
+  if (turn?.error) return { message: turn.error };
+  if (turn?.stopped) return { message: "Panel request stopped." };
+  if (actions.some((action) => action.status === "pending")) {
+    return { message: "Review the panel request in Chat.", openChat: true };
+  }
+  return { message: "Continue the panel request in Chat.", openChat: true };
+}
+
+export function createHome({ api, refreshAPI, openView, openWeatherSettings, openConnections, openFile, openPanelChat,
+  openDemo, sendPanelPrompt, openMainChat, feed, approvalCard, onData }) {
   const section = get("home-view");
   const grid = get("home-grid");
   const edit = get("home-edit");
   const feedback = get("home-feedback");
-  const restored = get("home-removed");
-  const removedItems = get("home-removed-items");
+  const addPopover = get("home-add-popover");
+  const restoreItems = get("home-add-restore-items");
+  const description = get("home-add-description");
   const settingsForm = get("weather-settings-form");
   const location = get("weather-location");
   const settingsStatus = get("weather-settings-status");
   const settingsSave = get("weather-location-save");
   const desktop = matchMedia("(min-width: 761px) and (pointer: fine)");
+  const sheet = matchMedia("(max-width: 760px)");
+  const viewport = window.visualViewport;
+  const nativePopover = typeof addPopover.showPopover === "function";
+  const cssAnchor = nativePopover && CSS.supports("position-area", "block-end span-inline-start")
+    && CSS.supports("position-try-fallbacks", "flip-block, flip-inline");
+  if (!nativePopover) addPopover.removeAttribute("popover");
   let snapshot;
   let editing = false;
   let request = 0;
   let settingsRequest = 0;
   let moving = false;
+  let sendingPanel = false;
   let dragged;
   let hovered;
   let signature;
@@ -118,7 +154,126 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
   const goals = createGoals({ api, approvalCard, reload: load });
   const titleFor = (id) => builtIns[id]?.title || snapshot.panels[id]?.title;
   const visible = () => snapshot.layout.order.filter((id) => !snapshot.layout.hidden.includes(id));
-  const setFeedback = (message = "") => { feedback.textContent = message; };
+  function setFeedback(message = "", openChat = false) {
+    feedback.textContent = message;
+    if (openChat) feedback.append(" ", control("Open Chat", openMainChat));
+  }
+
+  const add = control("Add panel", () => addPopover.hidden ? openAdd() : closeAdd(), null, "home-card home-add-card");
+  const addIcon = node("span", "home-card-icon");
+  addIcon.append(icon("plus", 22));
+  add.prepend(addIcon);
+  add.id = "home-add";
+  add.setAttribute("aria-haspopup", "dialog");
+  add.setAttribute("aria-controls", addPopover.id);
+  add.setAttribute("aria-expanded", "false");
+
+  function positionAdd() {
+    if (addPopover.hidden) return;
+    const left = viewport?.offsetLeft ?? 0;
+    const top = viewport?.offsetTop ?? 0;
+    const width = viewport?.width ?? document.documentElement.clientWidth;
+    const height = viewport?.height ?? document.documentElement.clientHeight;
+    const screen = { left, top, right: left + width, bottom: top + height };
+    const styles = getComputedStyle(addPopover);
+    const gap = parseFloat(styles.getPropertyValue("--home-add-gap"));
+    const inset = parseFloat(styles.getPropertyValue("--home-add-inset"));
+    const anchored = cssAnchor && !sheet.matches;
+    addPopover.style.width = sheet.matches ? `${width}px` : "";
+    addPopover.style.maxWidth = sheet.matches ? "" : `${width - 2 * inset}px`;
+    addPopover.style.maxHeight = `${height - (sheet.matches ? inset : 2 * inset)}px`;
+    addPopover.style.removeProperty("left");
+    addPopover.style.removeProperty("top");
+    addPopover.toggleAttribute("data-anchor", anchored);
+    const bounds = addPopover.getBoundingClientRect();
+    if (anchored && bounds.left >= left + inset && bounds.right <= screen.right - inset
+        && bounds.top >= top + inset && bounds.bottom <= screen.bottom - inset) return;
+
+    addPopover.removeAttribute("data-anchor");
+    const position = sheet.matches ? { left, top: screen.bottom - bounds.height }
+      : threadMenuPosition(add.getBoundingClientRect(), bounds, screen, gap, inset);
+    addPopover.style.left = `${position.left}px`;
+    addPopover.style.top = `${position.top}px`;
+  }
+
+  function closeAdd({ restoreFocus = true } = {}) {
+    if (addPopover.hidden) return;
+    if (nativePopover) addPopover.hidePopover();
+    addPopover.hidden = true;
+    add.setAttribute("aria-expanded", "false");
+    if (restoreFocus) add.focus({ preventScroll: true });
+  }
+
+  function openAdd() {
+    const hidden = snapshot.layout.hidden;
+    restoreItems.replaceChildren(...hidden.map((id) => {
+      const row = node("li", "home-add-restore-row");
+      const restore = control("Restore", () => {
+        if (moving) return;
+        closeAdd();
+        adjust(id, "restore");
+      }, "plus", "home-add-action");
+      restore.setAttribute("aria-label", `Restore ${titleFor(id)}`);
+      row.append(node("span", "", titleFor(id)), restore);
+      return row;
+    }));
+    get("home-add-restore-empty").hidden = !!hidden.length;
+    add.setAttribute("aria-expanded", "true");
+    addPopover.hidden = false;
+    if (nativePopover) addPopover.showPopover();
+    addPopover.scrollTop = 0;
+    positionAdd();
+    get("home-add-close").focus({ preventScroll: true });
+  }
+
+  async function requestPanel(prompt) {
+    if (sendingPanel || !prompt) return;
+    closeAdd();
+    sendingPanel = true;
+    add.setAttribute("aria-busy", "true");
+    setFeedback("Sending panel request to Chat…");
+    try {
+      const result = panelRequestFeedback(await sendPanelPrompt(prompt));
+      setFeedback(result.message, result.openChat);
+    } catch (error) {
+      setFeedback(error.message);
+    } finally {
+      sendingPanel = false;
+      add.removeAttribute("aria-busy");
+    }
+  }
+
+  for (const [kind, instruction] of Object.entries(quickPanels)) {
+    const label = kind === "web-summary" ? "Web summary" : kind[0].toUpperCase() + kind.slice(1);
+    get("home-add-kinds").append(control(label, () => requestPanel(`Create a starter ${kind} Home panel. ${instruction}`),
+      kindIcons[kind], "home-add-action"));
+  }
+  get("home-add-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const prompt = panelRequestPrompt(description.value);
+    if (!prompt || sendingPanel) return;
+    description.value = "";
+    requestPanel(prompt);
+  });
+  get("home-add-close").addEventListener("click", () => closeAdd());
+  document.addEventListener("click", (event) => {
+    if (addPopover.hidden || addPopover.contains(event.target) || add.contains(event.target)) return;
+    if (sheet.matches) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    closeAdd();
+  }, true);
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || addPopover.hidden) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeAdd();
+  }, true);
+  section.addEventListener("scroll", positionAdd, { passive: true });
+  window.addEventListener("resize", positionAdd);
+  viewport?.addEventListener("resize", positionAdd);
+  viewport?.addEventListener("scroll", positionAdd);
 
   async function load({ background } = {}) {
     const sequence = ++request;
@@ -447,21 +602,20 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     const panel = active.closest("[data-panel]")?.dataset.panel;
     const key = active.dataset.control;
     const order = visible();
-    grid.replaceChildren(...order.map((id) => card(id, order)));
+    const cards = order.map((id) => card(id, order));
+    if (editing) cards.push(add);
+    else closeAdd({ restoreFocus: false });
+    grid.replaceChildren(...cards);
     grid.classList.toggle("is-editing", editing);
     get("home-loading").hidden = true;
-    get("home-empty").hidden = order.length > 0;
-    get("home-demo").hidden = snapshot.model !== "mock" || Object.keys(snapshot.panels).length > 0;
+    get("home-empty").hidden = editing || order.length > 0;
+    get("home-demo").hidden = editing || snapshot.model !== "mock" || Object.keys(snapshot.panels).length > 0;
     edit.disabled = false;
     edit.setAttribute("aria-pressed", String(editing));
     get("home-edit-label").textContent = editing ? "Done" : "Edit layout";
-    restored.hidden = !editing || !snapshot.layout.hidden.length;
-    removedItems.replaceChildren(...snapshot.layout.hidden.map((id) => {
-      const row = node("li", "home-removed-row");
-      row.append(node("span", "", titleFor(id)), control("Restore", () => adjust(id, "restore"), "plus"));
-      return row;
-    }));
+    if (editing && active === add) add.focus({ preventScroll: true });
     if (panel && key) grid.querySelector(`[data-panel="${CSS.escape(panel)}"] [data-control="${CSS.escape(key)}"]`)?.focus();
+    positionAdd();
     updateClocks();
   }
 
@@ -477,7 +631,6 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
         edit.focus();
         setFeedback(`${titleFor(id)} removed from Home.`);
       } else if (operation === "restore") {
-        edit.focus();
         setFeedback(`${titleFor(id)} restored.`);
       } else {
         const panel = grid.querySelector(`[data-panel="${CSS.escape(id)}"]`);
@@ -558,5 +711,5 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
   setInterval(() => {
     if (!section.hidden && !document.hidden && !editing && !dragged && !pending.size && !document.querySelector("dialog[open]")) load();
   }, 30000);
-  return { load, settings };
+  return { load, settings, closeAdd };
 }

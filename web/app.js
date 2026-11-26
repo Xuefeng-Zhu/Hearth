@@ -224,7 +224,8 @@ const feed = createFeed({
   },
 });
 const homePage = createHome({
-  api, refreshAPI, openView, openWeatherSettings, openConnections, openPanelChat, openDemo, feed, approvalCard: automation.approvalCard,
+  api, refreshAPI, openView, openWeatherSettings, openConnections, openPanelChat, openDemo, sendPanelPrompt, openMainChat,
+  feed, approvalCard: automation.approvalCard,
   openFile: (file, trigger) => artifactLibrary.open(file.id, trigger, file),
   onData(data) {
     setTimeZone(data.timezone);
@@ -2675,6 +2676,7 @@ async function openView(nextView, updateHistory = true, section, target) {
   const previousView = view;
   const fromDrawer = mobile.closeDrawer({ restoreFocus: false });
   if (nextView !== previousView) threadActions.close({ restoreFocus: false });
+  if (previousView === "home" && nextView !== "home") homePage.closeAdd({ restoreFocus: false });
   if (nextView !== previousView) showNotice();
   if (nextView !== "chat") voice.cancel();
   if (updateHistory) {
@@ -2809,6 +2811,16 @@ async function openDemo(prompt) {
   if (!mobile.isMobile()) input.focus();
 }
 
+function openMainChat() {
+  activateThread(mainThread.id);
+  return openView("chat");
+}
+
+function sendPanelPrompt(prompt) {
+  if (busy) throw new Error("Wait for the current Chat action to finish, then try again.");
+  return chat(prompt, { keepDraft: true, threadId: mainThread.id });
+}
+
 async function openArtifactThread(threadId, messageId) {
   activateThread(threadId);
   await openView("chat");
@@ -2940,13 +2952,13 @@ function readChatEvent(key, { event: name, data, id: eventId }) {
   else renderThreads();
 }
 
-async function chat(prompt, { keepDraft = false, approval, suggestion } = {}) {
+async function chat(prompt, { keepDraft = false, approval, suggestion, threadId = currentThread } = {}) {
   prompt = prompt.trim();
   if (busy || (approval && localTurns().some((turn) => turn.approval?.id === approval.id && !turn.finished))) return;
   const attachments = keepDraft || approval ? [] : attachmentDraft.selected();
   if (!attachments || (!prompt && !approval && !suggestion && !attachments.length)) return;
   voice.cancel();
-  const source = approval?.thread_id || currentThread;
+  const source = approval?.thread_id || threadId;
   const command = !attachments.length && source === mainThread.id && /^\/(side|btw)(?:\s|$)/i.test(prompt);
   const key = Symbol();
   updateConversation({ type: "begin", key, source, turn: {
@@ -2989,6 +3001,7 @@ async function chat(prompt, { keepDraft = false, approval, suggestion } = {}) {
     if (pending && !pending.reply && !pending.stopped) {
       throw new Error("The reply was interrupted. Check Timeline for any saved actions.");
     }
+    return pending;
   } catch (error) {
     const pending = conversation.turns.get(key);
     if (pending && !pending.reply && !pending.stopped) {
@@ -3006,6 +3019,7 @@ async function chat(prompt, { keepDraft = false, approval, suggestion } = {}) {
         chatNoticeTurn = key;
       }
     }
+    return { ...pending, error: failure };
   } finally {
     const pending = conversation.turns.get(key);
     artifactLibrary.endBrowse(pending?.browse?.id);

@@ -25,6 +25,8 @@ TOOL_NAMES = {"create_panel", "update_panel", "delete_panel"}
 FIELDS = {"title", "kind", "source", "refresh_minutes"}
 SOURCE_TYPES = {"static": {"value"}, "brain": {"query"}, "connector": {"provider", "path", "pointer"}, "url": {"url"}}
 MOCK_DEMO = "Create the Thanksgiving countdown and shopping list Home panels"
+DESCRIPTION_REQUEST = "Create one Home panel from this description."
+STARTER_REQUEST = re.compile(r"^Create a starter (" + "|".join(KINDS) + r") Home panel\.")
 MAX_BATCH = 30
 PAGE_LIMIT = 192 * 1024
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from hearth import home, panels, timeline
+from hearth.agent import mock_text, tool_call
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import read_config
 from hearth.server import Application
@@ -106,6 +107,38 @@ class HomeTest(unittest.TestCase):
         self.assertEqual(self.app.agent.approve(result["id"])["status"], "complete")
         self.assertEqual(self.app.agent.approve(result["id"])["panel_titles"], [item["title"] for item in specs])
         self.assertEqual(len(self.storage.load()["panels"]), 4)
+
+    def test_chat_created_panel_appends_to_saved_layout(self):
+        initial = self.execute("create_panel", **spec(title="Existing panel"))["panels"][0]["id"]
+        self.app.home.adjust({"id": initial, "operation": "move", "target": "today", "position": "before"})
+        self.app.home.adjust({"id": initial, "operation": "hide"})
+        previous = self.app.home.snapshot()["layout"]
+        prompt = ("Create one Home panel from this description. Ask me in Chat for any required details.\n\n"
+                  "A note titled Trail notes. Include the phrase 'build a website'.")
+
+        def respond(messages, emit, _clock, *, tool_names, **_):
+            self.assertIn("create_panel", tool_names)
+            if messages[-1]["role"] == "user":
+                self.assertEqual(messages[-1]["content"], prompt)
+                return tool_call("create_panel", spec("note", "Pack a map.", title="Trail notes"))
+            return mock_text("I added Trail notes to Home.", emit)
+
+        with patch("hearth.agent.mock_completion", side_effect=respond):
+            self.app.agent.chat(prompt, lambda *_: None)
+
+        snapshot = self.open_app().home.snapshot()
+        identity = snapshot["layout"]["order"][-1]
+        self.assertEqual(snapshot["layout"], {"order": [*previous["order"], identity], "hidden": [initial]})
+        self.assertEqual(snapshot["panels"][identity]["value"], "Pack a map.")
+
+    def test_mock_starter_uses_panel_tool_or_asks_for_required_details(self):
+        self.app.agent.chat("Create a starter checklist Home panel. Start with an empty checklist.", lambda *_: None)
+        self.app.agent.chat("Create a starter countdown Home panel. Ask me for the target date in Chat.", lambda *_: None)
+        snapshot = self.app.home.snapshot()
+        self.assertEqual([(row["kind"], row["value"]) for row in snapshot["panels"].values()], [("checklist", [])])
+        with self.storage.lock():
+            reply = self.app.threads.messages("main")[-1]
+        self.assertEqual(reply["content"], "What date should the countdown end on?")
 
     def test_run_due_preserves_value_and_respects_failed_attempt_interval(self):
         row = self.execute("create_panel", **spec(source={"type": "brain", "query": "Count notes"}))["panels"][0]

@@ -170,8 +170,18 @@ def mock_completion(messages, emit, clock, *, tool_names=(), demo=False, panel_c
     elif "reminders" in last:
         items = last["reminders"]
         answer = "Upcoming reminders:\n" + "\n".join(f"- {item['title']}" for item in items) if items else "No upcoming reminders."
-    elif prompt.casefold() == panels.MOCK_DEMO.casefold() or lower.startswith("/panel "):
+    elif ((starter := panels.STARTER_REQUEST.match(prompt)) or prompt.casefold() == panels.MOCK_DEMO.casefold()
+          or lower.startswith("/panel ")):
         if not prior:
+            if starter:
+                kind = starter[1]
+                if kind == "countdown":
+                    return mock_text("What date should the countdown end on?", emit)
+                if kind == "web-summary":
+                    return mock_text("What public page should the panel summarize?", emit)
+                values = {"checklist": [], "list": [], "note": "Write a note here.", "stat": 0}
+                return tool_call("create_panel", {"title": kind.capitalize(), "kind": kind,
+                                                  "source": {"type": "static", "value": values[kind]}})
             if prompt.casefold() == panels.MOCK_DEMO.casefold():
                 return tool_call("create_panel", {"panels": panels.demo_specs(clock)})
             command, _, payload = prompt.removeprefix("/panel ").partition(" ")
@@ -187,6 +197,8 @@ def mock_completion(messages, emit, clock, *, tool_names=(), demo=False, panel_c
                       else f"{action['title']}.")
         else:
             answer = last.get("message", "Open Home to see your panels.")
+    elif prompt.startswith(panels.DESCRIPTION_REQUEST):
+        answer = "Choose a connected brain in Settings to create a panel from a custom description."
     elif panel_context is not None and re.fullmatch(r"what should i know about this panel\??", lower):
         snapshot = panel_context["snapshot"]
         summary = snapshot.get("value", snapshot)
@@ -474,14 +486,16 @@ class Agent:
                                     for address in EMAIL.findall(item["content"])}
         if task_run:
             turn["email_recipients"].update(address.casefold() for address in EMAIL.findall(prompt))
-        turn["automation_setup"] = bool(self.automation_requested(turn, CHAT_ORIGIN.get()))
-        turn["schedule_setup"] = not task_run and bool(SCHEDULE_SETUP.search(prompt))
+        home_creation = prompt.startswith(panels.DESCRIPTION_REQUEST) or bool(panels.STARTER_REQUEST.match(prompt))
+        turn["automation_setup"] = not home_creation and bool(self.automation_requested(turn, CHAT_ORIGIN.get()))
+        turn["schedule_setup"] = not home_creation and not task_run and bool(SCHEDULE_SETUP.search(prompt))
         page_intent = None
         pinned = thread_settings.get("skill")
-        turn["file_question"] = bool(self.artifacts and not task_run and not source and not pinned
+        turn["file_question"] = bool(self.artifacts and not home_creation and not task_run and not source and not pinned
                                      and not turn["automation_setup"] and file_questions.INTENT.search(prompt))
         recent_page = self.pages.recent(thread_id) if self.pages else None
-        if self.pages and prompt and not task_run and not pinned and not turn["automation_setup"] and not turn["file_question"]:
+        if (self.pages and prompt and not home_creation and not task_run and not pinned
+                and not turn["automation_setup"] and not turn["file_question"]):
             page_intent = page_agent.intent(prompt, recent_page, history[-2] if len(history) > 1 else None)
         turn["browse_intent"] = None if turn["panel_request"] else router.browse_intent(prompt)
         turn["file_intent"] = (file_intent.intent(prompt, has_recent_file, has_attachments=bool(attachments))

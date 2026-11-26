@@ -12,7 +12,7 @@ from unittest.mock import patch
 from playwright.sync_api import expect, sync_playwright
 
 from hearth import browserbase
-from hearth.agent import Agent
+from hearth.agent import Agent, mock_completion, mock_text, tool_call
 from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import ConnectorError, Gateway, read_config
 from hearth.server import Application, HTTPServer
@@ -498,6 +498,162 @@ def assert_thread_menu_position(page, trigger, menu, *, above=False):
     assert popup["y"] + popup["height"] <= page.viewport_size["height"] - 8, popup
 
 
+def home_add_smoke(browser, app, origin):
+    shots = os.environ.get("HEARTH_HOME_SCREENSHOTS")
+    if shots:
+        Path(shots).mkdir(parents=True, exist_ok=True)
+
+    def capture(page, name):
+        if shots:
+            page.screenshot(path=Path(shots) / f"home-{name}.png", animations="disabled")
+
+    def open_add(page):
+        page.get_by_role("button", name="Edit layout").click()
+        add = page.get_by_role("button", name="Add panel", exact=True)
+        expect(page.locator("#home-grid > :last-child")).to_have_attribute("id", "home-add")
+        expect(add).to_have_css("border-top-style", "dashed")
+        add.scroll_into_view_if_needed()
+        add.focus()
+        return add, page.get_by_role("dialog", name="Add panel", exact=True)
+
+    def assert_overflow(page):
+        assert page.evaluate("""() => [
+          document.documentElement, document.querySelector('#home-view'), document.querySelector('#home-grid'),
+          ...document.querySelectorAll('#home-add-popover:not([hidden])'),
+        ].every(element => element.scrollWidth <= element.clientWidth + 1)"""), page.viewport_size
+
+    def respond(messages, emit, clock, **options):
+        prompt = next(message["content"] for message in reversed(messages) if message["role"] == "user")
+        if prompt.startswith("Create one Home panel from this description."):
+            assert "create_panel" in options["tool_names"]
+            if messages[-1]["role"] == "tool":
+                return mock_text("I added the panel to Home.", emit)
+            return tool_call("create_panel", {
+                "title": "Trail notes", "kind": "note", "source": {"type": "static", "value": "Pack a map."},
+            })
+        return mock_completion(messages, emit, clock, **options)
+
+    for identity in ("today", "weather"):
+        app.home.adjust({"id": identity, "operation": "hide"})
+    for scheme in ("light", "dark"):
+        with browser_page(browser, origin, viewport={"width": 1440, "height": 1040}, color_scheme=scheme) as page:
+            assert page.goto("/").ok
+            expect(page.locator("#home-date-full")).to_have_text(re.compile(r"\w+, \w+ \d+"))
+            expect(page.get_by_role("button", name="Add panel", exact=True)).to_have_count(0)
+            if scheme == "light":
+                capture(page, "no-greeting-1440-light")
+            add, popup = open_add(page)
+            if scheme == "light":
+                capture(page, "edit-add-1440-light")
+            add.press("Enter")
+            expect(popup).to_be_visible()
+            expect(popup.get_by_role("button", name="Close Add panel")).to_be_focused()
+            expect(popup.locator("#home-add-kinds button")).to_have_text(
+                ["Countdown", "Checklist", "List", "Note", "Stat", "Web summary"])
+            assert popup.evaluate("element => element.matches(':popover-open') && element.hasAttribute('data-anchor')")
+            tile, bounds = add.bounding_box(), popup.bounding_box()
+            assert min(abs(tile["y"] - bounds["y"] - bounds["height"] - 8),
+                       abs(bounds["y"] - tile["y"] - tile["height"] - 8)) <= 1, (tile, bounds)
+            assert abs(tile["x"] + tile["width"] - bounds["x"] - bounds["width"]) <= 1, (tile, bounds)
+            assert popup.evaluate(r"""(popup) => {
+              const luminance = color => color.match(/\d+/g).slice(0, 3).map(Number)
+                .map(value => value / 255)
+                .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4)
+                .reduce((sum, value, i) => sum + value * [.2126, .7152, .0722][i], 0);
+              const samples = [document.querySelector('#home-add'),
+                ...popup.querySelectorAll('h2, h3, li span, button, label, textarea')];
+              return samples.every(element => {
+                const style = getComputedStyle(element);
+                const back = style.backgroundColor === 'rgba(0, 0, 0, 0)'
+                  ? getComputedStyle(popup).backgroundColor : style.backgroundColor;
+                const [high, low] = [luminance(style.color), luminance(back)].sort((a, b) => b - a);
+                return (high + .05) / (low + .05) >= 4.5;
+              });
+            }"""), f"Home Add panel text contrast in {scheme}"
+            page.mouse.move(1000, 45)
+            capture(page, f"add-popover-1440-{scheme}")
+            page.keyboard.press("Escape")
+            expect(popup).to_be_hidden()
+            expect(add).to_be_focused()
+
+    with browser_page(browser, origin, viewport={"width": 390, "height": 844},
+                      is_mobile=True, has_touch=True, color_scheme="light") as page:
+        assert page.goto("/").ok
+        add, popup = open_add(page)
+        add.tap()
+        expect(popup).to_be_visible()
+        bounds = popup.bounding_box()
+        assert bounds["x"] == 0 and bounds["width"] == 390
+        assert abs(bounds["y"] + bounds["height"] - 844) <= 1, bounds
+        assert popup.locator("button, textarea").evaluate_all("""items => items.every(item => {
+          const rect = item.getBoundingClientRect();
+          return rect.width >= 44 && rect.height >= 44;
+        })""")
+        assert_overflow(page)
+        capture(page, "add-sheet-390-light")
+        page.get_by_role("button", name="Open menu").tap()
+        expect(popup).to_be_hidden()
+        expect(add).to_be_focused()
+        expect(page.locator("#workspace-drawer")).to_be_hidden()
+
+    with patch("hearth.agent.mock_completion", side_effect=respond), \
+            browser_page(browser, origin, viewport={"width": 1440, "height": 1040}) as page:
+        page.add_init_script("HTMLElement.prototype.showPopover = undefined")
+        assert page.goto("/").ok
+        open_chat(page)
+        page.locator("#message").fill("Saved Chat draft")
+        page.locator(".sidebar").get_by_role("button", name="Home", exact=True).click()
+        add, popup = open_add(page)
+        add.click()
+        expect(popup).to_be_visible()
+        assert popup.get_attribute("popover") is None
+        assert_overflow(page)
+        popup.get_by_role("button", name="Restore Today").click()
+        expect(popup).to_be_hidden()
+        expect(add).to_be_focused()
+        feedback = page.locator("#home-feedback")
+        expect(feedback).to_have_text("Today restored.")
+        expect(page.get_by_role("article", name="Today", exact=True)).to_be_visible()
+
+        add.click()
+        popup.get_by_role("button", name="Checklist", exact=True).click()
+        expect(popup).to_be_hidden()
+        expect(feedback).to_have_text("Checklist added to Home.")
+        expect(add).to_be_focused()
+        expect(page.locator("#home-add").locator("xpath=preceding-sibling::*[1]")).to_have_accessible_name("Checklist")
+        expect(page.get_by_role("button", name="Done", exact=True)).to_have_attribute("aria-pressed", "true")
+
+        add.click()
+        popup.get_by_label("Describe a panel…").fill("A note called Trail notes.\nPack a map.")
+        popup.get_by_role("button", name="Send to Chat").click()
+        expect(feedback).to_have_text("Trail notes added to Home.")
+        expect(page.locator("#home-add").locator("xpath=preceding-sibling::*[1]")).to_have_accessible_name("Trail notes")
+        expect(add).to_be_focused()
+        with app.storage.lock():
+            messages = app.threads.messages("main")
+        assert messages[-2]["content"].endswith("A note called Trail notes.\nPack a map.")
+        assert app.home.snapshot()["layout"]["order"][-1] in app.storage.load()["panels"]
+
+        add.click()
+        popup.get_by_role("button", name="Countdown", exact=True).click()
+        expect(feedback).to_contain_text("Continue the panel request in Chat.")
+        feedback.get_by_role("button", name="Open Chat").click()
+        expect(page.locator("#transcript")).to_contain_text("What date should the countdown end on?")
+        expect(page.locator("#message")).to_have_value("Saved Chat draft")
+        page.locator(".sidebar").get_by_role("button", name="Home", exact=True).click()
+        expect(page.get_by_role("button", name="Done", exact=True)).to_be_visible()
+
+        add.click()
+        widths = sorted({390, 760, 761, 1024, 1025, 1440, 1920, *range(416, 1920, 64)})
+        for width in widths:
+            page.set_viewport_size({"width": width, "height": 900})
+            expect(popup).to_be_visible()
+            assert_overflow(page)
+        page.keyboard.press("Escape")
+        page.get_by_role("button", name="Done", exact=True).click()
+        expect(add).to_have_count(0)
+
+
 def thread_menu_smoke(browser, origin):
     with browser_page(browser, origin, color_scheme="dark", viewport={"width": 1440, "height": 900}) as page:
         open_chat(page)
@@ -900,6 +1056,8 @@ def main():
             else:
                 with workspace() as (layout_app, layout_origin):
                     layout_smoke(browser, layout_app, layout_origin)
+                with workspace() as (home_app, home_origin):
+                    home_add_smoke(browser, home_app, home_origin)
                 smoke(browser, origin)
                 mobile_thread_menu_smoke(browser, origin)
                 thread_menu_smoke(browser, origin)
