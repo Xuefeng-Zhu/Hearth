@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from copy import deepcopy
 
 from hearth import approvals
 from hearth.agent import TURN_MEMORY, tool_call
@@ -37,7 +38,7 @@ class ScriptedGateway(WorkerGateway):
         reply = next(self.script)
         if isinstance(reply, ConnectorError):
             raise reply
-        return reply
+        return deepcopy(reply)
 
 
 class ToolLoopTest(unittest.TestCase):
