@@ -187,8 +187,10 @@ class UploadsTest(unittest.TestCase):
         self.assertEqual([source["text"] for source in sources], ["紫色背景", "我喜欢图书馆"])
         self.assertEqual([call.args[0]["model"] for call in models.completion.call_args_list],
                          list(uploads.VISION_MODELS))
-        self.assertTrue(models.completion.call_args.args[1][0]["content"][1]["image_url"]["url"]
-                        .startswith("data:image/jpeg;base64,"))
+        content = models.completion.call_args.args[1][0]["content"]
+        self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+        self.assertIn("Describe only what is visible in this image", content[0]["text"])
+        self.assertIn("Do not answer sections about other files", content[0]["text"])
         whisper.assert_called_once_with(models, connection, b"RIFF\x04\x00\x00\x00WAVE", "audio/wav", "auto")
 
 
