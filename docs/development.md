@@ -34,13 +34,19 @@ for run in 25 30 31 32 33; do
 done
 ```
 
-The fixtures exercise Home, attachments, Pages, Settings → Connections and Skills, parallel workers, structured Memory, and For you. The navigation, Connections, and Skills checks include 375, 390, and 1440 px in light and dark themes.
+The fixtures exercise Home, attachments, Pages, Settings → Connections, the Skills library, parallel workers, structured Memory, and For you. The navigation, Connections, and Skills checks include 375, 390, and 1440 px in light and dark themes.
 
-The drawer and Settings screenshot fixture prefers WebKit and falls back to Chromium with iPhone emulation when WebKit cannot launch. It checks both themes at 375×667 and 390×844 on phones and 1440×1000 on desktop. The fixture seeds 12 side chats with long titles and checks that every workspace link fits before scrolling, thread titles truncate, and Settings stays pinned while the drawer scrolls. It also exercises all 12 Settings disclosures and the legacy Connections and Skills links. [Browser fixture](../tests/run38-browser.py)
+The drawer and Settings screenshot fixture prefers WebKit and falls back to Chromium with iPhone emulation when WebKit cannot launch. It checks both themes at 375×667 and 390×844 on phones and 1440×1000 on desktop. The fixture seeds 12 side chats with long titles and checks that every workspace link fits before scrolling, thread titles truncate, and Settings stays pinned while the drawer scrolls. It also exercises all 11 Settings disclosures, the Skills page, and former Connections and Skills bookmarks. [Browser fixture](../tests/run38-browser.py)
 
 ```sh
 python -m playwright install webkit
 PYTHONPATH=. python tests/run38-browser.py --output /tmp/hearth-browser-38
+```
+
+The Run 39 WebKit regression checks 375×667, 390×844, and 1440×1000 in both themes. It exercises every workspace page, measures pane overflow and mobile touch targets, samples WCAG AA contrast, and checks thread status and simulated visual-viewport changes. Pass `--output` to save screenshots and reports with fictional data. [Audit](../UX-AUDIT.md)
+
+```sh
+PYTHONPATH=. python tests/run39-browser.py --output /tmp/hearth-browser-39
 ```
 
 The contrast sweep uses Node Playwright. The following commands install it in a temporary directory and start an isolated fixture server.
