@@ -31,7 +31,7 @@ BACKENDS = ("pinecone", "local", "huggingface", "keyword")
 KINDS = ("fact", "preference", "person", "event", "artifact", "transcript")
 CHAT_BUDGET = 0.55
 QUERY_CACHE_SIZE = 128
-QUERY_FILLERS = {"a", "an", "can", "cannot", "do", "does", "is", "of", "the", "to", "what", "who", "who's"}
+QUERY_FILLERS = {"a", "an", "can", "cannot", "do", "does", "is", "of", "s", "the", "to", "what", "who"}
 HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$")
 CITATION = re.compile(r"\[\[memory:([a-f0-9]{16})\]\]")
 BATCH_SIZE = 16
@@ -234,10 +234,10 @@ def artifact_chunks(rows):
 
 
 def ranked_hits(items, query, selection, similarities=None):
-    words = set(re.findall(r"\w+(?:['’]\w+)*", query.casefold())) - QUERY_FILLERS
+    words = set(memory.words(query)) - QUERY_FILLERS
     hits = []
     for item in items:
-        bag = set(re.findall(r"\w+", f"{item['path']} {vector_text(item)}".casefold()))
+        bag = set(memory.words(f"{item['path']} {vector_text(item)}"))
         keyword = len(words & bag) / max(len(words), 1)
         similarity = None if similarities is None else similarities.get(item["id"])
         if similarity is None:

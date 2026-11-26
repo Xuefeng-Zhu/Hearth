@@ -67,6 +67,17 @@ class RecallTest(unittest.TestCase):
         self.assertIn("Sundays", self.http.requests[-2][1][0])
         self.assertNotIn("hazelnuts", self.http.requests[-2][1][0])
 
+    def test_local_recall_matches_a_chinese_phrase_inside_a_note(self):
+        self.storage.write("topics/lantern.md", "# 星火测试\n\n我的星火测试笔记：青瓷风铃编号是云雀七码。\n")
+        self.storage.write("topics/ceramics.md", "# 青瓷\n\n茶杯是青瓷做的。\n")
+        index = recall.Recall(self.storage, self.gateway)
+        for backend in ("local", "keyword"):
+            with self.subTest(backend=backend):
+                selection = {**self.selection, "backend": backend}
+                hit, = index.run(self.config, selection, "青瓷风铃编号")["results"]
+                self.assertEqual(hit["path"], "topics/lantern.md")
+                self.assertIn("云雀七码", hit["excerpt"])
+
     def test_chat_cites_only_sources_used_and_persists_metadata(self):
         def completion(model, messages, tools, emit):
             reference = json.loads(messages[0]["content"].split("\n")[-1])
