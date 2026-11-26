@@ -1,3 +1,5 @@
+import { anchorOrigin, fixedBounds, freezeAnchor } from "./motion.js";
+
 export function threadMenuPosition(anchor, menu, viewport, gap, inset) {
   const below = anchor.bottom + gap;
   const above = anchor.top - gap - menu.height;
@@ -55,14 +57,17 @@ export function createThreadMenu(menu) {
     menu.style.removeProperty("left");
     menu.style.removeProperty("top");
     menu.toggleAttribute("data-anchor", anchors);
-    const bounds = menu.getBoundingClientRect();
-    if (anchors && bounds.left >= screen.left + inset && bounds.right <= screen.right - inset
-        && bounds.top >= screen.top + inset && bounds.bottom <= screen.bottom - inset) return;
+    const bounds = fixedBounds(menu);
+    const anchor = trigger.getBoundingClientRect();
+    if (!anchors || bounds.left < screen.left + inset || bounds.right > screen.right - inset
+        || bounds.top < screen.top + inset || bounds.bottom > screen.bottom - inset) {
+      menu.removeAttribute("data-anchor");
+      const coords = threadMenuPosition(anchor, bounds, screen, gap, inset);
+      menu.style.left = `${coords.left}px`;
+      menu.style.top = `${coords.top}px`;
+    }
 
-    menu.removeAttribute("data-anchor");
-    const coords = threadMenuPosition(trigger.getBoundingClientRect(), bounds, screen, gap, inset);
-    menu.style.left = `${coords.left}px`;
-    menu.style.top = `${coords.top}px`;
+    anchorOrigin(menu, anchor);
   }
 
   function setTrigger(button) {
@@ -75,8 +80,10 @@ export function createThreadMenu(menu) {
     if (!trigger) return false;
     const button = trigger;
     trigger = undefined;
+    freezeAnchor(menu);
     if (native) menu.hidePopover();
     menu.hidden = true;
+    menu.inert = true;
     button.setAttribute("aria-expanded", "false");
     if (restoreFocus) button.focus({ preventScroll: true });
     return true;
@@ -90,6 +97,7 @@ export function createThreadMenu(menu) {
     close({ restoreFocus: false });
     setTrigger(button);
     menu.hidden = false;
+    menu.inert = false;
     if (native) menu.showPopover();
     position();
     menu.scrollTop = 0;

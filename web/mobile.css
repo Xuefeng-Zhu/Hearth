@@ -55,8 +55,8 @@
     color: var(--accent);
     font-size: 24px;
   }
-  .workspace-drawer[open] {
-    display: grid;
+  .workspace-drawer[open] { display: grid; }
+  .workspace-drawer {
     grid-template: auto minmax(0, 1fr) auto / minmax(0, 1fr);
     position: fixed;
     inset: var(--keyboard-top, 0px) auto auto 0;
@@ -74,11 +74,8 @@
     overflow: hidden;
     overscroll-behavior: contain;
     touch-action: pan-y;
-    animation: drawer-enter 200ms ease-out;
   }
   .workspace-drawer::backdrop { background: var(--overlay-scrim); }
-  @keyframes drawer-enter { from { transform: translateX(-100%); } }
-  @media (prefers-reduced-motion: reduce) { .workspace-drawer[open] { animation: none; } }
   .workspace-drawer-header {
     flex: none;
     padding-bottom: var(--space-3);

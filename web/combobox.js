@@ -1,4 +1,5 @@
 import { icon } from "./icons.js";
+import { anchorOrigin } from "./motion.js";
 
 const isPicker = (select) => !select.multiple && select.size <= 1
   && (select.hasAttribute("data-searchable") || select.options.length > 8);
@@ -76,6 +77,7 @@ function positionPopup(popup, trigger, mobile) {
   const x = styles.direction === "rtl" ? bounds.right - popupWidth : bounds.left;
   popup.style.left = `${Math.max(left + inset, Math.min(x, left + width - inset - popupWidth))}px`;
   popup.style.top = `${flip ? bounds.top - gap - popup.offsetHeight : bounds.bottom + gap}px`;
+  anchorOrigin(popup, bounds);
 }
 
 function createPopup() {
@@ -175,6 +177,7 @@ function createPopup() {
     highlight(undefined);
     if (native && popup.matches(":popover-open")) popup.hidePopover();
     popup.hidden = true;
+    popup.inert = true;
     trigger.setAttribute("aria-expanded", "false");
     search.setAttribute("aria-expanded", "false");
     if (restoreFocus) trigger.focus({ preventScroll: true });
@@ -185,10 +188,12 @@ function createPopup() {
     close(false);
     if (control.select.matches(":disabled") || !control.trigger.getClientRects().length) return;
     active = control;
-    (control.trigger.closest("dialog") || document.body).append(popup);
+    const parent = control.trigger.closest("dialog") || document.body;
+    if (popup.parentElement !== parent) parent.append(popup);
     popup.dir = getComputedStyle(control.trigger).direction;
     search.value = query;
     popup.hidden = false;
+    popup.inert = false;
     if (native) popup.showPopover();
     control.trigger.setAttribute("aria-expanded", "true");
     search.setAttribute("aria-expanded", "true");

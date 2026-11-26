@@ -1,0 +1,74 @@
+.thread-menu, .home-add-popover, .combobox-popup, .chat-find, dialog {
+  --surface-motion-time: var(--motion-fast);
+  --surface-motion-ease: var(--motion-emphasized-accelerate);
+  --surface-motion-offset: 0 0;
+  --surface-motion-scale: .96;
+  opacity: 0;
+  translate: var(--surface-motion-offset);
+  scale: var(--surface-motion-scale);
+  transform-origin: var(--motion-origin, center);
+  pointer-events: none;
+  transition: opacity var(--surface-motion-time) var(--surface-motion-ease),
+    translate var(--surface-motion-time) var(--surface-motion-ease),
+    scale var(--surface-motion-time) var(--surface-motion-ease);
+  transition: opacity var(--surface-motion-time) var(--surface-motion-ease),
+    translate var(--surface-motion-time) var(--surface-motion-ease),
+    scale var(--surface-motion-time) var(--surface-motion-ease),
+    display var(--surface-motion-time) allow-discrete,
+    overlay var(--surface-motion-time) allow-discrete;
+}
+
+:is(.thread-menu, .home-add-popover, .combobox-popup, .chat-find):not([hidden]),
+dialog:is([open], :popover-open, [data-motion-fallback]:not([hidden])) {
+  --surface-motion-time: var(--motion-base);
+  --surface-motion-ease: var(--motion-emphasized-decelerate);
+  opacity: 1;
+  translate: none;
+  scale: none;
+  pointer-events: auto;
+}
+
+@starting-style {
+  :is(.thread-menu, .home-add-popover, .combobox-popup, .chat-find):not([hidden]),
+  dialog:is([open], :popover-open, [data-motion-fallback]:not([hidden])) {
+    opacity: 0;
+    translate: var(--surface-motion-offset);
+    scale: var(--surface-motion-scale);
+  }
+}
+
+dialog::backdrop, .home-add-popover::backdrop, .combobox-popup::backdrop {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-emphasized-accelerate),
+    display var(--motion-fast) allow-discrete, overlay var(--motion-fast) allow-discrete;
+}
+
+dialog[open]::backdrop, :is(.home-add-popover, .combobox-popup):is(:popover-open)::backdrop {
+  opacity: 1;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--motion-emphasized-decelerate);
+}
+dialog[open]::backdrop { pointer-events: auto; }
+
+@starting-style {
+  dialog[open]::backdrop, :is(.home-add-popover, .combobox-popup):is(:popover-open)::backdrop { opacity: 0; }
+}
+
+.chat-find { --motion-origin: right top; }
+
+@media (max-width: 760px) {
+  :is(dialog, .home-add-popover, .combobox-popup) {
+    --surface-motion-offset: 0 100%;
+    --surface-motion-scale: none;
+  }
+  .workspace-drawer { --surface-motion-offset: -100% 0; }
+  :is(.home-add-popover, .combobox-popup, .chat-search-dialog)::backdrop { background: var(--overlay-scrim); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.thread-menu, .home-add-popover, .combobox-popup, .chat-find, dialog) {
+    --surface-motion-offset: none;
+    --surface-motion-scale: none;
+  }
+}

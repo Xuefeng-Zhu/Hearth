@@ -1,5 +1,6 @@
 import { threadMenuIndex } from "./thread-menu.js";
 import { appendHighlighted, slashSearchShortcut } from "./dom.js";
+import { anchorOrigin } from "./motion.js";
 
 const relativeDates = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
@@ -54,26 +55,28 @@ export function createChatSearch({ api, thread, jump, reveal, prepareFind }) {
     dialog.style.setProperty("--chat-search-space", `${viewport.clientHeight - top - 8}px`);
     const left = Math.max(8, Math.min(anchor.right - dialog.offsetWidth, viewport.clientWidth - dialog.offsetWidth - 8));
     dialog.style.setProperty("--chat-search-left", `${left}px`);
+    anchorOrigin(dialog, anchor);
   }
 
   function showDialog() {
     dialog.hidden = false;
+    dialog.inert = false;
     dialog.toggleAttribute("data-sheet", sheet.matches);
-    if (sheet.matches) dialog.showModal();
-    else if (popover) {
+    if (sheet.matches) {
+      dialog.removeAttribute("popover");
+      dialog.showModal();
+    } else if (popover) {
       dialog.setAttribute("popover", "manual");
       dialog.showPopover();
-    }
+    } else dialog.setAttribute("data-motion-fallback", "");
     position();
   }
 
   function hideDialog() {
     if (dialog.open) dialog.close();
-    if (dialog.hasAttribute("popover")) {
-      dialog.hidePopover();
-      dialog.removeAttribute("popover");
-    }
+    if (popover && dialog.matches(":popover-open")) dialog.hidePopover();
     dialog.hidden = true;
+    dialog.inert = true;
   }
 
   function cancel() {
@@ -89,7 +92,6 @@ export function createChatSearch({ api, thread, jump, reveal, prepareFind }) {
     cancel();
     hideDialog();
     find.hidden = true;
-    dialog.append(panel);
     trigger.setAttribute("aria-expanded", "false");
     if (restoreFocus) (focusBack?.getClientRects().length ? focusBack : trigger).focus({ preventScroll: true });
     return true;
@@ -110,7 +112,7 @@ export function createChatSearch({ api, thread, jump, reveal, prepareFind }) {
     controls.hidden = global;
     if (global) {
       find.hidden = true;
-      dialog.append(panel);
+      if (panel.parentElement !== dialog) dialog.append(panel);
       input.setAttribute("role", "combobox");
       input.setAttribute("aria-autocomplete", "list");
       input.setAttribute("aria-controls", results.id);
@@ -118,7 +120,7 @@ export function createChatSearch({ api, thread, jump, reveal, prepareFind }) {
     } else {
       hideDialog();
       prepareFind();
-      find.append(panel);
+      if (panel.parentElement !== find) find.append(panel);
       find.hidden = false;
       for (const attr of ["role", "aria-autocomplete", "aria-controls", "aria-expanded"]) input.removeAttribute(attr);
     }

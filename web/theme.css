@@ -1,4 +1,11 @@
 :root {
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --motion-stagger: 32ms;
+  --motion-standard: cubic-bezier(.2, 0, 0, 1);
+  --motion-emphasized-decelerate: cubic-bezier(.05, .7, .1, 1);
+  --motion-emphasized-accelerate: cubic-bezier(.3, 0, .8, .15);
   --text: #271f2c;
   --face-title: #482f43;
   --caption-text: #3e303c;

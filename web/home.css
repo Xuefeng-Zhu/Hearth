@@ -426,7 +426,7 @@
   .home-add-popover {
     padding-bottom: max(var(--card-padding), env(safe-area-inset-bottom));
     border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;
-    box-shadow: 0 0 0 100vmax var(--drawer-scrim);
+    box-shadow: none;
   }
   .home-date time { font-size: clamp(22px, 6vw, 29px); }
   #home-date-full { display: none; }

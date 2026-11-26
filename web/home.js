@@ -1,6 +1,7 @@
 import { icon, iconButton } from "./icons.js";
 import { createGoals } from "./goals.js";
 import { threadMenuPosition } from "./thread-menu.js";
+import { anchorOrigin, fixedBounds, freezeAnchor } from "./motion.js";
 
 const get = (id) => document.getElementById(id);
 const demoPrompt = "Create the Thanksgiving countdown and shopping list Home panels";
@@ -185,21 +186,25 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     addPopover.style.removeProperty("left");
     addPopover.style.removeProperty("top");
     addPopover.toggleAttribute("data-anchor", anchored);
-    const bounds = addPopover.getBoundingClientRect();
-    if (anchored && bounds.left >= left + inset && bounds.right <= screen.right - inset
-        && bounds.top >= top + inset && bounds.bottom <= screen.bottom - inset) return;
-
-    addPopover.removeAttribute("data-anchor");
-    const position = sheet.matches ? { left, top: screen.bottom - bounds.height }
-      : threadMenuPosition(add.getBoundingClientRect(), bounds, screen, gap, inset);
-    addPopover.style.left = `${position.left}px`;
-    addPopover.style.top = `${position.top}px`;
+    const bounds = fixedBounds(addPopover);
+    const anchor = add.getBoundingClientRect();
+    if (!anchored || bounds.left < left + inset || bounds.right > screen.right - inset
+        || bounds.top < top + inset || bounds.bottom > screen.bottom - inset) {
+      addPopover.removeAttribute("data-anchor");
+      const position = sheet.matches ? { left, top: screen.bottom - bounds.height }
+        : threadMenuPosition(anchor, bounds, screen, gap, inset);
+      addPopover.style.left = `${position.left}px`;
+      addPopover.style.top = `${position.top}px`;
+    }
+    anchorOrigin(addPopover, anchor);
   }
 
   function closeAdd({ restoreFocus = true } = {}) {
     if (addPopover.hidden) return;
+    freezeAnchor(addPopover);
     if (nativePopover) addPopover.hidePopover();
     addPopover.hidden = true;
+    addPopover.inert = true;
     add.setAttribute("aria-expanded", "false");
     if (restoreFocus) add.focus({ preventScroll: true });
   }
@@ -220,6 +225,7 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     get("home-add-restore-empty").hidden = !!hidden.length;
     add.setAttribute("aria-expanded", "true");
     addPopover.hidden = false;
+    addPopover.inert = false;
     if (nativePopover) addPopover.showPopover();
     addPopover.scrollTop = 0;
     positionAdd();
