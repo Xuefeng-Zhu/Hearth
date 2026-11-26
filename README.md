@@ -34,6 +34,7 @@ The desktop sidebar and mobile drawer list **Home**, **Chat**, **Timeline**, **A
 - **Review what Hearth remembers.** Edit your profile and browse linked People, Places, Topics, and Daily notes. Search uses local keyword matching in English and Chinese, with optional Pinecone recall. With Auto-remember enabled, chat can save durable facts to subject notes during the turn. In chat, ask Hearth to permanently forget a specific fact. [Memory guide](docs/memory.md)
 - **Consolidate memory with review.** Hearth prepares a nightly digest of duplicate entries, contradictions, repeated profile facts, and stale items. Review proposals in **Memory → Review** or from **Home → Feed**. Change the schedule or select **Run now** in **Settings → Memory**. Accepted edits can be undone in Timeline. [Memory review](docs/memory.md#nightly-memory-review)
 - **Keep context in long chats.** Hearth combines the latest 16 dialogue messages with a rolling summary of earlier turns. With a connected brain, summaries update in the background. View or reset a summary from the thread’s **⋯** menu, or turn off **Summarize long chats** in **Settings → Memory**. [Long chats](docs/memory.md#long-chats)
+- **Act when something happens.** Create a rule in **Settings → Automations** or ask in Chat and confirm the proposal. New AgentMail messages, reminder firings, Feed cards, and scheduled times can trigger a run. Settings shows the run history, and Timeline offers Undo for reversible changes. The inbound email path passed a live Sprite check. [Automations guide](docs/approvals-and-tasks.md#event-triggered-automations), [Run 44 verification](docs/run-44.md)
 - **Run on a schedule.** Create reminders or recurring prompts with their own run history. AgentMail can import forwarded mail as proposals and deliver configured reminder or task email.
 - **Talk to Hearth.** Dictate with browser speech recognition or Hugging Face Whisper. Vocal Bridge adds live calls routed to the originating chat, with a scripted call demo available locally.
 
@@ -100,7 +101,7 @@ The [GitHub Actions workflow](.github/workflows/deploy.yml) runs the tests first
 
 ## Configuration
 
-Use **Settings → Connections** to refresh discovery. Other Settings sections configure the brain, recall, search, voice, reminders, proactivity, approvals, and artifacts. Recurring tasks can delegate through the same pool. A skill can delegate by including `spawn_workers` and the worker tools it allows. [Connector defaults](config/connectors.json) ship with blank connection IDs. Local settings are saved under the workspace by default. The Sprite service saves connector settings under `~/hearth/config/`.
+Use **Settings → Connections** to refresh discovery. Other Settings sections configure the brain, recall, search, voice, reminders, proactivity, automations, approvals, and artifacts. Recurring tasks can delegate through the same pool. A skill can delegate by including `spawn_workers` and the worker tools it allows. [Connector defaults](config/connectors.json) ship with blank connection IDs. Local settings are saved under the workspace by default. The Sprite service saves connector settings under `~/hearth/config/`.
 
 | Setting | Use |
 | --- | --- |

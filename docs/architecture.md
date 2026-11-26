@@ -31,7 +31,7 @@ Chat streams worker snapshots as `worker` events. The saved snapshots restore th
 | Recall | Markdown and enabled sources on disk, with derived indexes and an optional Pinecone namespace |
 | Deployment | `~/hearth/current` points to a release. `~/hearth/data` and `~/hearth/config` persist separately from releases. |
 
-The Sprite installer registers web and scheduler services. The web service also runs a background loop for delivery, tasks, and Home refresh. The authenticated scheduler tick checks due reminders and tasks, polls Inbox, and refreshes due Home panels. An external tick can wake the Sprite while browsers are closed. Home can call Open-Meteo directly. Browser voice calls join a LiveKit room after the Hearth server requests a session credential through Vocal Bridge. [Deploy and wake](deploy.md), [Voice](voice.md)
+The Sprite installer registers web and scheduler services. The web service also runs a background loop for delivery, tasks, event automations, and Home refresh. The authenticated scheduler tick checks due reminders and tasks, polls Inbox, starts automation processing, and refreshes due Home panels. An external tick can wake the Sprite while browsers are closed. Home can call Open-Meteo directly. Browser voice calls join a LiveKit room after the Hearth server requests a session credential through Vocal Bridge. [Deploy and wake](deploy.md), [Voice](voice.md)
 
 ## Checkpoints and Undo
 
@@ -42,3 +42,7 @@ A native restore rolls the whole Sprite filesystem back to that checkpoint and c
 ## Published Pages
 
 Private previews use a sandbox and a restrictive content security policy. Approved sharing copies one sanitized version to an optional share-only Sprite. Anyone with the link can read the snapshot until it is revoked. The share-only process serves token-addressed HTML and accepts authenticated publish and revoke requests. Workspace APIs run on the private Sprite. [Pages code](../hearth/pages.py), [Public handler](../hearth/page_public.py), [Publisher deployment](deploy.md#publish-html-snapshots)
+
+## Automation events
+
+Inbox polling and reminder firing persist matching run claims in workspace state. The web runner also checks due schedules and eligible new Feed cards. Runs store ordered action progress and reuse the existing approval receipts for outbound actions. A run interrupted during an action shows an unconfirmed outcome. Timeline reads persisted run states and can undo individual local changes. [Automations](approvals-and-tasks.md#event-triggered-automations)
