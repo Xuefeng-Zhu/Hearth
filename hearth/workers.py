@@ -18,6 +18,7 @@ TOOL_LIMIT = 4
 MODEL_LIMIT = TOOL_LIMIT + 1
 OUTPUT_TOKENS = 2048
 ACTIVE = {"queued", "running", "waiting_approval"}
+STORAGE_FAILURE = "Hearth could not save the worker's status."
 
 
 def validate_cap(value):
@@ -54,6 +55,10 @@ class Halt(Exception):
     pass
 
 
+class WorkerStorageError(HearthError):
+    pass
+
+
 class Worker:
     def __init__(self, pool, turn_id, origin, title, event):
         self.pool = pool
@@ -86,10 +91,11 @@ class Worker:
                 steps = [*steps[:-1], {**steps[-1], "status": status,
                          **({"detail": compact(redact_text(detail), 180)} if detail else {})}]
             waiting = status == "waiting_approval"
-            self.pool.publish(self, {
+            self.pool.save_progress(self, {
                 "status": "waiting_approval" if waiting else "running",
                 "steps": steps, "summary": "Review the approval card." if waiting else "Working on the assignment.",
             })
+            self.event("worker", self.row)
 
     def wait_approval(self, identity):
         while True:
@@ -117,6 +123,14 @@ def withdraw(state, worker, reason, now):
     return withdrawn
 
 
+def finished_row(row, changes):
+    status = changes["status"]
+    steps = row["steps"]
+    if status != "done" and steps and steps[-1]["status"] in ACTIVE:
+        changes = {**changes, "steps": [*steps[:-1], {**steps[-1], "status": status, "detail": changes["summary"]}]}
+    return {**row, **changes}
+
+
 class Pool:
     def __init__(self, storage, cap=DEFAULT_CAP, *, timeout=TIMEOUT):
         self.storage = storage
@@ -127,6 +141,7 @@ class Pool:
         self.queue = deque()
         self.active = {}
         self.running = 0
+        self.pending_failures = {}
 
     def recover(self):
         with self.storage.lock():
@@ -154,38 +169,74 @@ class Pool:
             with self.condition:
                 return self.active.get(identity)
 
-    def publish(self, worker, changes, *, withdraw_reason=None):
-        row = {**worker.row, **changes,
-               "elapsed_ms": round((time.monotonic() - (worker.started or worker.queued)) * 1_000)}
-        withdrawn = []
+    def save_progress(self, worker, changes):
+        row = {**worker.row,
+               "elapsed_ms": round((time.monotonic() - (worker.started or worker.queued)) * 1_000), **changes}
+        try:
+            with self.storage.lock():
+                state = self.storage.load()
+                state.setdefault("workers", {})[worker.identity] = row
+                self.storage.save(state)
+        except (OSError, json.JSONDecodeError):
+            raise WorkerStorageError(STORAGE_FAILURE) from None
+        worker.row = row
+
+    def save_finish(self, identity, changes, *, withdraw_pending, fallback=None):
+        # Reload before writing so a failed write or a checkpoint restore cannot replay stale state.
         with self.storage.lock():
             state = self.storage.load()
-            state.setdefault("workers", {})[worker.identity] = row
-            if withdraw_reason:
-                withdrawn = withdraw(state, row, withdraw_reason, datetime.now(timezone.utc))
+            rows = state.setdefault("workers", {})
+            durable = rows.get(identity, fallback)
+            if durable is None or durable["status"] not in ACTIVE:
+                return durable, []
+            row = finished_row(durable, changes)
+            withdrawn = withdraw(state, row, row["summary"], datetime.now(timezone.utc)) if withdraw_pending else []
+            rows[identity] = row
             self.storage.save(state)
-        worker.row = row
-        worker.event("worker", row)
-        for action in withdrawn:
-            worker.event("action", action)
+        return row, withdrawn
+
+    def retry_failed_writes(self):
+        for identity, changes in list(self.pending_failures.items()):
+            try:
+                self.save_finish(identity, changes, withdraw_pending=True)
+            except (OSError, json.JSONDecodeError):
+                break
+            del self.pending_failures[identity]
+
+    def commit_finish(self, worker, changes, *, withdraw_pending):
+        try:
+            return self.save_finish(worker.identity, changes, withdraw_pending=withdraw_pending, fallback=worker.row)
+        except (OSError, json.JSONDecodeError):
+            changes = {**changes, "status": "failed", "summary": STORAGE_FAILURE}
+        try:
+            return self.save_finish(worker.identity, changes, withdraw_pending=True, fallback=worker.row)
+        except (OSError, json.JSONDecodeError):
+            # Report the failure to the turn and retry the durable update on later pool activity.
+            self.pending_failures[worker.identity] = changes
+            return finished_row(worker.row, changes), []
 
     def finish(self, worker, status, summary, *, data=None, withdraw_pending=False):
         if worker.terminal.is_set():
             return
-        worker.terminal.set()
-        worker.data = data
-        changes = {"status": status, "summary": summary, "finished_at": timestamp()}
-        if status != "done" and (steps := worker.row["steps"]) and steps[-1]["status"] in ACTIVE:
-            changes["steps"] = [*steps[:-1], {**steps[-1], "status": status, "detail": summary}]
-        self.publish(worker, changes, withdraw_reason=summary if withdraw_pending else None)
-        self.active.pop(worker.identity, None)
-        self.condition.notify_all()
+        changes = {"status": status, "summary": summary, "finished_at": timestamp(),
+                   "elapsed_ms": round((time.monotonic() - (worker.started or worker.queued)) * 1_000)}
+        try:
+            worker.row, withdrawn = self.commit_finish(worker, changes, withdraw_pending=withdraw_pending)
+            worker.data = data if worker.row["status"] == "done" else None
+        finally:
+            worker.terminal.set()
+            self.active.pop(worker.identity, None)
+            self.condition.notify_all()
+        worker.event("worker", worker.row)
+        for action in withdrawn:
+            worker.event("action", action)
 
     def expire(self, worker):
         self.finish(worker, "failed", "Worker timed out.",
                     withdraw_pending=not worker.row.get("task_run"))
 
     def dispatch(self):
+        self.retry_failed_writes()
         while self.queue and self.running < self.cap:
             worker, task, execute = self.queue.popleft()
             if worker.terminal.is_set():
@@ -193,12 +244,26 @@ class Pool:
             if time.monotonic() >= worker.deadline:
                 self.expire(worker)
                 continue
-            worker.started = time.monotonic()
+            started = time.monotonic()
+            try:
+                self.save_progress(worker, {"status": "running", "started_at": timestamp(), "elapsed_ms": 0})
+            except WorkerStorageError:
+                self.finish(worker, "failed", STORAGE_FAILURE)
+                continue
+            try:
+                self.executor.submit(self.run_worker, worker, task, execute)
+            except RuntimeError:
+                self.finish(worker, "failed", "Hearth could not start the worker.")
+                continue
+            worker.started = started
             self.running += 1
-            self.publish(worker, {"status": "running", "started_at": timestamp()})
-            self.executor.submit(self.run_worker, worker, task, execute)
+            worker.event("worker", worker.row)
 
     def run_worker(self, worker, task, execute):
+        with self.condition:
+            # A rejected submission may have enqueued work before the executor raised.
+            if worker.started is None:
+                return
         status, summary, data = "failed", "The worker could not finish.", None
         try:
             worker.remaining()
@@ -211,19 +276,26 @@ class Pool:
         finally:
             with self.condition:
                 self.running -= 1
-                if time.monotonic() >= worker.deadline:
-                    self.expire(worker)
-                else:
-                    self.finish(worker, status, summary, data=data, withdraw_pending=status == "failed")
-                self.dispatch()
+                try:
+                    if time.monotonic() >= worker.deadline:
+                        self.expire(worker)
+                    else:
+                        self.finish(worker, status, summary, data=data, withdraw_pending=status == "failed")
+                finally:
+                    self.dispatch()
 
     def run(self, tasks, turn_id, origin, event, execute):
         batch = [Worker(self, turn_id, origin, title, event) for title, _, _ in tasks]
         with self.condition:
             for worker, task in zip(batch, tasks):
+                try:
+                    self.save_progress(worker, {})
+                except WorkerStorageError:
+                    self.finish(worker, "failed", STORAGE_FAILURE)
+                    continue
                 self.active[worker.identity] = worker
-                self.publish(worker, {})
                 self.queue.append((worker, task, execute))
+                worker.event("worker", worker.row)
             self.dispatch()
             while waiting := [worker for worker in batch if not worker.terminal.is_set()]:
                 now = time.monotonic()
@@ -238,6 +310,7 @@ class Pool:
 
     def stop(self, turn_id, identity=None):
         with self.condition:
+            self.retry_failed_writes()
             stopped = []
             for worker in list(self.active.values()):
                 if worker.row["turn_id"] == turn_id and (identity is None or worker.identity == identity):
