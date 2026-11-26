@@ -15,7 +15,7 @@ def connector_fields(provider):
 def entry(kind, title, origin, **fields):
     return {"kind": kind, "title": title, **MAIN_ORIGIN,
             **{key: origin[key] for key in ("thread_id", "thread_title", "source", "worker_id", "worker_title") if key in origin},
-            **fields, **connector_fields(fields.get("provider"))}
+            "data": {}, **fields, **connector_fields(fields.get("provider"))}
 
 
 def record(storage, kind, title, origin, **fields):
@@ -218,6 +218,8 @@ def entries(storage, threads, can_undo, *, pinecone=None, mail_connected=False):
 
 
 def event_view(event, artifacts, undo_artifacts):
+    if "data" not in event:
+        event = {**event, "data": {}}
     if undo := undo_artifacts.get(event["id"]):
         return {**event, "undoable": artifacts.get(undo["id"], {}).get("revision") == undo["revision"]}
     data = event.get("data", {})

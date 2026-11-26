@@ -186,6 +186,11 @@ class HomeTest(unittest.TestCase):
         events = [item["data"]["operation"] for item in self.storage.load()["activity"]
                   if item["title"].startswith("Home layout")]
         self.assertEqual(events, ["move", "hide", "restore"])
+        state = self.storage.load()
+        state["activity"][-1].pop("data")
+        self.storage.save(state)
+        entry = next(item for item in self.app.timeline_info()["entries"] if item["title"] == "Home layout · Panel restored")
+        self.assertEqual(entry["data"], {})
         thread = self.app.home.panel_chat(identity)
         self.assertEqual(thread["title"], "About Thanksgiving shopping")
         with patch("hearth.agent.time.sleep"):
