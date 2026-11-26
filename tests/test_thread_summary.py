@@ -313,6 +313,30 @@ class RollingSummaryTest(unittest.TestCase):
         self.assertEqual(restarted.threads.summary_state(MAIN), {"text": FACT, "cursor": rows[7]["id"]})
         self.assertEqual(len(gateway.folds), 1)
 
+    def test_replacement_agent_recovers_backlog_without_a_stale_write(self):
+        rows = self.add(24, anchor=True)
+        app = SimpleNamespace(agent=self.agent, restoring=lambda: False)
+        self.agent.application = app
+        previous_gateway = PausedSummaryGateway()
+        self.gateway.completion = previous_gateway.completion
+        next_gateway = PausedSummaryGateway()
+        next_gateway.response = "The new summary is ready."
+        try:
+            self.rolling.schedule(MAIN_ORIGIN)
+            self.assertTrue(previous_gateway.wait_for_calls(1))
+            replacement = Agent(Storage(self.storage.root), self.checkpoints, self.config, next_gateway)
+            app.agent = replacement
+            replacement.application = app
+            previous_gateway.release.set()
+            self.assertTrue(next_gateway.wait_for_calls(1))
+            self.assertEqual(self.threads.summary_state(MAIN), {})
+        finally:
+            previous_gateway.release.set()
+            next_gateway.release.set()
+        self.wait_for_folds()
+        self.assertEqual(self.threads.summary_state(MAIN),
+                         {"text": next_gateway.response, "cursor": rows[7]["id"]})
+
     def test_corrupt_summary_reads_as_empty_in_chat_and_is_rebuilt(self):
         rows = self.add(22, anchor=True)
         path = self.threads.summary_path(MAIN)
