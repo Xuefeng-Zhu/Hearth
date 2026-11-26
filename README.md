@@ -28,6 +28,7 @@ The desktop sidebar and mobile drawer list **Home**, **Chat**, **Timeline**, **A
 - **Delegate independent work.** Ask a connected brain to use parallel workers for a comparison or several sources. Hearth shows progress, tool steps, and Stop controls in chat, shows active workers under **Running now** on Home, and combines their findings into one reply. Set the workspace limit from 1 to 6 in **Settings → Brain → Parallel workers**. The default is 4.
 - **Get timely suggestions.** **Home → Feed** combines Exa articles, topic digests, ideas from Memory, reminder prep, and timely Action suggestions. Follow or mute topics, steer what shows up, save cards, or take a card into Chat. [Proactivity guide](docs/proactivity.md)
 - **Turn suggestions into next steps.** The **Ideas** strip in Home Feed opens Chat drafts and approval cards for in-app reminders, follow-up automations, and public-page watchers. The **Goals** panel tracks target dates, check-ins, and progress from linked reminders or tasks, with goal context in Chat and Undo in Timeline. [Ideas and Goals guide](docs/ideas-and-goals.md), [Run 47 verification](docs/run-47.md)
+- **Check watcher availability.** **Settings → Watchers** shows the Apify gateway blocker. Page and price watchers offered by Ideas use Hearth’s public-page reader and appear under **Reminders → Recurring tasks** after approval. [Watcher status](docs/watchers.md)
 - **Stay on top of work.** Home shows reminders, Inbox, recent files, memory, activity, connector health, and Open-Meteo weather. Add panels from chat and rearrange them on Home.
 - **Make files and pages.** Create and edit DOCX, PDF, XLSX, and PPTX from chat. Preview and download artifacts, keep versions locally, and sync to Box. Build single-file HTML pages with phone and desktop previews, version history, and optional approved snapshot sharing.
 - **Ask your Box files.** In **Artifacts → Ask my files** or Chat, ask Hearth about selected files or up to 25 recent files. Answers cite file names with **Open in Box** links. The Sprite verified a question across a DOCX and an XLSX using Hearth’s text extraction, Pinecone, and its connected brain. [Box setup and probe](docs/box.md), [Run 46 verification](docs/run-46.md)
@@ -123,7 +124,7 @@ node --test tests/*.test.mjs
 for file in web/*.js; do node --check "$file" || exit; done
 ```
 
-The [QA report](QA-REPORT.md) includes the Run 34 live Sprite results, known issues, and a 90-second demo.
+The Run 48 QA report covers the live Sprite, the mobile and desktop browser matrix, provider limitations, and a 90-second demo. [QA report](QA-REPORT.md)
 
 ## Project layout
 
