@@ -82,10 +82,11 @@ def read_file(client, row, rules):
     version = row.get("version_id")
     name = row["box_filename"]
     try:
-        raw = client.download(row["box_id"], version if box.box_id(version) else None, limit=uploads.MAX_BYTES)
         with TemporaryDirectory(prefix="hearth-file-question-") as directory:
             path = Path(directory) / "file"
-            path.write_bytes(raw)
+            with path.open("wb") as target:
+                client.download_to(row["box_id"], target, version if box.box_id(version) else None,
+                                   limit=uploads.MAX_BYTES)
             fmt, _, details = uploads.sniff(path, f"file.{row['format']}")
             if fmt != row["format"]:
                 raise ValueError("Unexpected file type.")

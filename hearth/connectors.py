@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from collections.abc import Iterator
 from http.client import HTTPException
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -71,7 +72,7 @@ class Gateway:
         return self.request(f"{provider}/{connection_id}/{path}", body, headers, timeout, method=method)
 
     def request(self, path, body, headers, timeout, *, method=None):
-        binary = isinstance(body, bytes)
+        binary = isinstance(body, (bytes, Iterator))
         request = Request(
             f"{GATEWAY}/{path}",
             data=body if binary or body is None else json.dumps(body).encode("utf-8"),
@@ -83,6 +84,8 @@ class Gateway:
         if body is not None:
             mime = (headers or {}).get("Content-Type", "application/octet-stream") if binary else "application/json"
             request.add_header("Content-Type", mime)
+            if isinstance(body, Iterator):
+                request.add_header("Content-Length", headers["Content-Length"])
         try:
             return self.opener.open(request, timeout=timeout)
         except HTTPError as error:
