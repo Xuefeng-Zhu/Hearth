@@ -81,6 +81,9 @@ class ReplyControl:
         if self.stopped.is_set():
             raise ChatStopped
 
+# SHA-256 of the inline module import map in web/index.html.
+WORKSPACE_IMPORT_MAP_HASH = "sha256-u5dz4Tq+zI7mXqhmHihbTJa6O2tNQCiziXU+bWGx3Iw="
+
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/memory.js": ("memory.js", "text/javascript; charset=utf-8"),
@@ -95,6 +98,7 @@ STATIC = {
     "/workers.css": ("workers.css", "text/css; charset=utf-8"),
     "/pages.js": ("pages.js", "text/javascript; charset=utf-8"),
     "/pages.css": ("pages.css", "text/css; charset=utf-8"),
+    "/chat/workspace.js": ("chat/workspace.js", "text/javascript; charset=utf-8"),
     "/store.js": ("store.js", "text/javascript; charset=utf-8"),
     "/vendor/preact-10.29.8.mjs": ("vendor/preact-10.29.8.mjs", "text/javascript; charset=utf-8"),
     "/vendor/preact-hooks-10.29.8.mjs": ("vendor/preact-hooks-10.29.8.mjs", "text/javascript; charset=utf-8"),
@@ -927,7 +931,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def response_headers(self, status, content_type, length=None, *, email_preview=False, etag=None,
-                         disposition=None, inline_pdf=False, page_csp=None, headers=None):
+                         disposition=None, inline_pdf=False, page_csp=None, headers=None, workspace=False):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         if length is not None:
@@ -945,7 +949,8 @@ class Handler(BaseHTTPRequestHandler):
                          "https://browserbase.live https://*.browserbase.live; "
                          "img-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors "
                          + ("'self'" if inline_pdf else "'none'")
-                         + ("; style-src 'unsafe-inline'; script-src 'none'" if email_preview else "")))
+                         + ("; style-src 'unsafe-inline'; script-src 'none'" if email_preview else "")
+                         + (f"; script-src 'self' '{WORKSPACE_IMPORT_MAP_HASH}'" if workspace else "")))
         if content_type == "text/event-stream":
             self.send_header("X-Accel-Buffering", "no")
         for name, value in (headers or {}).items():
@@ -967,7 +972,7 @@ class Handler(BaseHTTPRequestHandler):
     def get_static(self, request):
         filename, content_type = STATIC[request.path]
         body = (ROOT / "web" / filename).read_bytes()
-        self.response_headers(200, content_type, len(body))
+        self.response_headers(200, content_type, len(body), workspace=filename == "index.html")
         self.wfile.write(body)
 
     def get_health(self, request):
