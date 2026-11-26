@@ -1,4 +1,5 @@
 import { icon, iconButton } from "./icons.js";
+import { showLoading } from "./motion.js";
 import { timeFormatter } from "./time.js";
 
 const kinds = {
@@ -277,7 +278,7 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
     const params = new URLSearchParams({ saved: saved ? "1" : "0" });
     if (append) params.set("cursor", cursor);
     loading = true;
-    if (!quiet && !rows.length) status.textContent = "Loading Feed…";
+    if (!quiet && !rows.length) showLoading(status, "Loading Feed…");
     more.disabled = true;
     try {
       const page = await api(`/api/feed?${params}`);
@@ -342,7 +343,7 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
     clearTimeout(polling);
     refreshing = true;
     refreshButton.disabled = true;
-    status.textContent = "Refreshing Feed…";
+    showLoading(status, "Refreshing Feed…");
     try {
       const result = await api("/api/feed/refresh", {});
       await load(false, true);

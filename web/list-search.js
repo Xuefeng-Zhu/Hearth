@@ -1,5 +1,6 @@
 import { appendHighlighted } from "./dom.js";
 import { icon } from "./icons.js";
+import { showLoading } from "./motion.js";
 
 const labels = { reminders: "Search reminders", inbox: "Search inbox", skills: "Search skills" };
 const limit = 200;
@@ -69,7 +70,8 @@ export function createListSearch(view, onChange) {
   function apply(value) {
     if (query === value) return false;
     query = value;
-    status.textContent = query ? "Searching…" : "";
+    if (query) showLoading(status, "Searching…");
+    else status.textContent = "";
     empty.hidden = true;
     return true;
   }

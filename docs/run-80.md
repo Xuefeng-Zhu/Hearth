@@ -4,7 +4,7 @@ Hearth uses three motion durations in `web/theme.css` (120, 200, and 320 ms) and
 
 Thread actions, Add panel, searchable selects, and Chat search scale from the edge nearest their trigger. Bottom sheets rise with a fading backdrop. Close actions restore focus immediately while the surface fades out. Reduced motion keeps the surface fades and disables the view, position, and scale animations.
 
-Home measures the old and new panel positions for FLIP reorder animations. The first six panels enter 32 ms apart on first load. Home panels, threads, reminders, and Inbox cards animate their visible height and opacity on insertion and removal. Chat animates newly arriving messages without replaying history or animating every streamed token. Buttons, toggles, feedback, the typing indicator, and Home’s loading placeholder use the same tokens.
+Home measures the old and new panel positions for FLIP reorder animations. The first six panels enter 32 ms apart on first load. Home panels, threads, reminders, and Inbox cards animate their visible height and opacity on insertion and removal. Chat animates newly arriving messages without replaying history or animating every streamed token. Buttons, toggles, feedback, the typing indicator, and loading placeholders use the same tokens.
 
 ## Verification
 

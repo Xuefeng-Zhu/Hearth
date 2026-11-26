@@ -1,5 +1,6 @@
 import { fileGlyph, uploadURL } from "./attachments.js";
 import { icon, iconButton } from "./icons.js";
+import { showLoading } from "./motion.js";
 import { createPageDetail } from "./pages.js";
 import { createFileQuestions } from "./file-questions.js";
 import { setTimeZone, timeFormatter } from "./time.js";
@@ -520,7 +521,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     const problem = get("artifact-load-error");
     retry.disabled = get("artifact-refresh").disabled = true;
     problem.hidden = true;
-    if (!snapshot) get("artifact-count").textContent = "Loading artifacts…";
+    if (!snapshot) showLoading(get("artifact-count"), "Loading artifacts…");
     request = api(force ? "/api/artifacts?refresh=1" : "/api/artifacts").then((data) => {
       snapshot = data;
       if (snapshot.timezone) setTimeZone(snapshot.timezone);
@@ -632,7 +633,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     get("artifact-detail-meta").replaceChildren();
     get("artifact-actions").replaceChildren();
     get("artifact-filename").textContent = "";
-    detailStatus.textContent = "Loading artifact…";
+    showLoading(detailStatus, "Loading artifact…");
     detailBody.replaceChildren();
     try {
       const item = await api(`/api/artifacts/detail?id=${encodeURIComponent(id)}`);
@@ -688,7 +689,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     const actions = get("artifact-actions");
     actions.replaceChildren();
     detailBody.replaceChildren();
-    detailStatus.textContent = "Loading attachment…";
+    showLoading(detailStatus, "Loading attachment…");
     try {
       const attachment = await api(uploadURL(item, "/detail"));
       if (detailRequest !== token || !drawer.open) return;

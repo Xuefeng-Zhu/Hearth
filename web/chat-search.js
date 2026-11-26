@@ -1,6 +1,6 @@
 import { threadMenuIndex } from "./thread-menu.js";
 import { appendHighlighted, slashSearchShortcut } from "./dom.js";
-import { anchorOrigin } from "./motion.js";
+import { anchorOrigin, showLoading } from "./motion.js";
 
 const relativeDates = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
@@ -199,7 +199,7 @@ export function createChatSearch({ api, thread, jump, reveal, prepareFind }) {
       setStatus(length > 200 ? "Use up to 200 characters." : "Enter at least 2 characters to search.");
       return;
     }
-    setStatus("Searching…");
+    showLoading(status, "Searching…");
     const controller = new AbortController();
     request = controller;
     timer = setTimeout(() => firstPage(controller), 200);

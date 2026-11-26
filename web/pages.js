@@ -1,4 +1,5 @@
 import { icon } from "./icons.js";
+import { showLoading } from "./motion.js";
 import { setTimeZone, timeFormatter } from "./time.js";
 
 const dateFormat = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
@@ -92,7 +93,7 @@ export function createPageDetail({ api, onChange }) {
     title.textContent = "Page preview";
     get("page-dialog-version").textContent = "";
     approval.hidden = true;
-    feedback.textContent = "Loading page…";
+    showLoading(feedback, "Loading page…");
     actions.replaceChildren();
     fit.replaceChildren();
     work.hidden = true;

@@ -2,6 +2,7 @@ import { markdown } from "./artifacts.js";
 import { appendHighlighted } from "./dom.js";
 import { icon } from "./icons.js";
 import { listSearchExcerpt, listSearchPath } from "./list-search.js";
+import { showLoading } from "./motion.js";
 import { timeFormatter } from "./time.js";
 
 const get = (id) => document.getElementById(id);
@@ -161,7 +162,7 @@ export function createSkills({ api, openChat, onLinkedClose, search }) {
   async function load() {
     const request = ++listRequest;
     const { query } = search;
-    if (!query && !library.childElementCount) status.textContent = "Loading skills…";
+    if (!query && !library.childElementCount) showLoading(status, "Loading skills…");
     try {
       const { skills } = await api(listSearchPath("/api/skills", query));
       if (request !== listRequest || query !== search.query) return;

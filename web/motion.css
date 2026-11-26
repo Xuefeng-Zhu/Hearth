@@ -105,17 +105,17 @@ button {
     scale var(--motion-fast) var(--motion-standard);
 }
 
-.home-loading-skeleton {
+.loading-skeleton {
   display: inline-block;
   position: relative;
-  width: 72px;
+  width: clamp(32px, 8vw, 72px);
   height: 8px;
   margin-inline-start: var(--space-2);
   overflow: clip;
   border-radius: var(--radius-pill);
   background-color: var(--border);
 }
-.home-loading-skeleton::after {
+.loading-skeleton::after {
   position: absolute;
   inset: 0;
   background: linear-gradient(90deg, transparent, var(--paper), transparent);
@@ -124,7 +124,7 @@ button {
 
 @media (prefers-reduced-motion: no-preference) {
   button:active:not(:disabled) { scale: .98; }
-  .home-loading-skeleton::after { animation: skeleton-shimmer var(--motion-slow) var(--motion-standard) infinite; }
+  .loading-skeleton::after { animation: skeleton-shimmer var(--motion-slow) var(--motion-standard) infinite; }
   @keyframes skeleton-shimmer {
     from { translate: -100% 0; }
     to { translate: 100% 0; }

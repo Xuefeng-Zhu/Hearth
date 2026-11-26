@@ -161,3 +161,11 @@ export function confirmControl(element) {
   const { fast, standard } = timings();
   animate(element, [{ scale: .92 }, { scale: 1 }], { duration: fast, easing: standard });
 }
+
+export function showLoading(status, message) {
+  const skeleton = document.createElement("span");
+  skeleton.className = "loading-skeleton";
+  skeleton.setAttribute("aria-hidden", "true");
+  status.replaceChildren(message, skeleton);
+  return status;
+}

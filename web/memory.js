@@ -1,5 +1,6 @@
 import { icon } from "./icons.js";
 import { markdown } from "./artifacts.js";
+import { showLoading } from "./motion.js";
 
 const areas = [
   { id: "profile", label: "Profile", icon: "user", singular: "field", empty: "Your personal details" },
@@ -320,7 +321,7 @@ export function createMemory({ api, forget, approvals, renderReview }) {
     layout.append(main);
     area.replaceChildren(layout);
     if (source || current) {
-      main.append(node("p", "meta", "Loading note…"));
+      main.append(showLoading(node("p", "meta"), "Loading note…"));
       await notePanel(main, current, source, version);
     } else {
       main.append(icon(grouping.icon, 26), node("h3", "", grouping.label), node("p", "meta", grouping.empty));

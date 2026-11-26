@@ -7,7 +7,7 @@ import { artifactFilterFromHash, createArtifacts, markdown } from "./artifacts.j
 import { fileAnswerSources } from "./file-questions.js";
 import { channelChip, createReminders } from "./reminders.js";
 import { reconcileChildren, slashSearchShortcut } from "./dom.js";
-import { arrive, confirmControl, moveNavHighlight, prepareListMotion, transitionView } from "./motion.js";
+import { arrive, confirmControl, moveNavHighlight, prepareListMotion, showLoading, transitionView } from "./motion.js";
 import { setupMobile } from "./mobile.js";
 import { createThreadMenu } from "./thread-menu.js";
 import { setupSearchableSelects } from "./combobox.js";
@@ -1748,7 +1748,7 @@ async function findMemory() {
   const request = ++memoryFindRequest;
   container.hidden = !query;
   if (!query) return;
-  container.replaceChildren(node("p", "meta", "Searching memory…"));
+  container.replaceChildren(showLoading(node("p", "meta"), "Searching memory…"));
   try {
     const result = await api("/api/memory/search", { query });
     if (request === memoryFindRequest) renderRecall(container, result, true);
@@ -2173,7 +2173,8 @@ async function loadPoolModels() {
   const provider = poolProvider.value;
   const controller = poolRequest = new AbortController();
   updatePoolOptions();
-  status.textContent = provider ? "Loading live chat models…" : "Connect a chat provider to add models.";
+  if (provider) showLoading(status, "Loading live chat models…");
+  else status.textContent = "Connect a chat provider to add models.";
   try {
     if (provider) {
       const { tags, detail } = await api(`/api/brain/models?provider=${encodeURIComponent(provider)}`,
@@ -2290,7 +2291,8 @@ async function loadBrainModels() {
   const selected = saved.provider === choice.provider ? saved.model : choice.default_model;
   brainModel.replaceChildren(new Option("Enter a model ID…", ""));
   customModel.value = selected;
-  modelDetail.textContent = choice.available ? "Loading chat models…" : "Refresh Settings → Connections after authorizing this provider.";
+  if (choice.available && choice.supported) showLoading(modelDetail, "Loading chat models…");
+  else modelDetail.textContent = choice.available ? "Loading chat models…" : "Refresh Settings → Connections after authorizing this provider.";
   if (!choice.available || !choice.supported) {
     setBrainControls();
     return;
@@ -2324,7 +2326,7 @@ async function openBrainSettings() {
   byId("brain-pool").hidden = true;
   byId("routing-result").hidden = true;
   byId("routing-preview").replaceChildren();
-  byId("routing-preview-status").textContent = "Loading routing preview…";
+  showLoading(byId("routing-preview-status"), "Loading routing preview…");
   brainSettings = undefined;
   setBrainControls();
   brainFeedback();
@@ -3447,7 +3449,7 @@ async function openSummary(thread) {
   summaryThread = target;
   showSummary("");
   byId("thread-summary-thread").textContent = thread.title;
-  byId("thread-summary-status").textContent = "Loading summary…";
+  showLoading(byId("thread-summary-status"), "Loading summary…");
   const reset = byId("reset-thread-summary");
   reset.disabled = true;
   summarySheet.showModal();
