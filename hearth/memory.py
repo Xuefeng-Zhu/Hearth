@@ -304,7 +304,7 @@ def initialize(storage, *, fresh):
 
 
 def forget_requested(prompt):
-    request = re.sub(r"^\s*(?:(?:please|(?:can|could|would) you|I (?:want|need) you to)\s+)*",
+    request = re.sub(r"^\s*(?:(?:please|(?:can|could|would) you|I (?:want|need) you to)\s+)*(?:permanently\s+)?",
                      "", prompt, flags=re.I).strip()
     if re.fullmatch(r"forget (?:about )?(?:it|that)[.!?]?", request, re.I):
         return False

@@ -113,7 +113,7 @@ class MemoryStructureTest(unittest.TestCase):
         agent.models = [{**agent.models[0], "provider": "openai", "connection_id": "fixture"}]
         agent.tools.gateway.completion = fixture_model
         events = []
-        agent.chat("Forget Maya’s peanut allergy.", lambda name, item: events.append((name, item)))
+        agent.chat("Please permanently forget Maya’s peanut allergy.", lambda name, item: events.append((name, item)))
         self.assertTrue(any(name == "action" and item.get("permanent") for name, item in events))
         self.assertEqual(len(memory.standing_rules(self.storage)), 1)
         self.assertFalse(memory.matches_rule("Maya likes picnics", memory.standing_rules(self.storage)))
