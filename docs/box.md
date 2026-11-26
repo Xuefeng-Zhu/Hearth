@@ -8,6 +8,14 @@ Hearth reads the current Box versions in that folder using its attachment text e
 
 Hearth sends the extracted chunks for embedding. Pinecone stores only vectors and revision identifiers in the `files` namespace. Keep the memory namespace separate. Each query filters by the selected files' current revisions. Older vectors can remain in Pinecone. The brain receives the question and only the retrieved passages as reference data. Box access for questions is read-only. Chat saves the resulting answer and citations in its thread. [File-question implementation](../hearth/file_questions.py)
 
+## Artifact listings and transfers
+
+Artifacts shows local files, Pages, and the last cached Box listing while a background worker walks the selected Box folder. `GET /api/artifacts` reports Box freshness as `fresh`, `stale`, or `refreshing`, with `box_refreshed_at` set to the last successful listing or null on a cold cache. A successful listing stays fresh for 30 seconds. A failed listing keeps the previous rows and becomes eligible for retry after five seconds on a later request. **Refresh** requests a new walk, and the visible view checks for its completion. Results from a previous connection, folder, or checkpoint are discarded. Ask my files and explicit Box recall refresh use scoped reads that can wait for Box. [Artifact listing](../hearth/artifacts.py), [Artifacts UI](../web/artifacts.js)
+
+Generated-file writes, upload retries, and artifact undo release the workspace and artifact locks during rendering and Box I/O. The metadata commit rechecks the artifact revision and workspace checkpoint. Box version uploads use `If-Match` when a revision ETag is available. Multipart uploads read staged files in 64 KiB chunks. Remote artifact downloads spool in bounded chunks before Hearth sends the HTTP response, and local artifact downloads stream from disk. The 50 MiB Box download limit still applies. [Box adapter](../hearth/box.py), [Box I/O verification](run-59.md)
+
+Box recall uses its own index snapshot. A failed listing keeps the old snapshot, and a partial download pass keeps available cached excerpts. `/api/status` reports `box_recall` freshness and the last full refresh time, which survives a restart once a full refresh has saved it. [Box recall refresh](../hearth/memory_sync.py), [Subsystem status](architecture.md#status-and-stale-data)
+
 ## Run 46 Box AI probe
 
 On November 26, 2026, at 04:09 UTC, Hearth’s Sprite listed Artifacts with HTTP 200. The probe then used the same Sprites Box gateway connection as uploads and sent the following requests with Box IDs from Hearth’s own Artifacts folder.

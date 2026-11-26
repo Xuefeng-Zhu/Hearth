@@ -10,11 +10,15 @@ sprite exec --http-post --no-stdin --no-port-forward -s hearth -- curl -fsS http
 
 If you use multiple organizations, select the right one in the CLI or export `HEARTH_SPRITE_ORG` before running the Hearth scripts. When calling `sprite` directly, pass the CLI's `-o` flag for that organization.
 
-The deploy script uploads runtime files and seed memory. The installer extracts a content-addressed release, installs dependencies and the PDF font, switches the `current` symlink, and starts or restarts the web and scheduler services. A successful probe returns `{"ok": true, "checkpoints": "sprite"}`. Use the Sprite's entry in the Fly dashboard to open the workspace. [Deploy script](../scripts/deploy.sh), [Installer](../scripts/install-sprite.sh)
+The deploy script uploads runtime files and seed memory. The installer extracts a content-addressed release, installs dependencies in the shared `~/hearth/.venv`, installs the PDF font, switches the `current` symlink, and starts or restarts the web and scheduler services. A successful loopback probe returns `{"ok": true, "checkpoints": "sprite"}`. A failed probe exits with the new release still selected. Use the Sprite's entry in the Fly dashboard to open the workspace. [Deploy script](../scripts/deploy.sh), [Installer](../scripts/install-sprite.sh)
 
 ## GitHub Actions
 
-Set the repository secret `SPRITES_TOKEN` to a Sprites token authorized for the deployment organization. If the CLI needs explicit organization selection, set the repository variable `HEARTH_SPRITE_ORG`. The workflow runs on pushes to `main` and on manual dispatch. Its deploy job depends on the unit tests and the offline Chromium smoke, and skips deployment when the secret is empty. [Deploy workflow](../.github/workflows/deploy.yml)
+Set the repository secret `SPRITES_TOKEN` to a Sprites token authorized for the deployment organization. If the CLI needs explicit organization selection, set the repository variable `HEARTH_SPRITE_ORG`. The workflow runs on pushes to `main` and on manual dispatch. Deploy requires the Python and Node suites, JavaScript syntax checks, and both offline Chromium runs (workspace smoke and Chat stream disconnect recovery). The deployment steps run when `SPRITES_TOKEN` is set. [Deploy workflow](../.github/workflows/deploy.yml), [Local browser commands](testing.md#offline-chromium-smoke)
+
+## Verify workspace access
+
+Check that the workspace URL uses **Sprite** authentication. The installer's loopback health probe checks liveness. To verify signed-out access at the edge, run `scripts/check-edge-auth.sh` with the disposable workspace and public Page fixtures. The matrix runs manually outside deploy CI. `/api/status` is available behind the workspace edge for subsystem diagnostics. [Edge matrix](testing.md#signed-out-edge-authorization-matrix), [Subsystem status](architecture.md#status-and-stale-data)
 
 ## Wake the scheduler
 
@@ -25,6 +29,8 @@ scripts/wake.sh
 ```
 
 The script calls `POST /api/scheduler/tick` from inside the Sprite with the workspace's tick token. Alternatively, give the script `HEARTH_SPRITE_URL`, `HEARTH_TICK_TOKEN`, and `SPRITE_API_TOKEN` as environment secrets for authenticated HTTP wake. The tick token is generated under `~/hearth/data/scheduler-tick.token`. The [wake workflow template](../.github/workflows/wake.yml.example) is inactive as shipped. To enable it, set the three GitHub Actions secrets and save the template as `.github/workflows/wake.yml` on the default branch. Its five-minute schedule can add a polling interval plus scheduling delay. Hearth records late reminder deliveries on catch-up. [Wake script](../scripts/wake.sh), [Sprite lifecycle](https://docs.fly.io/sprites/working-with-sprites)
+
+A successful tick reports reminder claims and eligible queued deliveries. Delivery, Inbox, tasks, and refreshes can still be running after the response. A checkpoint restore can temporarily pause new scheduler claims across both services. [Delivery and restore](approvals-and-tasks.md#scheduler-delivery-and-restore)
 
 ## Publish HTML snapshots
 

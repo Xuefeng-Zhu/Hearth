@@ -24,13 +24,13 @@ The desktop sidebar and mobile drawer list **Home**, **Chat**, **Timeline**, **A
 
 ## What you can do
 
-- **Chat with Ember.** Stream replies in Main or in separate side chats. Attach images, audio, PDFs, spreadsheets, and other supported files. Use a connected model, Smart routing across a model pool, or the local Mock brain.
+- **Chat with Ember.** Stream replies in Main or in separate side chats. Scroll up to load older messages. If a stream drops, Chat can replace the partial bubble on refresh once the server saves the reply. The open chat announces completed replies through a polite live region. Attach images, audio, PDFs, spreadsheets, and other supported files. Use a connected model, Smart routing across a model pool, or the local Mock brain. [Chat and polling](docs/architecture.md#polling-and-chat-history)
 - **Delegate independent work.** Ask a connected brain to use parallel workers for a comparison or several sources. Hearth shows progress, tool steps, and Stop controls in chat, shows active workers under **Running now** on Home, and combines their findings into one reply. Set the workspace limit from 1 to 6 in **Settings → Brain → Parallel workers**. The default is 4.
 - **Get timely suggestions.** **Home → Feed** combines Exa articles, topic digests, ideas from Memory, reminder prep, and timely Action suggestions. Follow or mute topics, steer what shows up, save cards, or take a card into Chat. [Proactivity guide](docs/proactivity.md)
 - **Turn suggestions into next steps.** The **Ideas** strip in Home Feed opens Chat drafts and approval cards for in-app reminders, follow-up automations, and public-page watchers. The **Goals** panel tracks target dates, check-ins, and progress from linked reminders or tasks, with goal context in Chat and Undo in Timeline. [Ideas and Goals guide](docs/ideas-and-goals.md), [Run 47 verification](docs/run-47.md)
 - **Check watcher availability.** **Settings → Watchers** shows the Apify gateway blocker. Page and price watchers offered by Ideas use Hearth’s public-page reader and appear under **Reminders → Recurring tasks** after approval. [Watcher status](docs/watchers.md)
 - **Stay on top of work.** Home shows reminders, Inbox, recent files, memory, activity, connector health, and Open-Meteo weather. Add panels from chat and rearrange them on Home.
-- **Make files and pages.** Create and edit DOCX, PDF, XLSX, and PPTX from chat. Preview and download artifacts, keep versions locally, and sync to Box. Build single-file HTML pages with phone and desktop previews, version history, and optional approved snapshot sharing.
+- **Make files and pages.** Create and edit DOCX, PDF, XLSX, and PPTX from chat. Preview and download artifacts, keep versions locally, and optionally sync to Box. Local files and Pages remain visible while the Box listing refreshes in the background. Build single-file HTML pages with phone and desktop previews, version history, and optional approved snapshot sharing. [Artifact listings and transfers](docs/box.md#artifact-listings-and-transfers)
 - **Ask your Box files.** In **Artifacts → Ask my files** or Chat, ask Hearth about selected files or up to 25 recent files. Answers cite file names with **Open in Box** links. The Sprite verified a question across a DOCX and an XLSX using Hearth’s text extraction, Pinecone, and its connected brain. [Box setup and probe](docs/box.md), [Run 46 verification](docs/run-46.md)
 - **Reuse skills in chat.** Start with four built-in Markdown playbooks or write your own. Use **Try it** to preload a skill in a side chat, select **Using skill** to open its playbook, and undo edits from Timeline. [Skills guide](docs/skills.md)
 - **Review actions.** Approve, edit supported fields, or decline proposed actions, including email. Timeline records tool activity and approvals. Supported changes offer item-level Undo or filesystem checkpoint restore.
@@ -38,7 +38,7 @@ The desktop sidebar and mobile drawer list **Home**, **Chat**, **Timeline**, **A
 - **Consolidate memory with review.** Hearth prepares a nightly digest of duplicate entries, contradictions, repeated profile facts, and stale items. Review proposals in **Memory → Review** or from **Home → Feed**. Change the schedule or select **Run now** in **Settings → Memory**. Accepted edits can be undone in Timeline. [Memory review](docs/memory.md#nightly-memory-review)
 - **Keep context in long chats.** Hearth combines the latest 16 dialogue messages with a rolling summary of earlier turns. With a connected brain, summaries update in the background. View or reset a summary from the thread’s **⋯** menu, or turn off **Summarize long chats** in **Settings → Memory**. [Long chats](docs/memory.md#long-chats)
 - **Act when something happens.** Create a rule in **Settings → Automations** or ask in Chat and confirm the proposal. New AgentMail messages, reminder firings, Feed cards, and scheduled times can trigger a run. Settings shows the run history, and Timeline offers Undo for reversible changes. The inbound email path passed a live Sprite check. [Automations guide](docs/approvals-and-tasks.md#event-triggered-automations), [Run 44 verification](docs/run-44.md)
-- **Run on a schedule.** Create reminders or recurring prompts with their own run history. AgentMail can import forwarded mail as proposals and deliver configured reminder or task email.
+- **Run on a schedule.** Create reminders or recurring prompts with their own run history. Hearth claims due reminders separately from email delivery and journals reminder email attempts for recovery across local restores. AgentMail setup enables forwarded-mail import and configured email delivery. [Scheduler delivery and restore](docs/approvals-and-tasks.md#scheduler-delivery-and-restore)
 - **Talk to Hearth.** Dictate with browser speech recognition or Hugging Face Whisper. Vocal Bridge adds live calls routed to the originating chat, with a scripted call demo available locally.
 
 ## Architecture
@@ -66,18 +66,19 @@ flowchart LR
 
 ## Sprites connectors used
 
-Connectors are enabled per Sprite. A fresh clone has empty connection settings and runs with Mock when no model is available.
+Connectors are enabled per Sprite. A fresh clone has empty connection settings and runs with Mock when no model is available. The status column describes prior checks and known gateway limits for specific operations.
 
 | Connector | What it powers | Status |
 | --- | --- | --- |
-| Hugging Face | Chat, image understanding, Whisper, and dense memory embeddings | Supported. Select a model under **Settings → Brain**. |
-| Pinecone | Semantic recall, file-question retrieval, namespace sync, and optional reranking | Supported. Ask my files uses the separate `files` namespace. Memory falls back to local recall when Pinecone is unavailable. |
-| Box | Artifact upload, version writes, and reading files from the workspace folder | Supported. Version history can use local receipts. Box AI routes returned HTTP 403 through the Sprites gateway. [Box details](docs/box.md) |
-| Exa | Web search and source links in chat | Supported. Choose Exa under **Settings → Search**. |
-| AgentMail | Approved chat email, reminder and task delivery, and forwarded-mail imports | Supported. Select or provision an inbox in **Settings → Connections**. |
-| Vocal Bridge | Live calls and chat queries from the voice agent | Supported. Requires a deployed voice agent and its connector. |
-| Browserbase | Search, fetch, and approval-gated browser sessions | The demo Sprite passed the read-only connection check in Run 34. Hearth allows two live sessions at a time. |
-| Ollama Cloud | Alternative chat brain through the gateway | Optional. Select it in **Settings → Brain** after connecting. |
+| Hugging Face | Chat, image understanding, Whisper, and dense memory embeddings | Live chat passed in Run 55 and Whisper transcription passed in Run 34. |
+| Pinecone | Semantic recall, file-question retrieval, namespace sync, and optional reranking | Live file-question retrieval passed in Runs 46 and 48 using the separate `files` namespace. |
+| Box | Artifact upload, version writes, and reading files from the workspace folder | Live upload and file reads passed. Box AI Ask and structured extraction returned gateway HTTP 403. [Box details](docs/box.md) |
+| Exa | Web search and source links in chat | Live sourced replies passed in Runs 34 and 64. |
+| AgentMail | Approved chat email, reminder and task delivery, and forwarded-mail imports | Run 44 verified the inbound automation path. Run 63 delivery checks used mocked mail. |
+| Vocal Bridge | Live calls and chat queries from the voice agent | Requires a deployed voice agent and its connector. Live call verification is outside Run 63. |
+| Browserbase | Search, fetch, and approval-gated browser sessions | The demo Sprite passed the read-only connection check in Run 34. |
+| Ollama Cloud | Alternative chat brain through the gateway | Optional configuration. Live model verification is outside Run 63. |
+| Apify | Actor-list probe | The list probe passed. Gateway HTTP 403 blocked run and dataset reads. Hearth's watchers use its public-page reader. [Apify probe](docs/watchers.md) |
 
 [Set up connectors](docs/connectors.md)
 
@@ -100,7 +101,7 @@ To deploy, sign in with the Sprites CLI, create a private Sprite named `hearth`,
 scripts/deploy.sh
 ```
 
-The [GitHub Actions workflow](.github/workflows/deploy.yml) runs the tests first and deploys when the repository secret `SPRITES_TOKEN` is set. See the [deployment guide](docs/deploy.md) for organization selection, scheduler wake, and the optional Pages publisher.
+GitHub Actions requires the unit suites, JavaScript syntax checks, and both offline Chromium checks before deploying with the `SPRITES_TOKEN` repository secret. The deployment guide covers organization selection, scheduler wake, the optional Pages publisher, and the manual signed-out edge check. [Workflow](.github/workflows/deploy.yml), [Deployment guide](docs/deploy.md)
 
 ## Configuration
 
@@ -124,7 +125,7 @@ node --test tests/*.test.mjs
 for file in web/*.js; do node --check "$file" || exit; done
 ```
 
-The Run 48 QA report covers the live Sprite, the mobile and desktop browser matrix, provider limitations, and a 90-second demo. [QA report](QA-REPORT.md)
+Run 63 passed 315 Python tests, 16 Node tests, JavaScript syntax checks for 27 files, and both offline Chromium runs. [Test commands and results](docs/testing.md), [Live QA and provider limitations](QA-REPORT.md)
 
 ## Project layout
 
@@ -153,6 +154,9 @@ Keep the workspace URL behind Sprite authentication. Provider API keys stay with
 - [Skills](docs/skills.md)
 - [Voice](docs/voice.md)
 - [Development](docs/development.md)
+- [Testing and edge authorization](docs/testing.md)
+- [Security and untrusted content](docs/security.md)
+- [Design-review status](DESIGN-REVIEW.md#run-63-status)
 - [Project status](STATUS.md) and [QA report](QA-REPORT.md)
 
 ## License

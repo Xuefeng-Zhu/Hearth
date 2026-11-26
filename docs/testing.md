@@ -2,6 +2,20 @@
 
 See the [development guide](development.md) for the Python suite, Node tests, and JavaScript syntax checks.
 
+## Run 63 verification
+
+Run 63 verified `main` at `6ee3a23` using Python 3.12, Node.js 22, the pinned requirements, and the project's Chinese PDF font.
+
+| Check | Result |
+| --- | --- |
+| `python -m unittest discover -s tests` | 315 passed |
+| `node --test tests/*.test.mjs` | 16 passed |
+| `node --check` for `web/*.js` | 27 files passed |
+| Offline Chromium smoke and stream disconnect | Both passed |
+| Signed-out edge matrix on loopback fixtures | All 23 checks passed. A fixture that exposed anonymous health was rejected. |
+
+The Python suite covers conditional polling and paging, worker storage faults, delivery during restore, summary recovery, Box cache and transfers, HTTP validation, subsystem status, untrusted content, and edge-check parsing. The browser checks use local fixtures. Live connector probes and the deployed edge matrix are outside this run. [Python tests](../tests/), [Design-review status](../DESIGN-REVIEW.md#run-63-status)
+
 ## Offline Chromium smoke
 
 Run the smoke from the repository root with the pinned test dependencies installed.
@@ -9,13 +23,14 @@ Run the smoke from the repository root with the pinned test dependencies install
 ```sh
 python -m playwright install --only-shell chromium
 PYTHONPATH=. python tests/browser-smoke.py
+PYTHONPATH=. python tests/browser-smoke.py --disconnect
 ```
 
 Add `--with-deps` to the install command if Chromium needs Linux system libraries. In the ARM workspace, set `LD_LIBRARY_PATH=/workspace/tools/chromelibs/usr/lib/aarch64-linux-gnu` when launching the test. Set `PLAYWRIGHT_BROWSERS_PATH` if Chromium was installed outside Playwright’s default cache.
 
-The smoke starts Hearth on a random loopback port with temporary data, the mock model, empty connector discovery, and browser requests restricted to the local server. It checks Home, Settings, the 390×844 drawer, keyboard send and Stop, focus during a mid-stream thread switch, and one live-region update per completed reply.
+The smoke starts Hearth on a random loopback port with temporary data, the mock model, empty connector discovery, and browser requests restricted to the local server. It checks Home, Settings, the 390×844 drawer, keyboard send and Stop, focus during a mid-stream thread switch, and one live-region update per completed reply. It also checks that two consecutive background failures mark the view stale while keeping existing content visible and that later `200` or `304` responses clear the indicator. Accessibility assertions cover focus, live-region DOM updates, and sampled contrast.
 
-Run the stream disconnect regression with `PYTHONPATH=. python tests/browser-smoke.py --disconnect`. It aborts the Chat request after the first visible token and lets the server persist the reply. It checks that polling replaces the partial bubble, announces the saved reply once, and keeps the announcement count unchanged after another refresh. The deploy workflow caches Chromium and requires both browser checks and the unit test job to pass. [Workflow](../.github/workflows/deploy.yml)
+The disconnect regression aborts the Chat request after the first visible token and lets the server persist the reply. It checks that polling replaces the partial bubble, announces the saved reply once, and keeps the announcement count unchanged after another refresh. The deploy workflow caches Chromium and requires both browser checks and the unit test job to pass. [Workflow](../.github/workflows/deploy.yml)
 
 ## Signed-out edge authorization matrix
 
@@ -40,4 +55,4 @@ scripts/check-edge-auth.sh
 | GET with a missing, malformed, unknown, or revoked token on the public Pages origin | 404 |
 | GET to sampled workspace routes on the public Pages origin | 404 |
 
-The script uses an anonymous client without cookies or authorization headers and reports the first status it receives. Each POST sends an empty JSON object. Results print fixture labels and status codes so the workspace URL and share tokens stay out of the output. Keep fixture values out of commits and logs. The live matrix is manual. Its URL, status, and redirect parsing tests run in the regular Python suite.
+The script sends no cookies or authorization headers and stops at the first response without following redirects. Inspect the edge configuration separately to confirm login. Each POST sends an empty JSON object. Results print fixture labels and status codes, and any mismatch causes a nonzero exit. Keep fixture values out of commits and logs. The live matrix is manual. Its URL, status, and redirect parsing tests run in the regular Python suite. [Edge-check implementation](../scripts/check_edge_auth.py), [Edge-check tests](../tests/test_edge_auth.py)

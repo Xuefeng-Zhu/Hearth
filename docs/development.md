@@ -22,7 +22,7 @@ for file in web/*.js; do node --check "$file" || exit; done
 
 The Python requirements include Playwright. Install Chromium with `python -m playwright install chromium` to run the Python browser fixtures. Use `--with-deps` on a Linux host that needs browser system libraries. Browser fixtures exercise desktop and touch layouts in light and dark themes.
 
-See [Testing Hearth](testing.md) for the Chromium smoke that gates deploy and the manual edge authorization check.
+Run `PYTHONPATH=. python tests/browser-smoke.py` and `PYTHONPATH=. python tests/browser-smoke.py --disconnect` to reproduce both Chromium deploy gates. These use a temporary workspace and fixture responses. The signed-out edge check is a separate manual command against disposable deployed fixtures. [Testing Hearth](testing.md)
 
 Run the browser regressions from the repository root. The first two scripts use `--shots` and the remaining scripts use `--output`. Each script accepts `--chromium` to use an existing browser binary.
 
@@ -82,8 +82,9 @@ The fixture listens on loopback port 39519. Set `CHROMIUM_PATH` to use an existi
 
 ## Conventions
 
-- Keep browser features in the existing ES modules and server behavior in `hearth/`. The server's static asset map controls which files the workspace serves.
-- Use the shared storage lock and atomic writes for persisted state. Add brain tools through the agent and the approval classifier so chat and scheduled runs use the same policy.
+- Keep browser features in the existing ES modules and server behavior in `hearth/`. Register new assets in the static asset map. Keep stream decoding in `web/sse.js` and Chat stream, snapshot, and page reconciliation in `web/chat-state.js` so the Node suite can exercise them independently of the DOM.
+- Add HTTP handlers through `hearth/http_routes.py` with their method, body schema and limit, and applicable origin, token, and restore policy. Keep business and workspace validation in the service.
+- Use the shared storage lock and atomic writes for persisted state and advance the relevant polling revision on writes. Use the web scheduler's claim and delivery paths for scheduled work. Keep model or provider calls outside the workspace state lock. Add brain tools through the shared tool handling and approval classifier so chat, workers, and scheduled runs use the same policy.
 - Test provider integrations with gateway fixtures and use temporary data roots. Keep live credentials, private connector settings, and runtime captures outside tracked files.
 
-[Server](../hearth/server.py), [Storage](../hearth/storage.py), [Tool policies](../hearth/approvals.py), [CI](../.github/workflows/deploy.yml)
+[Route registry](../hearth/http_routes.py), [Storage](../hearth/storage.py), [Tool policies](../hearth/approvals.py), [CI](../.github/workflows/deploy.yml)
