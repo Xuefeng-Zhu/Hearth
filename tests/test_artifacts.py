@@ -2,6 +2,7 @@ import hashlib
 import json
 import tempfile
 import threading
+import time
 import unittest
 from email import policy
 from email.parser import BytesParser
@@ -98,7 +99,8 @@ class MockBox:
             if self.reject_upload:
                 status, body = self.reject_upload
                 self.fail(request, status, body)
-            envelope = f"Content-Type: {request.get_header('Content-type')}\r\n\r\n".encode() + request.data
+            data = request.data if isinstance(request.data, bytes) else b"".join(request.data)
+            envelope = f"Content-Type: {request.get_header('Content-type')}\r\n\r\n".encode() + data
             fields = list(BytesParser(policy=policy.default).parsebytes(envelope).iter_parts())
             assert [part.get_param("name", header="Content-Disposition") for part in fields] == ["attributes", "file"]
             attributes = json.loads(fields[0].get_payload(decode=True))
@@ -117,7 +119,8 @@ class MockBox:
             else:
                 item = self.files[parts[1]]
                 assert attributes == {}
-                assert request.get_header("If-match") == self.metadata(item)["etag"]
+                if request.get_header("If-match") != self.metadata(item)["etag"]:
+                    self.fail(request, 412)
                 self.add_version(item, content)
             return self.response({"entries": [self.metadata(item)]})
         item = self.files.get(parts[1])
@@ -169,6 +172,16 @@ class ArtifactTest(unittest.TestCase):
 
     def endpoint(self, path="", data=None, **headers):
         return self.request("/api/artifacts" + path, data, **headers)
+
+    def refreshed_listing(self):
+        status, listing = self.endpoint("?refresh=1")
+        deadline = time.monotonic() + 5
+        while listing.get("box_status") == "refreshing" and time.monotonic() < deadline:
+            time.sleep(0.01)
+            status, listing = self.endpoint()
+        self.assertEqual(status, 200)
+        self.assertEqual(listing["box_status"], "fresh")
+        return listing
 
     def create(self, title="Dinner plan", content="Dinner at six.", fmt="docx"):
         return self.app.artifacts.create(fmt, {"title": title, "sections": [{"paragraphs": [content]}]},
@@ -247,6 +260,35 @@ class ArtifactTest(unittest.TestCase):
         self.assertIn("frame-ancestors 'self'", inline_headers["Content-Security-Policy"])
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
 
+    def test_remote_download_uses_bounded_reads_and_keeps_http_headers(self):
+        self.create()
+        folder = self.app.connections.config["box_folders"]["root"]
+        raw = b"box export" * (128 * 1024)
+        remote = self.provider.add_file(folder, "Export.bin", raw)
+        item = next(row for row in self.refreshed_listing()["artifacts"] if row.get("box_id") == remote["id"])
+        original_open = self.provider.open
+        read_sizes = []
+
+        class BoundedResponse(BytesIO):
+            def read(self, size=-1):
+                read_sizes.append(size)
+                if not 0 < size <= 128 * 1024:
+                    raise AssertionError("Expected a bounded read")
+                return super().read(size)
+
+        def open_file(request, timeout):
+            if urlsplit(request.full_url).path.endswith(f"/files/{remote['id']}/content"):
+                return BoundedResponse(raw)
+            return original_open(request, timeout)
+
+        with patch.object(self.provider, "open", side_effect=open_file):
+            headers, downloaded = self.download(item)
+        self.assertEqual(downloaded, raw)
+        self.assertGreater(len(read_sizes), 1)
+        self.assertEqual(int(headers["Content-Length"]), len(raw))
+        self.assertEqual(headers.get_content_type(), "application/octet-stream")
+        self.assertIn("Export.bin", headers["Content-Disposition"])
+
     def test_box_items_recursive_listing_and_trash_restore(self):
         self.create()
         folders = self.app.connections.config["box_folders"]
@@ -256,7 +298,7 @@ class ArtifactTest(unittest.TestCase):
         outside = self.provider.add_file("0", "private.txt", b"outside tree")
         external = self.provider.add_file(child_id, "Shopping.csv", b"Item,Quantity\nCranberries,1\n")
         other = self.provider.add_file(folders["root"], "Menu.pdf", b"PDF")
-        items = {item["title"]: item for item in self.endpoint()[1]["artifacts"]}
+        items = {item["title"]: item for item in self.refreshed_listing()["artifacts"]}
         self.assertEqual(set(items), {"Dinner plan", "Menu", "Shopping"})
         self.assertEqual(self.endpoint("/detail?id=box-" + outside["id"])[0], 400)
         self.assertEqual(items["Shopping"]["source"], "Box")
@@ -269,7 +311,7 @@ class ArtifactTest(unittest.TestCase):
         status, deleted = self.endpoint("/delete", {"id": detail["id"], "revision": detail["revision"]})
         self.assertEqual(status, 200)
         self.assertIn("file remains in Box", deleted["sync_message"])
-        self.assertEqual(len(self.provider.requests), request_count)
+        self.assertTrue(all(request.get_method() == "GET" for request in self.provider.requests[request_count:]))
         self.assertFalse(external["trashed"])
         self.assertEqual(len(self.endpoint()[1]["artifacts"]), 2)
         self.assertEqual(self.endpoint("/detail?id=" + detail["id"])[0], 400)
@@ -340,6 +382,25 @@ class ArtifactTest(unittest.TestCase):
         with self.assertRaisesRegex(HearthError, "changed in Box"):
             self.update(item)
         self.assertEqual(self.detail(item)["versions"][0]["number"], 1)
+
+    def test_if_match_protects_external_edit_between_revision_check_and_upload(self):
+        item = self.create()
+        original_open = self.provider.open
+        remote = self.provider.files[item["box_id"]]
+
+        def edit_before_upload(request, timeout):
+            if request.get_method() == "POST" and urlsplit(request.full_url).path.endswith(
+                f"/files/{item['box_id']}/content"
+            ):
+                self.provider.add_version(remote, b"External edit")
+            return original_open(request, timeout)
+
+        with patch.object(self.provider, "open", side_effect=edit_before_upload):
+            updated = self.update(item)
+        self.assertEqual(updated["sync"], "error")
+        self.assertIn("changed in Box", updated["sync_message"])
+        self.assertEqual([version["content"] for version in remote["versions"]][1:], [b"External edit"])
+        self.assertNotEqual(self.download(updated)[1], b"External edit")
 
     def test_same_named_files_get_separate_box_ids(self):
         first = self.create()

@@ -331,13 +331,14 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
   } });
   let layout = localStorage.getItem("hearth-artifact-layout") === "list" ? "list" : "grid";
   let formatFilter = "all";
-  let snapshot, selected, request, detailRequest, opener, liveBrowse, confirming = false;
+  let snapshot, selected, request, refreshTimer, detailRequest, opener, liveBrowse, confirming = false;
   const questions = createFileQuestions(api);
 
   function connection(info) {
-    const { connected, box_error: error, settings } = info;
+    const { connected, box_error: error, box_status: freshness, settings } = info;
     const status = get("artifact-box-status");
-    status.textContent = !connected ? "Box disconnected" : error ? "Box needs attention"
+    status.textContent = !connected ? "Box disconnected" : freshness === "refreshing" ? "Refreshing Box…"
+      : error ? "Box needs attention"
       : settings.auto_save ? "Box connected" : "Box auto-save off";
     status.dataset.connected = String(connected && !error);
     get("artifact-connection").hidden = connected && !error;
@@ -454,17 +455,23 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     render();
   }
 
-  async function show({ fromRetry = false } = {}) {
+  async function show({ fromRetry = false, force = false } = {}) {
     if (request) return request;
+    clearTimeout(refreshTimer);
     const retry = get("artifact-try-again");
     const problem = get("artifact-load-error");
     retry.disabled = get("artifact-refresh").disabled = true;
     problem.hidden = true;
     if (!snapshot) get("artifact-count").textContent = "Loading artifacts…";
-    request = api("/api/artifacts").then((data) => {
+    request = api(force ? "/api/artifacts?refresh=1" : "/api/artifacts").then((data) => {
       snapshot = data;
       if (snapshot.timezone) setTimeZone(snapshot.timezone);
       render();
+      if (data.box_status === "refreshing") {
+        refreshTimer = setTimeout(() => {
+          if (!get("artifacts-view").hidden) void show();
+        }, 500);
+      }
     }).catch((error) => {
       if (!snapshot) get("artifact-count").textContent = "";
       problem.hidden = false;
@@ -826,12 +833,12 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     opener = undefined;
     if (!get("page-dialog").open) target?.focus();
   });
-  get("artifact-try-again").addEventListener("click", () => show({ fromRetry: true }));
+  get("artifact-try-again").addEventListener("click", () => show({ fromRetry: true, force: true }));
   get("file-question-open").addEventListener("click", async () => {
     if (!snapshot) await show();
     questions.open(snapshot);
   });
-  get("artifact-refresh").addEventListener("click", show);
+  get("artifact-refresh").addEventListener("click", () => show({ force: true }));
   search.addEventListener("input", render);
   kind.addEventListener("change", render);
   sort.addEventListener("change", render);

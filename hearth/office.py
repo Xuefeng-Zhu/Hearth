@@ -370,7 +370,7 @@ def text_lines(fmt, path):
 
 
 def preview(fmt, raw):
-    stream = io.BytesIO(raw)
+    stream = io.BytesIO(raw) if isinstance(raw, bytes) else raw
     with bounded_archive(stream):
         pass
     if fmt == "xlsx":

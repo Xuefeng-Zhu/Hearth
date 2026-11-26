@@ -6,6 +6,7 @@ from io import BytesIO
 from unittest.mock import Mock, patch
 
 from hearth import artifacts, box, office
+from hearth.checkpoints import LocalCheckpoints
 from hearth.connectors import ConnectorError, Gateway
 from hearth.storage import HearthError, Storage
 
@@ -35,7 +36,7 @@ class ArtifactIOTest(unittest.TestCase):
             if self.service.walk.call_count == 1:
                 started.set()
                 self.assertTrue(release.wait(5))
-                return {"box-11": self.service.box_row({"id": "11", "name": "Dinner.txt"}, "note")}
+                return {"box-11": self.service.box_row({"id": "11", "name": "Dinner.txt"}, "note", "fixture")}
             raise ConnectorError("fixture detail", 429)
 
         self.service.walk.side_effect = walk
@@ -75,8 +76,8 @@ class ArtifactIOTest(unittest.TestCase):
             if scope[1] == box.DEFAULTS["folder_name"]:
                 started.set()
                 self.assertTrue(release.wait(5))
-                return {"box-11": self.service.box_row({"id": "11", "name": "Old.txt"}, "note")}
-            return {"box-12": self.service.box_row({"id": "12", "name": "New.txt"}, "note")}
+                return {"box-11": self.service.box_row({"id": "11", "name": "Old.txt"}, "note", "fixture")}
+            return {"box-12": self.service.box_row({"id": "12", "name": "New.txt"}, "note", "fixture")}
 
         self.service.walk = Mock(side_effect=walk)
         with ThreadPoolExecutor() as pool:
@@ -142,6 +143,40 @@ class ArtifactIOTest(unittest.TestCase):
                 slow.result(timeout=5)
         self.assertEqual(self.service.find(item["id"])["revision"], winner["revision"])
         self.assertEqual(self.client.upload.call_count, 2)
+
+    def test_retry_cannot_commit_across_restore_of_same_revision(self):
+        self.service.connections.config["artifacts"]["auto_save"] = False
+        item = self.service.create("docx", self.document("Original"))
+        checkpoints = LocalCheckpoints(self.service.storage)
+        checkpoint = checkpoints.create("Before retry")
+        started, release = threading.Event(), threading.Event()
+
+        def upload(row, content, folder):
+            started.set()
+            self.assertTrue(release.wait(5))
+            return {"id": "11", "etag": "1"}
+
+        self.client.upload.side_effect = upload
+        with ThreadPoolExecutor() as pool:
+            retry = pool.submit(self.service.mutate, "retry", {"id": item["id"]})
+            try:
+                self.assertTrue(started.wait(5))
+                with self.assertRaisesRegex(HearthError, "changed"):
+                    self.service.mutate("delete", {"id": item["id"], "revision": item["revision"]})
+                self.assertTrue(self.operation.acquire(timeout=1))
+                try:
+                    self.service.reset()
+                    with self.service.storage.lock():
+                        checkpoints.restore(checkpoint["id"])
+                finally:
+                    self.operation.release()
+            finally:
+                release.set()
+            with self.assertRaisesRegex(HearthError, "workspace changed"):
+                retry.result(timeout=5)
+        restored = self.service.find(item["id"])
+        self.assertEqual((restored["revision"], restored["sync"]), (item["revision"], "local"))
+        self.assertNotIn("box_id", restored)
 
 
 class BoxTransferTest(unittest.TestCase):
