@@ -1,8 +1,19 @@
-# Hearth QA · Run 34
+# Hearth QA
+
+## Run 38
+
+- **Mobile drawer.** Playwright WebKit 27.2 passed at 375×667 and 390×844 in light and dark. From a fresh Home load with 12 seeded side chats, all seven navigation links fit before scrolling. Thread titles ellipsized, the drawer had no horizontal overflow, and Settings stayed pinned while the list scrolled to the last chat.
+- **Settings.** The same 12 grouped disclosures passed at both phone sizes and at 1440×1000 in both themes. The fixture opened and closed each section with the keyboard and exercised the legacy Connections and Skills links and the mobile Ember view control.
+- **Regression and contrast.** 195 Python tests and 8 Node tests passed. The Chromium browser regressions passed, and the sampled WCAG AA contrast sweep found zero failures in 16,956 measurements. [Development commands](docs/development.md)
+- **Sprite.** `scripts/deploy.sh` completed and `/health` returned HTTP 200 with Sprite checkpoints. The deployed HTML, CSS, and JavaScript checked against the local release matched. On the deployed service, WebKit rendered Settings, Connections, and Skills at 390 and 1440 px in both themes.
+
+Fixture screenshots are in `/workspace/tmp/hearth-qa/run38/`. The README images of Connections, Skills, and the mobile drawer use the same synthetic workspace. [Screenshots](README.md#screenshots)
+
+## Run 34
 
 Run 34 covered the Sprite build after Skills, parallel workers, structured Memory, and Proactivity shipped. Verification ran on November 26, 2026 UTC. The standard deployment passed `/health` with Sprite checkpoints. Write tests used synthetic data in an isolated workspace on the same Sprite, running the deployed release with the real Hugging Face, Exa, and Box connectors. The isolated workspace used local checkpoints and a separate Box QA folder.
 
-## Results
+### Results
 
 | Check | Result |
 | --- | --- |
@@ -20,21 +31,21 @@ Run 34 covered the Sprite build after Skills, parallel workers, structured Memor
 
 Local Chromium reached the deployed service through the authenticated Sprites CLI. Run 34 opened zero Browserbase sessions. Live captures and QA logs are in `/workspace/tmp/hearth-qa/run34/`. The README Home image shows a fresh workspace on the deployed Sprite with Browserbase connected. [Development commands](docs/development.md), [Connector setup](docs/connectors.md), [Screenshots](README.md#screenshots)
 
-## Fixes verified after redeploy
+### Fixes verified after redeploy
 
 - Raised the dark-mode border contrast of Memory tabs and note buttons. The broad sweep found five failing control styles before the fix and zero afterward.
 - Matched Chinese phrases inside saved notes by applying the same tokenization to local queries and indexed text. English and Chinese recall both passed on the deployed release.
 - Hid proactive offers that point to a deleted skill. The regression covers both the Home list and the handoff endpoint.
 - Accepted “permanently forget” as a direct forget request in chat. The regression checks removal and blocks saving the matching detail again.
 
-## Known issues and limits
+### Known issues and limits
 
 - Sprite discovery found Apify, and its provider check was denied. Connections and Home reported the failure.
 - Two follow-up scheduler calls returned `brain-unavailable`. The separate planner diagnostic completed against the connected brain using the same workspace after forget.
 - Box version history uses locally recorded receipts when the gateway’s versions GET is unavailable. The synthetic PDF remains in the dedicated QA folder after verification of its upload and synced link.
 - Native Sprite restore, delivery to a real email recipient, anonymous Page publishing, an external scheduler wake, and physical-device Safari were outside Run 34. Local fixtures exercised the corresponding app flows where available. [Deployment](docs/deploy.md), [Voice](docs/voice.md)
 
-## 90-second demo
+### 90-second demo
 
 Use a test workspace with a connected brain and Exa. Stage a For you offer, English and Chinese notes, a skill run, a pending skill proposal, a completed worker comparison, a workbook, and a private Page. Keep reminder delivery in-app and leave any demo send unapproved.
 

@@ -18,7 +18,9 @@ The Settings and mobile drawer screenshots use local demo data. Home, Chat appro
 
 ## Navigation
 
-The desktop sidebar and mobile drawer list **Home**, **Chat**, **Timeline**, **Artifacts**, **Reminders**, **Inbox**, and **Memory** in that order, with **Settings** pinned at the bottom. Open **Settings → Connections** to manage and test connectors or **Settings → Skills** to browse and edit playbooks. Existing `#connections` and `#skills` bookmarks redirect to these sections.
+The desktop sidebar and mobile drawer list **Home**, **Chat**, **Timeline**, **Artifacts**, **Reminders**, **Inbox**, and **Memory** in that order. On phones, the seven links fit in a two-column grid above **Threads** and **New chat**. The drawer scrolls through longer chat lists with **Settings** pinned at the bottom.
+
+**Settings** opens with all sections collapsed. The same accordion on desktop and phones groups preferences under **Assistant**, **Connected**, **Notifications**, and **App**. Manage and test connectors under **Connected → Connections** or browse and edit playbooks under **Assistant → Skills**. Existing `#connections` and `#skills` bookmarks open those sections. On phones, find **Ember view** under **App → Appearance**.
 
 ## What you can do
 

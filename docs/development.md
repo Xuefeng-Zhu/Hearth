@@ -34,7 +34,14 @@ for run in 25 30 31 32 33; do
 done
 ```
 
-The fixtures exercise Home, attachments, Pages, Settings → Connections and Skills, parallel workers, structured Memory, and For you. The navigation, Connections, and Skills checks include 375, 390, and 1440 px in light and dark themes. [Live Sprite results](../QA-REPORT.md)
+The fixtures exercise Home, attachments, Pages, Settings → Connections and Skills, parallel workers, structured Memory, and For you. The navigation, Connections, and Skills checks include 375, 390, and 1440 px in light and dark themes.
+
+The drawer and Settings screenshot fixture prefers WebKit and falls back to Chromium with iPhone emulation when WebKit cannot launch. It checks both themes at 375×667 and 390×844 on phones and 1440×1000 on desktop. The fixture seeds 12 side chats with long titles and checks that every workspace link fits before scrolling, thread titles truncate, and Settings stays pinned while the drawer scrolls. It also exercises all 12 Settings disclosures and the legacy Connections and Skills links. [Browser fixture](../tests/run38-browser.py)
+
+```sh
+python -m playwright install webkit
+PYTHONPATH=. python tests/run38-browser.py --output /tmp/hearth-browser-38
+```
 
 The contrast sweep uses Node Playwright. The following commands install it in a temporary directory and start an isolated fixture server.
 
@@ -51,7 +58,7 @@ In a second terminal, set `PLAYWRIGHT_PATH` to the path ending in `node_modules/
 node tests/contrast.mjs
 ```
 
-The fixture listens on loopback port 39519. Set `CHROMIUM_PATH` to use an existing Chromium binary, `HEARTH_QA_URL` to target another fixture, or `HEARTH_QA_SCREENSHOTS` to save captures. [Contrast fixture](../tests/contrast-fixture.py), [Contrast sweep](../tests/contrast.mjs)
+The fixture listens on loopback port 39519. Set `CHROMIUM_PATH` to use an existing Chromium binary, `HEARTH_QA_URL` to target another fixture, or `HEARTH_QA_SCREENSHOTS` to save captures. [Contrast fixture](../tests/contrast-fixture.py), [Contrast sweep](../tests/contrast.mjs), [Live Sprite results](../QA-REPORT.md)
 
 ## Conventions
 
