@@ -975,10 +975,14 @@ function renderThreads() {
     .map((thread) => `${thread.title}: ${thread.status}`).join(". "));
   list.replaceChildren(...entries.map((thread) => {
     const item = button("", () => {
-      mobile.closeDrawer();
-      activateThread(thread.id);
-      if (view !== "chat") openView("chat");
-      else selectThread(thread.id);
+      if (view !== "chat") {
+        activateThread(thread.id);
+        openView("chat");
+      } else {
+        const fromDrawer = mobile.closeDrawer({ restoreFocus: false });
+        selectThread(thread.id);
+        if (fromDrawer) byId("thread-title").focus({ preventScroll: true });
+      }
     });
     item.className = "thread-link";
     item.dataset.thread = thread.id;
@@ -2034,7 +2038,9 @@ function renderMemoryPreferences(info) {
       check.checked = choice[field].includes(folder);
       check.dataset[field] = folder;
       check.setAttribute("aria-label", `${field === "include" ? "Include" : "Exclude"} ${folderNames[folder]}`);
-      row.append(check);
+      const target = node("label", "scope-choice");
+      target.append(check);
+      row.append(target);
     }
     return row;
   }));
@@ -2309,7 +2315,8 @@ async function refreshView() {
 
 async function openView(nextView, updateHistory = true, section, target) {
   const previousView = view;
-  mobile.closeDrawer();
+  const fromDrawer = mobile.closeDrawer({ restoreFocus: false });
+  if (nextView !== previousView) showNotice();
   if (nextView !== "chat") voice.cancel();
   if (updateHistory) {
     const hash = nextView === "settings" ? settingsHash(section) : nextView === "artifacts" ? artifactHash()
@@ -2335,6 +2342,7 @@ async function openView(nextView, updateHistory = true, section, target) {
     }
     byId(`${item.dataset.view}-view`).hidden = !active;
   }
+  if (fromDrawer) byId("view-title").focus({ preventScroll: true });
   paintAvatars();
   renderWorkspaceStatus();
   if (view === "timeline") timeline.setTodayErrors(location.hash === timelineErrorRoute);

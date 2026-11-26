@@ -176,7 +176,7 @@
     border-radius: 15px 15px 0 0;
   }
   [data-keyboard] .composer, .face-view .composer { padding-bottom: 5px; }
-  .composer textarea { min-height: 44px; max-height: min(132px, 26dvh); padding: 10px 7px; }
+  .composer textarea { min-height: 44px; max-height: min(132px, calc(var(--keyboard-height, 100dvh) * .26)); padding: 10px 7px; }
   .composer button { width: 44px; height: 44px; }
   .voice-key { display: none; }
   .voice-bar {
@@ -205,13 +205,16 @@
   .layout :is(input:not([type="checkbox"], [type="radio"]), textarea),
   .artifact-drawer .artifact-control { min-height: 44px; }
   .layout button, .workspace-drawer button, .call-sheet button, .artifact-drawer button { min-width: 44px; }
+  .layout :is(.card button.primary-setting, .settings-button.primary-setting, .home-card-links .home-link) { min-height: 44px; }
   .layout :is(input, textarea, select), .artifact-drawer textarea { font-size: 16px; }
   .layout :is(input, textarea, select, label, fieldset), .artifact-drawer textarea { min-width: 0; max-width: 100%; }
   .layout :is(.check-label, .appearance-toggle, .avatar-color, summary) { min-height: 44px; align-content: center; }
   .layout label:has(> :is(input[type="checkbox"], input[type="radio"])) { min-height: 44px; align-content: center; }
   .layout input[type="color"] { min-width: 44px; }
-  .layout :is(.artifact-thread, .artifact-connection a, .delivery-actions a, .connection-actions a),
-  .artifact-drawer .artifact-thread { display: inline-flex; min-height: 44px; align-items: center; }
+  .layout :is(.artifact-thread, .artifact-connection a, .delivery-actions a, .connector-links a,
+    .connection-match-link, #memory-connect, a.home-link, a.skill-chip),
+  .artifact-drawer .artifact-thread { display: inline-flex; min-height: 44px; min-width: 44px; align-items: center; }
+  .layout a.skill-chip { padding-block: 8px; }
   .layout pre, .artifact-drawer pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 
   .timeline-filters { gap: 4px; }
@@ -242,21 +245,19 @@
   .delivery-actions, .inbox-facts, .delivery-details { overflow-wrap: anywhere; }
 
   .connection-tabs {
-    display: flex;
-    justify-content: start;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     padding: 4px;
     border: 1px solid var(--border);
     border-radius: 10px;
     background: var(--accent-light);
   }
   .connection-tabs button {
-    flex: 1 0 auto;
-    padding: 6px 10px;
-    white-space: nowrap;
+    min-width: 0;
+    padding: 6px;
     border: 1px solid transparent;
     border-radius: 7px;
+    overflow-wrap: anywhere;
   }
   .connection-tabs button[aria-selected="true"] { background: var(--paper); border-color: var(--focus); }
   .connection-grid, .connection-filters { grid-template-columns: minmax(0, 1fr); }
@@ -377,6 +378,10 @@
   .attachment-chip { flex: 0 0 min(245px, 82%); }
   .chat-file { padding: 7px; gap: 5px; }
   .attachment-image-card .attachment-name { min-height: 50px; }
-  .chat-toast { right: 12px; bottom: calc(69px + env(safe-area-inset-bottom)); }
+  .chat-toast {
+    right: max(12px, env(safe-area-inset-right));
+    bottom: calc(69px + max(env(safe-area-inset-bottom),
+      100dvh - var(--keyboard-height, 100dvh) - var(--keyboard-top, 0px)));
+  }
   .message.assistant > .message-body { padding: 10px 11px; }
 }

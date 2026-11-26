@@ -136,7 +136,16 @@ a.skill-chip:hover { background: var(--nav-active); color: var(--selection-text)
 @media (max-width: 620px) {
   .skill-list { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .skill-editor { width: calc(100% - 16px); }
-  #skill-form { max-height: calc(100dvh - 16px); }
+  #skill-form {
+    max-height: max(0px, calc(var(--keyboard-height, 100dvh)
+      - max(8px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom))));
+  }
+  [data-keyboard] .skill-editor {
+    inset: calc(var(--keyboard-top) + 8px) 8px auto;
+    margin: 0 auto;
+  }
+  #skill-markdown { font-size: 16px; }
+  #skill-versions, #skill-close { min-height: 44px; min-width: 44px; }
   .skill-editor-header, .skill-editor-footer, .skill-editor-body { padding: 12px; }
   .skill-button { min-height: 44px; }
 }

@@ -11,11 +11,15 @@ export function setupMobile({ nearBottom, scrollDown, refreshThreads }) {
   const callResume = get("return-to-call");
   const workspaceHeader = call.parentElement;
 
-  function closeDrawer() {
+  let restoreDrawerFocus = true;
+
+  function closeDrawer({ restoreFocus = true } = {}) {
     if (threadMenu.open) threadMenu.close();
-    if (!drawer.open) return;
+    if (!drawer.open) return false;
+    restoreDrawerFocus = restoreFocus;
     toggle.setAttribute("aria-expanded", "false");
     drawer.close();
+    return true;
   }
 
   toggle.addEventListener("click", () => {
@@ -31,7 +35,8 @@ export function setupMobile({ nearBottom, scrollDown, refreshThreads }) {
     const notice = get("drawer-notice");
     notice.hidden = true;
     notice.textContent = "";
-    if (mobile.matches) toggle.focus({ preventScroll: true });
+    if (mobile.matches && restoreDrawerFocus) toggle.focus({ preventScroll: true });
+    restoreDrawerFocus = true;
   });
   drawer.addEventListener("cancel", (event) => {
     event.preventDefault();
@@ -75,7 +80,10 @@ export function setupMobile({ nearBottom, scrollDown, refreshThreads }) {
   let frame = 0;
   function fitViewport() {
     frame = 0;
-    const keyboard = mobile.matches && viewport?.scale === 1 && root.clientHeight - viewport.height > 100;
+    const editing = document.activeElement?.matches("textarea, input:not([type]), input[type=search], "
+      + "input[type=email], input[type=url], input[type=text], input[type=number], [contenteditable=true]");
+    const keyboard = mobile.matches && viewport?.scale === 1 && root.clientHeight - viewport.height > 100
+      && (editing || root.hasAttribute("data-keyboard"));
     const follow = nearBottom();
     root.toggleAttribute("data-keyboard", keyboard);
     if (keyboard) {
@@ -111,6 +119,7 @@ export function setupMobile({ nearBottom, scrollDown, refreshThreads }) {
   }
 
   mobile.addEventListener("change", placeControls);
+  document.addEventListener("focusin", scheduleFit);
   viewport?.addEventListener("resize", scheduleFit);
   viewport?.addEventListener("scroll", scheduleFit);
   placeControls();

@@ -11,7 +11,7 @@ body { margin: 0; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: wait; opacity: .55; }
-button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .layout { display: grid; grid-template-columns: 222px minmax(0, 1fr); min-height: 100dvh; }
 .sidebar { background: var(--sidebar); border-right: 1px solid var(--border); padding: 30px 20px 22px; display: flex; flex-direction: column; gap: 38px; }
 .brand { display: flex; align-items: center; gap: 11px; padding-left: 8px; font: 600 27px Georgia, serif; letter-spacing: -.055em; }
@@ -39,7 +39,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .new-thread, .thread-controls button { color: var(--accent); background: var(--paper); border: 1px solid var(--control-border); border-radius: 8px; font-size: 13px; font-weight: 650; padding: 7px 10px; }
 .new-thread { display: flex; align-items: center; gap: 6px; min-height: 37px; text-align: left; }
 .new-thread:hover, .thread-controls button:hover { background: var(--accent-light); }
-.threads { display: grid; align-content: start; gap: 3px; overflow-y: auto; padding: 3px; }
+.threads { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 3px; overflow-y: auto; padding: 3px; }
 .thread-select { display: none; }
 .thread-link { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); padding: 9px; text-align: left; font-size: 13px; }
 .thread-row { display: flex; min-width: 0; border-radius: 8px; }
@@ -292,6 +292,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .scope-fields h3, .utility-card h3 { font-size: 15px; margin: 0 0 9px; }
 .scope-row { display: grid; grid-template-columns: minmax(100px, 1fr) 62px 62px; align-items: center; padding: 6px 0; gap: 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .scope-row > :not(:first-child) { justify-self: center; }
+.scope-choice { display: grid; width: 44px; place-items: center; cursor: pointer; }
 .scope-row:first-child { color: var(--muted); padding-top: 0; }
 .utility-card progress { width: 100%; accent-color: var(--accent); }
 .utility-card .meta:last-child { margin-bottom: 0; }
