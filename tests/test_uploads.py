@@ -89,6 +89,30 @@ class UploadsTest(unittest.TestCase):
         self.assertEqual(len(list(self.app.uploads.directory("main").iterdir())), 1)
         self.assertEqual(len(self.data("/api/timeline")["entries"]), 1)
 
+    def test_followups_reuse_extraction_by_content_and_invalidate_on_revision_and_forget(self):
+        first = self.upload("one.txt", b"The fixture code is copper marigold.")
+        second = self.upload("two.txt", b"The fixture code is copper marigold.")
+        unrelated = self.upload("three.txt", b"The backup fixture is silver juniper.")
+        with patch.object(uploads, "extract", wraps=uploads.extract) as extract:
+            self.turn([first], "Summarize the attachment.")
+            self.turn([], "What is in the attachment?")
+            self.turn([second], "What is in the attachment?")
+            extract.assert_called_once()
+
+            _, directory = self.app.uploads.get("main", second["id"])
+            (directory / "file").write_text("The fixture code is golden sycamore.")
+            turn = self.turn([], "What is in the attachment?")
+            self.assertIn("golden sycamore", turn["done"]["message"]["content"])
+            self.assertEqual(extract.call_count, 2)
+
+            self.turn([unrelated], "What is in the attachment?")
+            self.app.purge_memory([["golden sycamore"]], None)
+            extract.reset_mock()
+            turn = self.turn([], "What is in the attachment?")
+            self.assertIn("silver juniper", turn["done"]["message"]["content"])
+            self.assertNotIn("golden sycamore", turn["done"]["message"]["content"])
+            self.assertGreater(extract.call_count, 0)
+
     def test_sniffing_path_scope_and_origin(self):
         item = self.upload("../../图书/photo.png", image_bytes(), claimed="text/html")
         self.assertEqual((item["filename"], item["mime"]), ("photo.png", "image/png"))
@@ -179,18 +203,29 @@ class UploadsTest(unittest.TestCase):
         png = self.upload("scene.png", image_bytes())
         wav = self.upload("speech.wav", b"RIFF\x04\x00\x00\x00WAVE")
         models = Mock()
-        models.completion.side_effect = [ConnectorError("unavailable", 503), {"content": "紫色背景"}]
+        models.completion.side_effect = [ConnectorError("unavailable", 503), {"content": "紫色背景"},
+                                         {"content": "背景没有文字"}]
         connection = {"provider": "huggingface", "connection_id": "fixture"}
-        with patch("hearth.uploads.voice.transcribe", return_value="我喜欢图书馆") as whisper:
-            sources = self.app.uploads.understand("main", [{"attachment_ids": [png["id"], wav["id"]]}],
-                                                  "有什么？", gateway=models, connection=connection, mock=False)
+        history = [{"attachment_ids": [png["id"], wav["id"]]}]
+
+        def understand(question):
+            return self.app.uploads.understand("main", history, question, gateway=models,
+                                               connection=connection, mock=False)
+
+        with (patch("hearth.uploads.voice.transcribe", return_value="我喜欢图书馆") as whisper,
+              patch.object(uploads, "image_bytes", wraps=uploads.image_bytes) as decode):
+            sources = understand("有什么？")
+            self.assertEqual(understand("有什么？"), sources)
+            self.assertEqual(understand("有文字吗？")[0]["text"], "背景没有文字")
+            decode.assert_called_once()
         self.assertEqual([source["text"] for source in sources], ["紫色背景", "我喜欢图书馆"])
         self.assertEqual([call.args[0]["model"] for call in models.completion.call_args_list],
-                         list(uploads.VISION_MODELS))
+                         [*uploads.VISION_MODELS, uploads.VISION_MODELS[0]])
         content = models.completion.call_args.args[1][0]["content"]
         self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
         self.assertIn("Describe only what is visible in this image", content[0]["text"])
         self.assertIn("Do not answer sections about other files", content[0]["text"])
+        self.assertIn("有文字吗？", content[0]["text"])
         whisper.assert_called_once_with(models, connection, b"RIFF\x04\x00\x00\x00WAVE", "audio/wav", "auto")
 
 

@@ -12,7 +12,7 @@ from urllib.parse import quote
 from . import memory, pinecone
 from .connectors import ConnectorError
 from .gateway_tools import redact_text
-from .storage import HearthError, atomic_write, iso
+from .storage import HearthError, atomic_write, file_revision, iso
 from .threads import MAIN, Threads
 
 MODELS = {
@@ -32,6 +32,7 @@ BACKENDS = ("pinecone", "local", "huggingface", "keyword")
 KINDS = ("fact", "preference", "person", "event", "artifact", "transcript")
 CHAT_BUDGET = 0.55
 QUERY_CACHE_SIZE = 128
+SOURCE_CACHE_SIZE = 256
 QUERY_FILLERS = {"a", "an", "can", "cannot", "do", "does", "is", "of", "s", "the", "to", "what", "who"}
 HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$")
 CITATION = re.compile(r"\[\[memory:([a-f0-9]{16})\]\]")
@@ -277,6 +278,9 @@ class Recall:
         self.query_slots = threading.BoundedSemaphore(4)
         self.query_cache = OrderedDict()
         self.query_cache_lock = threading.Lock()
+        self.source_cache = OrderedDict()
+        self.source_cache_lock = threading.Lock()
+        self.source_generation = 0
         self.box_path = self.storage.live / "index" / "box-artifacts.json"
 
     def changed(self):
@@ -337,51 +341,124 @@ class Recall:
                 for hit in artifact_chunks([row]))}
             atomic_write(self.box_path, json.dumps(rows, ensure_ascii=False))
 
-    def items(self, selection, box_connection=None, box_folder=None):
-        with self.storage.lock():
-            state = self.storage.load()
-            origins = state.get("memory_origins", {})
-            rules = memory.standing_rules(self.storage)
-            items = []
-            for row in memory.catalog(self.storage):
-                path = row["path"]
-                if not folder_allowed(path, selection):
-                    continue
+    def clear_sources(self):
+        with self.source_cache_lock:
+            self.source_generation += 1
+            self.source_cache.clear()
+
+    def cached_source(self, key, revision, generation, build):
+        with self.source_cache_lock:
+            cached = self.source_cache.get(key)
+            if cached is not None and cached[0] == revision:
+                self.source_cache.move_to_end(key)
+                return cached[1]
+        value = build()
+        with self.source_cache_lock:
+            if generation == self.source_generation:
+                self.source_cache[key] = (revision, value)
+                self.source_cache.move_to_end(key)
+                if len(self.source_cache) > SOURCE_CACHE_SIZE:
+                    self.source_cache.popitem(last=False)
+        return value
+
+    @staticmethod
+    def revision(path):
+        try:
+            return file_revision(path.stat())
+        except FileNotFoundError:
+            return None
+
+    @staticmethod
+    def note_source(path, file, modified):
+        content = file.read_text(encoding="utf-8")
+        row = memory.catalog_row(path, content, modified)
+        return row, [
+            {**item, "kind": note_kind(item)}
+            for item in section_chunks(path, redact_text(content), source="Markdown", scope=note_scope(path),
+                                       note_id=row["id"], type=row["type"], related=row["related"], updated=row["updated"])
+        ]
+
+    def notes(self, selection, generation):
+        for path in self.storage.files():
+            if not folder_allowed(path, selection):
+                continue
+            try:
                 file = self.storage.memory_path(path)
-                origin = origins.get(path, {})
-                created_at = origin.get("created_at") or iso(datetime.fromtimestamp(file.stat().st_mtime, timezone.utc))
-                scope = note_scope(path)
-                for item in section_chunks(path, redact_text(self.storage.read(path)), created_at=created_at,
-                                           source="Markdown", scope=scope, note_id=row["id"], type=row["type"],
-                                           related=row["related"], updated=row["updated"]):
-                    excerpt_origin = origin.get("excerpts", {}).get(item["id"], origin)
-                    item.update(kind=note_kind(item), origin_thread=excerpt_origin.get("thread_id") or MAIN,
-                                created_at=excerpt_origin.get("created_at") or created_at)
-                    items.append(item)
-            rows = state.get("artifacts", {})
-            cache = self.read_index(self.box_path)
-            box_rows = cache.get("rows", {}) if cache.get("scope") == [box_connection, box_folder] else {}
-            merged = {key: row for key, row in box_rows.items()}
-            merged.update(rows)
-            for identity, row in box_rows.items():
-                if identity in rows and rows[identity].get("sync") == "synced" and not rows[identity].get("deleted"):
-                    merged[identity] = {**rows[identity], **row}
-            items.extend(artifact_chunks(merged.values()))
-            if selection["include_chat"]:
-                forgotten = set(state.get("forgotten_chat", []))
-                for thread in self.threads.list():
-                    path = f"chat/{thread['id']}"
-                    for line, message in enumerate(self.threads.messages(thread["id"]), 1):
-                        identity = message.get("id") or f"{thread['id']}:{line}"
-                        text = chat_text(message)
-                        if identity in forgotten or not text.strip():
-                            continue
-                        items.append(chunk(path, line, line, text, thread["title"],
-                                           thread_id=thread["id"], message_id=identity, kind="transcript",
-                                           scope="chat", source="Voice transcript" if message["role"] == "call" else "Chat",
-                                           created_at=message.get("at") or ""))
-            return [item for item in items if not memory.matches_rule(
-                f"{item['path']} {item['heading']} {item['excerpt']}", rules)]
+                stat = file.stat()
+                modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
+                source = self.cached_source(("note", path), file_revision(stat), generation,
+                                            lambda: self.note_source(path, file, modified))
+            except FileNotFoundError:
+                continue
+            yield path, modified, source
+
+    def note_catalog(self, selection):
+        with self.source_cache_lock:
+            generation = self.source_generation
+        rows = [row for _, _, (row, _) in self.notes(selection, generation)]
+        with self.source_cache_lock:
+            return rows if generation == self.source_generation else []
+
+    @staticmethod
+    def transcript(thread, messages):
+        thread_id = thread["id"]
+        for line, message in enumerate(messages, 1):
+            text = chat_text(message)
+            if text.strip():
+                yield chunk(f"chat/{thread_id}", line, line, text, thread["title"],
+                            thread_id=thread_id, message_id=message.get("id") or f"{thread_id}:{line}",
+                            kind="transcript", scope="chat", source="Voice transcript" if message["role"] == "call" else "Chat",
+                            created_at=message.get("at") or "")
+
+    def source_items(self, selection, box_connection, box_folder, generation):
+        # Sources are atomically replaced. Parse each revision outside the workspace lock.
+        state_revision = self.revision(self.storage.state)
+        state = self.cached_source("state", state_revision, generation, self.storage.load)
+        origins = state.get("memory_origins", {})
+        for path, modified, (_, notes) in self.notes(selection, generation):
+            origin = origins.get(path, {})
+            for item in notes:
+                excerpt_origin = origin.get("excerpts", {}).get(item["id"], origin)
+                yield {**item, "origin_thread": excerpt_origin.get("thread_id") or MAIN,
+                       "created_at": excerpt_origin.get("created_at") or origin.get("created_at") or iso(modified)}
+
+        rows = state.get("artifacts", {})
+        cache = self.cached_source("box", self.revision(self.box_path), generation, lambda: self.read_index(self.box_path))
+        box_rows = cache.get("rows", {}) if cache.get("scope") == [box_connection, box_folder] else {}
+        merged = {**box_rows, **rows}
+        for identity, row in box_rows.items():
+            if identity in rows and rows[identity].get("sync") == "synced" and not rows[identity].get("deleted"):
+                merged[identity] = {**rows[identity], **row}
+        for identity, row in merged.items():
+            yield from self.cached_source(("artifact", identity), row, generation, lambda: list(artifact_chunks([row])))
+
+        if selection["include_chat"]:
+            forgotten = set(state.get("forgotten_chat", []))
+            threads = self.threads.load_index()
+            for thread_id in threads:
+                try:
+                    thread = self.threads.describe(thread_id, threads)
+                    revision = self.revision(self.threads.path(thread_id))
+                    key = (thread["title"], revision, state_revision if revision is None and thread_id == MAIN else None)
+                    items = self.cached_source(("chat", thread_id), key, generation,
+                                               lambda: list(self.transcript(thread, self.threads.messages(thread_id))))
+                except (FileNotFoundError, HearthError):
+                    # A side chat can be deleted during a scan.
+                    continue
+                yield from (item for item in items if item["message_id"] not in forgotten)
+
+    def items(self, selection, box_connection=None, box_folder=None):
+        for _ in range(2):
+            with self.source_cache_lock:
+                generation = self.source_generation
+            rules = memory.standing_rules(self.storage)
+            items = [item for item in self.source_items(selection, box_connection, box_folder, generation)
+                     if not memory.matches_rule(f"{item['path']} {item['heading']} {item['excerpt']}", rules)]
+            current_rules = memory.standing_rules(self.storage)
+            with self.source_cache_lock:
+                if generation == self.source_generation and rules == current_rules:
+                    return items
+        return []
 
     def corpus(self, config, selection):
         box_entry = config.get("gateway", {}).get("box", {})

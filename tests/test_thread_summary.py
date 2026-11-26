@@ -365,13 +365,14 @@ class RollingSummaryTest(unittest.TestCase):
     def test_permanent_forget_discards_an_inflight_fold(self):
         rows = self.add(24, anchor=True)
         app = SimpleNamespace(storage=self.storage, agent=self.agent, memory_index=self.agent.memory_index,
-                              memory_sync=Mock())
+                              memory_sync=Mock(), uploads=Mock())
         gateway = PausedSummaryGateway()
         self.gateway.completion = gateway.completion
         try:
             self.rolling.schedule(MAIN_ORIGIN)
             self.assertTrue(gateway.wait_for_calls(1))
             memory_purge.purge(app, [["gate", "periwinkle"]], rows[0]["id"])
+            app.uploads.clear_extractions.assert_called_once()
         finally:
             gateway.release.set()
         self.wait_for_folds()

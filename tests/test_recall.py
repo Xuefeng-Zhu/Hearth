@@ -1,9 +1,12 @@
 import io
 import json
 import tempfile
+import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from hearth import recall
 from hearth.agent import Agent
@@ -77,6 +80,56 @@ class RecallTest(unittest.TestCase):
                 hit, = index.run(self.config, selection, "青瓷风铃编号")["results"]
                 self.assertEqual(hit["path"], "topics/lantern.md")
                 self.assertIn("云雀七码", hit["excerpt"])
+
+    def test_cold_corpus_build_does_not_hold_the_workspace_lock(self):
+        index = recall.Recall(self.storage, self.gateway)
+        building = threading.Event()
+        release = threading.Event()
+        section_chunks = recall.section_chunks
+
+        def slow_chunks(path, content, **fields):
+            if path == self.path:
+                building.set()
+                if not release.wait(5):
+                    raise AssertionError("The test did not release the corpus build.")
+            yield from section_chunks(path, content, **fields)
+
+        def write_state():
+            with self.storage.lock():
+                state = self.storage.load()
+                self.storage.save(state)
+
+        with patch.object(recall, "section_chunks", side_effect=slow_chunks), ThreadPoolExecutor() as pool:
+            lookup = pool.submit(index.run, self.config, {**self.selection, "backend": "keyword"}, "hazelnuts")
+            try:
+                self.assertTrue(building.wait(3))
+                pool.submit(write_state).result(0.25)
+            finally:
+                release.set()
+            hit, = lookup.result(3)["results"]
+        self.assertIn(ALLERGY, hit["excerpt"])
+
+    def test_corpus_reuses_unchanged_chunks_and_refreshes_revised_or_forgotten_notes(self):
+        app = Application(self.storage, self.checkpoints, self.config)
+        selection = {**self.selection, "backend": "keyword"}
+
+        def search(query):
+            return app.memory_index.run(self.config, selection, query)["results"]
+
+        with patch.object(recall, "section_chunks", wraps=recall.section_chunks) as chunks:
+            self.assertTrue(search("hazelnuts"))
+            self.assertGreater(chunks.call_count, 0)
+            chunks.reset_mock()
+            self.assertTrue(search("hazelnuts"))
+            chunks.assert_not_called()
+
+            self.storage.write(self.path, "Lena develops hives after consuming macadamias.\n")
+            self.assertFalse(search("hazelnuts"))
+            self.assertTrue(search("macadamias"))
+            chunks.assert_called_once()
+
+            app.purge_memory([["consuming macadamias"]], None)
+            self.assertFalse(search("macadamias"))
 
     def test_chat_cites_only_sources_used_and_persists_metadata(self):
         def completion(model, messages, tools, emit):

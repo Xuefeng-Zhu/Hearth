@@ -150,18 +150,19 @@ def revision(content):
     return hashlib.sha256(content.encode()).hexdigest()
 
 
+def catalog_row(path, content, modified):
+    data, body, _ = parse(path, content)
+    heading = HEADING.search(body)
+    return {
+        **{key: data[key] for key in ("id", "type", "relation", "related")},
+        "path": path, "title": heading[1] if heading else display_name(path),
+        "size": len(content.encode()), "updated": modified.isoformat(timespec="microseconds"),
+    }
+
+
 def catalog(storage):
-    rows = []
-    for path in storage.files():
-        content = storage.read(path)
-        data, body, _ = parse(path, content)
-        heading = HEADING.search(body)
-        rows.append({
-            **{key: data[key] for key in ("id", "type", "relation", "related")},
-            "path": path, "title": heading[1] if heading else display_name(path),
-            "size": len(content.encode()), "updated": datetime.fromtimestamp(
-                storage.memory_path(path).stat().st_mtime, timezone.utc).isoformat(timespec="microseconds"),
-        })
+    rows = [catalog_row(path, storage.read(path), datetime.fromtimestamp(
+        storage.memory_path(path).stat().st_mtime, timezone.utc)) for path in storage.files()]
     generated = storage.memory / ".index.json"
     value = json.dumps(rows, ensure_ascii=False, indent=2) + "\n"
     if not generated.is_file() or generated.read_text(encoding="utf-8") != value:

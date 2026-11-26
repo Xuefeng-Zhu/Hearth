@@ -41,6 +41,10 @@ def atomic_write(path, content):
             name.unlink(missing_ok=True)
 
 
+def file_revision(stat):
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+
 class Storage:
     def __init__(self, root=None):
         self.root = Path(root or os.environ.get("HEARTH_DATA_DIR", ROOT / ".hearth")).resolve()

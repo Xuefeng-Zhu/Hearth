@@ -247,7 +247,11 @@ def purge(app, groups, message_id):
         journal = storage.root / "memory-forget-pending.json"
         write_json(journal, {"rule": rule, "message_id": message_id})
         write_json(storage.root / "memory-forget.json", rules)
-        removed = apply(storage, [rule], message_id)
+        app.uploads.clear_extractions()
+        try:
+            removed = apply(storage, [rule], message_id)
+        finally:
+            app.memory_index.clear_sources()
         journal.unlink()
         action = app.agent.add_action("memory", "Memory permanently forgotten", status="complete",
                                       permanent=True, notes_changed=removed)

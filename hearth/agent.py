@@ -2071,9 +2071,9 @@ class Agent:
         return {**action, "response": result}
 
     def memory_context(self):
+        index = [{key: row[key] for key in ("id", "type", "relation", "related", "size", "updated")}
+                 for row in self.memory_index.note_catalog(self.memory)]
         with self.storage.lock():
-            index = [{key: row[key] for key in ("id", "type", "relation", "related", "size", "updated")}
-                     for row in memory.catalog(self.storage) if recall.folder_allowed(row["path"], self.memory)]
             profile = (redact_text(self.storage.read(memory.PROFILE_NOTE))
                        if self.storage.memory_path(memory.PROFILE_NOTE).is_file() else "")
             tracked = goals.references(self.storage.load())

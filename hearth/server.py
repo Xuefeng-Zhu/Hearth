@@ -309,7 +309,7 @@ class Application:
         path = require_text(body.get("path"), 120)
         if path in memory.PINNED and body.get("item_id") is None:
             raise HearthError("Edit the profile or approval preferences in their settings.")
-        # The index takes its corpus snapshot under the same lock order.
+        # Keep index updates and workspace writes in the same lock order.
         with self.memory_index.lock, self.storage.lock():
             state = self.storage.load()
             message_id = None
@@ -348,6 +348,8 @@ class Application:
                     self.storage.write(path, "".join(lines))
                 memory.catalog(self.storage)
             self.memory_index.forget_vectors(removed)
+            self.memory_index.clear_sources()
+            self.uploads.clear_extractions()
             action = self.agent.add_action("memory", "Memory forgotten", status="complete",
                                            checkpoint=checkpoint, paths=[path], memory_before=before,
                                            forgotten_id=message_id)
@@ -695,6 +697,8 @@ class Application:
             try:
                 with self.storage.lock():
                     self.checkpoints.restore(action["checkpoint"]["id"])
+                    self.memory_index.clear_sources()
+                    self.uploads.clear_extractions()
             except (HearthError, OSError):
                 self.restore = {"action_id": action["id"], "status": "failed"}
             else:
