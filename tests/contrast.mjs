@@ -15,8 +15,8 @@ const minima = new Map();
 let measurements = 0;
 
 async function audit(page, state, scheme, width) {
-  await page.waitForFunction(() => [...document.querySelectorAll("dialog:modal")]
-    .every((dialog) => getComputedStyle(dialog).opacity === "1"));
+  await page.waitForFunction(() => !document.getAnimations().some((animation) =>
+    animation.effect?.target?.matches?.("dialog") && animation.transitionProperty === "opacity"));
   const changedControls = /^Settings|^workspace drawer$|^Chat$/.test(state);
   const pairs = await page.evaluate(contrastPairs, { dark: scheme === "dark", changedControls });
   assert.ok(pairs.length, `No visible elements in ${state}`);
