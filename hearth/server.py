@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from urllib.parse import parse_qs, quote, urlsplit
 
-from . import approvals, artifacts, box, browserbase, feed, home, inbox, memory, memory_edits, memory_purge, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
+from . import approvals, artifacts, box, browserbase, feed, home, inbox, memory, memory_edits, memory_purge, memory_review, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
 from .agent import Agent, require_text
 from .checkpoints import LocalCheckpoints, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
@@ -27,6 +27,7 @@ from .threads import MAIN, Threads, compact
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/memory.js": ("memory.js", "text/javascript; charset=utf-8"),
+    "/memory-review.js": ("memory-review.js", "text/javascript; charset=utf-8"),
     "/memory.css": ("memory.css", "text/css; charset=utf-8"),
     "/feed.js": ("feed.js", "text/javascript; charset=utf-8"),
     "/proactivity.js": ("proactivity.js", "text/javascript; charset=utf-8"),
@@ -106,6 +107,7 @@ class Application:
         self.home = home.Home(self)
         self.proactivity = proactivity.Proactivity(self)
         self.feed = feed.Feed(self)
+        self.memory_review = memory_review.MemoryReview(self)
         self.task_runner = tasks.Runner(self)
         approvals.upgrade_legacy(self.agent)
 
@@ -115,6 +117,7 @@ class Application:
         polled = self.inbox.poll(force=True)
         self.proactivity.kick()
         self.feed.kick()
+        self.memory_review.kick()
         task_runs = self.task_runner.tick()
         info = self.reminders.info()
         return {"fired": fired, "processed": polled, "last_tick": info["last_tick"], "next_due": info["next_due"],
@@ -142,6 +145,7 @@ class Application:
                         self.home.kick()
                         self.proactivity.kick()
                         self.feed.kick()
+                        self.memory_review.kick()
                         next_home = now + 10
             except (HearthError, OSError):
                 pass
@@ -753,6 +757,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.json(self.app.agent.skills.detail(params.get("id", [None])[0], params.get("version", [None])[0]))
             elif url.path == "/api/memory/settings":
                 self.json(self.app.memory_info())
+            elif url.path == "/api/memory/review":
+                self.json(self.app.memory_review.get())
             elif url.path == "/api/search/settings":
                 self.json(self.app.search_info())
             elif url.path.startswith("/api/browse/screenshots/"):
@@ -912,6 +918,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path.startswith("/api/feed/"):
             self.post_feed()
+            return
+        if self.path.startswith("/api/memory/review/"):
+            self.post_memory_review()
             return
         if self.path.startswith("/api/proactivity/"):
             self.post_proactivity()
@@ -1073,6 +1082,28 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"error": str(error)}, error.status if isinstance(error, pages.PageError) else 400)
         except OSError:
             self.json({"error": "Hearth could not update the page."}, 500)
+
+    def post_memory_review(self):
+        review = self.app.memory_review
+        try:
+            body = self.body()
+            with self.app.operation:
+                if self.app.restoring():
+                    self.json({"error": "A checkpoint is being restored."}, 409)
+                    return
+                if self.path == "/api/memory/review/settings":
+                    result = review.configure(body)
+                elif self.path == "/api/memory/review/decision":
+                    result = review.decide(body)
+                elif self.path == "/api/memory/review/run" and not body:
+                    result = review.kick(force=True)
+                else:
+                    raise HearthError("Invalid Memory review request.")
+            self.json(result)
+        except HearthError as error:
+            self.json({"error": str(error)}, 400)
+        except OSError:
+            self.json({"error": "Hearth could not update Memory review."}, 500)
 
     def post_feed(self):
         operations = {"/api/feed/settings": self.app.feed.save_settings, "/api/feed/feedback": self.app.feed.feedback,

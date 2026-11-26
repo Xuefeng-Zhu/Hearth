@@ -89,19 +89,23 @@ def restore(storage, action_id, *, redo=False):
         return action
 
 
-def commit(agent, title, notes, *, checkpoint_comment=None):
+def commit(agent, title, notes, *, checkpoint_comment=None, update_state=None):
     """Apply a set of note changes under the caller's storage lock."""
     storage = agent.storage
-    before = snapshot(storage, storage.load(), notes)
+    state = storage.load()
+    before = snapshot(storage, state, notes)
     notes = {path: content for path, content in notes.items() if content != before["notes"][path]}
     if not notes:
+        if update_state:
+            update_state(state)
+            storage.save(state)
         return {"status": "complete", "title": "Memory is already up to date", "paths": []}
     checkpoint = agent.checkpoints.create(checkpoint_comment) if checkpoint_comment else None
     try:
         write_notes(storage, notes)
         memory.catalog(storage)
         return agent.add_action("memory", title, status="complete", paths=sorted(notes),
-                                checkpoint=checkpoint, memory_before=before)
+                                checkpoint=checkpoint, memory_before=before, update_state=update_state)
     except OSError:
         write_notes(storage, before["notes"])
         memory.catalog(storage)

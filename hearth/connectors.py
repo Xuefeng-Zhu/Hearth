@@ -177,12 +177,22 @@ class Gateway:
         # The available array is a provider catalog, not a list of organization connections.
         return authorized, found
 
-    def completion(self, config, messages, tools, emit, *, timeout=25, max_tokens=None, check=None):
+    def completion(self, config, messages, tools, emit, *, timeout=25, max_tokens=None, check=None,
+                   json_schema=None):
         provider, model = config["provider"], config["model"]
         path = MODEL_PATHS[provider].format(model=quote(model.removeprefix("models/"), safe=""))
         build_payload, parse_stream = protocol(provider)
 
         def complete(body, parser):
+            if json_schema is not None:
+                if provider == "gemini":
+                    body.setdefault("generationConfig", {}).update(
+                        responseMimeType="application/json", responseJsonSchema=json_schema)
+                elif provider == "anthropic":
+                    body["output_config"] = {"format": {"type": "json_schema", "schema": json_schema}}
+                else:
+                    body["response_format"] = {"type": "json_schema", "json_schema": {
+                        "name": "memory_review", "strict": True, "schema": json_schema}}
             if max_tokens is not None:
                 if provider == "gemini":
                     body.setdefault("generationConfig", {})["maxOutputTokens"] = max_tokens

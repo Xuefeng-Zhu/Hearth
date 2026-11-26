@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 
 from . import browserbase, mail_content, memory, panels, proactivity, search
 from .connections import with_model
+from .memory_review import feed_cards as memory_review_cards
 from .connectors import ConnectorError
 from .home import PACIFIC
 from .proactive_context import Context, forget_rules, private_match, private_text
@@ -472,6 +473,8 @@ class Feed:
                     "error": data.get("error"), "cards": [], "next_cursor": None}
             if config["enabled"]:
                 rows = list(data.get("cards", {}).values())
+                if not saved:
+                    rows.extend(memory_review_cards(state, now))
                 rows.extend(action for row in state.get("proactivity", {}).get("cards", {}).values()
                             if (action := self.action(row, state, context, config, now, blocked)))
                 if saved:
@@ -486,7 +489,7 @@ class Feed:
                     if ((saved and not feedback.get("save"))
                             or (not saved and (feedback.get("dismiss") or feedback.get("less")))):
                         continue
-                    if row["kind"] != "action" and not self.valid(row, context, config):
+                    if row["kind"] not in {"action", "memory-review"} and not self.valid(row, context, config):
                         continue
                     if len(page["cards"]) == limit:
                         last = page["cards"][-1]

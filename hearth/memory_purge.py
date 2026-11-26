@@ -82,6 +82,7 @@ def scrub_messages(rows, rules, message_id=None):
 
 
 def scrub_state(state, rules, message_id=None):
+    state.get("memory_review", {}).pop("digests", None)
     if "messages" in state:
         state["messages"], _ = scrub_messages(state["messages"], rules, message_id)
     activity = state.get("activity", [])

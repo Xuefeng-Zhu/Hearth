@@ -155,6 +155,15 @@ class Index:
                 return None
             raise
 
+    def fetch_metadata(self, ids):
+        query = urlencode({"namespace": self.namespace, "ids": ids}, doseq=True)
+        response = retry(lambda: self.data(f"vectors/fetch?{query}", None))
+        rows = response.get("vectors", {})
+        if not isinstance(rows, dict):
+            raise ConnectorError("Pinecone returned invalid memory records.")
+        return {key: row["metadata"] for key, row in rows.items() if key in ids
+                and isinstance(row, dict) and isinstance(row.get("metadata"), dict)}
+
     def hosted_vectors(self, model, texts, kind, *, timeout=20):
         response = self.gateway.json(self.entry, "embed", {
             "model": model, "inputs": [{"text": text} for text in texts],

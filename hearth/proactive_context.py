@@ -38,6 +38,7 @@ def forget_rules(storage, state):
 
 
 def record_forget(state, identity, removed):
+    state.get("memory_review", {}).pop("digests", None)
     # Keep only salted phrase hashes for copied excerpts in other sources.
     phrases = []
     for item in removed:

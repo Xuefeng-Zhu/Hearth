@@ -296,6 +296,21 @@ class Recall:
         entry = config.get("pinecone", {})
         return tuple(entry.get(key) for key in ("connection_id", "index", "namespace"))
 
+    def review_records(self, config, selection, offset, limit):
+        target = self.target(config)
+        path = self.storage.root / "pinecone-sync" / f"{digest(json.dumps(target))[:24]}.json"
+        synced = self.read_index(path).get("records", {})
+        ids = sorted(synced)
+        if not ids:
+            return []
+        start = offset % len(ids)
+        batch = (ids[start:] + ids[:start])[:limit]
+        matches = pinecone.Index(self.gateway, config["pinecone"]).fetch_metadata(batch)
+        # The local corpus is authoritative. Ignore copied, out-of-date, and deleted vectors.
+        return [item for item in self.corpus(config, selection)
+                if (remote := matches.get(item["id"])) and remote.get("text") == vector_text(item)
+                and synced[item["id"]] == digest(json.dumps(metadata(item), sort_keys=True))]
+
     def pinecone_status(self, config):
         connection_id, name, namespace = self.target(config)
         default = {"name": name, "namespace": namespace, "connected": bool(connection_id),
