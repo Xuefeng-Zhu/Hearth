@@ -14,6 +14,7 @@ from playwright.sync_api import expect, sync_playwright
 from combobox_smoke import combobox_smoke
 from chat_search_smoke import chat_search_smoke
 from list_search_smoke import list_search_smoke
+from motion_smoke import motion_smoke
 
 from hearth import browserbase
 from hearth.agent import Agent, mock_completion, mock_text, tool_call
@@ -492,6 +493,7 @@ def smoke(browser, origin):
 
 
 def assert_thread_menu_position(page, trigger, menu, *, above=False):
+    expect(menu).to_have_css("opacity", "1")
     anchor, popup = trigger.bounding_box(), menu.bounding_box()
     assert anchor and popup
     assert abs(anchor["x"] + anchor["width"] - popup["x"] - popup["width"]) <= 1, (anchor, popup)
@@ -555,6 +557,7 @@ def home_add_smoke(browser, app, origin):
             expect(popup.locator("#home-add-kinds button")).to_have_text(
                 ["Countdown", "Checklist", "List", "Note", "Stat", "Web summary"])
             assert popup.evaluate("element => element.matches(':popover-open') && element.hasAttribute('data-anchor')")
+            expect(popup).to_have_css("opacity", "1")
             tile, bounds = add.bounding_box(), popup.bounding_box()
             assert min(abs(tile["y"] - bounds["y"] - bounds["height"] - 8),
                        abs(bounds["y"] - tile["y"] - tile["height"] - 8)) <= 1, (tile, bounds)
@@ -586,6 +589,7 @@ def home_add_smoke(browser, app, origin):
         add, popup = open_add(page)
         add.tap()
         expect(popup).to_be_visible()
+        expect(popup).to_have_css("translate", "none")
         bounds = popup.bounding_box()
         assert bounds["x"] == 0 and bounds["width"] == 390
         assert abs(bounds["y"] + bounds["height"] - 844) <= 1, bounds
@@ -860,8 +864,10 @@ def mobile_thread_menu_smoke(browser, origin):
             trigger = page.get_by_role("button", name="Actions for Smoke side chat")
             menu = drawer.get_by_role("menu", name="Smoke side chat")
             expect(trigger).to_have_css("opacity", "1")
+            thread_row = page.locator(".thread-row").filter(has=trigger)
+            expect(thread_row).to_have_css("scale", "none")
             box = trigger.bounding_box()
-            row = page.locator(".thread-row").filter(has=trigger).bounding_box()
+            row = thread_row.bounding_box()
             assert box and row and box["width"] >= 44 and box["height"] >= 44
             assert box["y"] == row["y"] and box["height"] == row["height"]
             if fallback:
@@ -1093,6 +1099,7 @@ def main():
     parser.add_argument("--disconnect", action="store_true", help="Run the SSE disconnect regression.")
     parser.add_argument("--chat-search", action="store_true", help="Run only Chat search, including the width sweep.")
     parser.add_argument("--list-search", action="store_true", help="Run Reminders, Inbox, and Skills search with the width sweep.")
+    parser.add_argument("--motion", action="store_true", help="Run only the motion and focus regression.")
     args = parser.parse_args()
     expect.set_options(timeout=5_000)
     with workspace() as (app, origin), sync_playwright() as playwright:
@@ -1104,6 +1111,8 @@ def main():
                 chat_search_smoke(browser, app, origin, browser_page, sweep=True)
             elif args.list_search:
                 list_search_smoke(browser, app, origin, browser_page, sweep=True)
+            elif args.motion:
+                motion_smoke(browser, origin, browser_page)
             else:
                 with workspace() as (layout_app, layout_origin):
                     layout_smoke(browser, layout_app, layout_origin)
@@ -1120,12 +1129,14 @@ def main():
                     chat_search_smoke(browser, search_app, search_origin, browser_page)
                 with workspace() as (list_app, list_origin):
                     list_search_smoke(browser, list_app, list_origin, browser_page)
+                with workspace() as (_, motion_origin):
+                    motion_smoke(browser, motion_origin, browser_page)
                 stale_refresh(browser, origin)
                 self_update_smoke(browser, app, origin)
         finally:
             browser.close()
     check = ("stream disconnect" if args.disconnect else "Chat search" if args.chat_search
-             else "list search" if args.list_search else "smoke")
+             else "list search" if args.list_search else "motion" if args.motion else "smoke")
     print(f"Chromium {check} passed.")
 
 

@@ -85,7 +85,9 @@ def verify_timeline(page, thread_id, scheme):
     expect(search).to_be_focused()
     expect(options.get_by_role("option", name="All threads")).to_have_attribute("aria-selected", "true")
     expect(options.get_by_role("option", name="All threads").locator("svg")).to_have_count(1)
-    anchored = page.locator(".combobox-popup").bounding_box()
+    popup = page.locator(".combobox-popup")
+    expect(popup).to_have_css("opacity", "1")
+    anchored = popup.bounding_box()
     anchor = thread.bounding_box()
     assert anchored["x"] == anchor["x"] and anchored["y"] >= anchor["y"] + anchor["height"]
     if scheme == "dark":
@@ -298,6 +300,7 @@ def verify_mobile(page, thread_id):
     search.fill("ca")
     option = page.get_by_role("option", name="Café plans")
     popup = page.locator(".combobox-popup")
+    expect(popup).to_have_css("translate", "none")
     assert popup.bounding_box()["width"] == 390
     assert all(item.bounding_box()["height"] >= 44 for item in (search, option, thread))
     assert int(search.evaluate("el => parseFloat(getComputedStyle(el).fontSize)")) >= 16

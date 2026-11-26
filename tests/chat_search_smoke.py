@@ -124,7 +124,9 @@ def desktop_flow(page, garden, scheme):
     expect(composer).to_be_focused()
     trigger.press("/")
     expect(search).to_be_focused()
-    anchor, popover = trigger.bounding_box(), page.locator("#chat-search-dialog").bounding_box()
+    dialog = page.locator("#chat-search-dialog")
+    expect(dialog).to_have_css("opacity", "1")
+    anchor, popover = trigger.bounding_box(), dialog.bounding_box()
     assert popover["y"] >= anchor["y"] + anchor["height"] and popover["x"] + popover["width"] == anchor["x"] + anchor["width"]
 
     search.fill("orchid")
