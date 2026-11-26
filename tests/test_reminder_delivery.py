@@ -1,7 +1,10 @@
 import json
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError
@@ -81,6 +84,249 @@ class DeliveryTest(unittest.TestCase):
     def send_calls(self):
         return [row for row in self.gateway.calls if row[0].endswith("/send")]
 
+    def standalone_tick(self):
+        command = [sys.executable, "-c", "import sys; from hearth.scheduler import run_due; "
+                   "from hearth.storage import Storage; print(run_due(Storage(sys.argv[1])))", self.root.name]
+        return int(subprocess.check_output(command, timeout=3))
+
+    def wait_for_restore(self, action):
+        restored = threading.Event()
+        restore = self.app.restore_checkpoint
+        allow_drain = threading.Event()
+        drain = self.app.reminders.drain_for_restore
+
+        def finish(*args):
+            try:
+                restore(*args)
+            finally:
+                restored.set()
+
+        def wait_then_drain():
+            allow_drain.wait(3)
+            drain()
+
+        with patch.object(self.app, "restore_checkpoint", side_effect=finish), \
+                patch.object(self.app.reminders, "drain_for_restore", side_effect=wait_then_drain), \
+                patch("hearth.scheduler.RESTORE_DRAIN_SECONDS", 0.25), \
+                patch.object(self.app.memory_sync, "request"):
+            self.app.start_restore(action["id"])
+            try:
+                self.assertEqual(self.standalone_tick(), 0)
+            finally:
+                allow_drain.set()
+            self.assertTrue(restored.wait(2))
+
+    def slow_send(self, *, send_error=None):
+        entered, release = threading.Event(), threading.Event()
+        accepted = {}
+        request = self.gateway.json
+
+        def send(config, path, body=None, headers=None, **options):
+            if not path.endswith("/send"):
+                return request(config, path, body, headers, **options)
+            self.gateway.calls.append((path, body, headers))
+            key = headers["Idempotency-Key"]
+            if key in accepted:
+                self.assertEqual(accepted[key], body)
+                return {"message_id": "accepted-message"}
+            accepted[key] = body
+            entered.set()
+            release.wait(5)
+            if send_error:
+                raise send_error
+            return {"message_id": "accepted-message"}
+
+        def finish_workers():
+            release.set()
+            with self.app.reminders.worker, self.app.scheduler_inbox:
+                pass
+
+        self.addCleanup(finish_workers)
+        self.app.home.kick = lambda: None
+        self.gateway.json = send
+        self.connect()
+        self.app.reminders.save({"recipient": "test@example.invalid"})
+        return entered, release, accepted
+
+    def test_slow_email_leaves_manual_tick_free(self):
+        entered, release, accepted = self.slow_send()
+        overdue = datetime.now(timezone.utc) - timedelta(minutes=2)
+        self.schedule(now=overdue, urgent=True)
+        with HTTPServer(("127.0.0.1", 0), self.app) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                request = Request(f"http://127.0.0.1:{server.server_port}/api/scheduler/tick", method="POST",
+                                  headers={"X-Hearth-Tick-Token": self.app.reminders.tick_token})
+                opener = build_opener(ProxyHandler({}))
+                with opener.open(request, timeout=0.75) as response:
+                    self.assertEqual(json.load(response)["queued_deliveries"], 1)
+                self.assertTrue(entered.wait(2))
+                self.schedule("app", now=overdue)
+                with opener.open(request, timeout=0.75) as response:
+                    self.assertEqual(json.load(response)["fired"], 1)
+                self.assertEqual(len(accepted), 1)
+            finally:
+                release.set()
+                server.shutdown()
+                thread.join(2)
+
+    def test_web_loop_claims_next_reminder_while_its_delivery_is_blocked(self):
+        entered, release, accepted = self.slow_send()
+        overdue = datetime.now(timezone.utc) - timedelta(minutes=2)
+        first = self.schedule(now=overdue, urgent=True)
+        first_pass, proceed, second_pass = (threading.Event() for _ in range(3))
+
+        def sleep(_):
+            if first_pass.is_set():
+                raise StopIteration
+            first_pass.set()
+            proceed.wait(3)
+
+        def loop():
+            try:
+                self.app.background_reminders()
+            except StopIteration:
+                second_pass.set()
+
+        with patch("hearth.server.time", SimpleNamespace(time=lambda: 1, sleep=sleep)):
+            thread = threading.Thread(target=loop, daemon=True)
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                self.assertTrue(first_pass.wait(0.75))
+                second = self.schedule("app", now=overdue)
+                proceed.set()
+                self.assertTrue(second_pass.wait(0.75))
+                self.assertEqual({row["job_id"] for row in self.storage.load()["reminders"]},
+                                 {first["id"], second["id"]})
+                self.assertEqual(len(accepted), 1)
+            finally:
+                release.set()
+                proceed.set()
+                thread.join(2)
+
+    def test_restore_timeout_keeps_send_and_records_its_receipt_once(self):
+        entered, release, accepted = self.slow_send()
+        now = datetime.now(timezone.utc)
+        job = self.schedule(now=now - timedelta(minutes=2), urgent=True)
+        checkpoint = self.app.checkpoints.create("Before the reminder fired")
+        action = self.app.agent.add_action("checkpoint", "Test checkpoint", status="complete", checkpoint=checkpoint)
+        self.assertEqual(self.app.scheduler_tick()["queued_deliveries"], 1)
+        self.assertTrue(entered.wait(2))
+        original, = self.storage.load()["reminders"]
+        self.wait_for_restore(action)
+        self.assertIsNone(self.app.restore)
+        scheduler.run_due(self.storage, now)
+        pending, = self.storage.load()["reminders"]
+        self.assertTrue(pending["delivery"]["email"]["pending_reconcile"])
+        self.assertFalse(pending["delivery"]["email"].get("sending"))
+        self.assertEqual(pending["id"], original["id"])
+
+        release.set()
+        self.app.reminders.deliver(now + timedelta(minutes=2), wait=True)
+        restarted = Application(Storage(self.root.name), self.app.checkpoints, read_config(), gateway=self.gateway)
+        scheduler.run_due(restarted.storage, now + timedelta(minutes=3))
+        self.assert_single_receipt(job, original, accepted)
+        self.assertEqual(len(self.send_calls()), 1)
+
+    def test_restore_defers_while_inbox_is_still_running(self):
+        checkpoint = self.app.checkpoints.create("Before the Inbox poll")
+        action = self.app.agent.add_action("checkpoint", "Test checkpoint", status="complete", checkpoint=checkpoint)
+        with self.app.reminders.exclusive("inbox-poll") as acquired:
+            self.assertTrue(acquired)
+            with patch.object(self.app.checkpoints, "restore") as swap:
+                self.wait_for_restore(action)
+                swap.assert_not_called()
+        self.assertEqual(self.app.restore["status"], "failed")
+        self.schedule("app", now=datetime.now(timezone.utc) - timedelta(minutes=2))
+        self.assertEqual(self.standalone_tick(), 1)
+
+    def test_native_restore_rejects_checkpoint_that_would_rewind_receipt(self):
+        _, release, _ = self.slow_send()
+        release.set()
+        now = datetime.now(timezone.utc)
+        self.schedule(now=now - timedelta(minutes=2), urgent=True)
+        checkpoint = {"id": "v1", "created_at": iso(now - timedelta(minutes=1))}
+        action = self.app.agent.add_action("checkpoint", "Test checkpoint", status="complete", checkpoint=checkpoint)
+        self.due(now)
+        with patch.object(self.app.checkpoints, "mode", "sprite"), patch.object(self.app.checkpoints, "restore") as swap:
+            self.wait_for_restore(action)
+            swap.assert_not_called()
+        self.assertEqual(self.app.restore["status"], "failed")
+
+    def test_cross_process_occurrence_and_provider_retry_use_same_key(self):
+        entered, release, accepted = self.slow_send(send_error=ConnectorError("Timed out", 504))
+        now = datetime.now(timezone.utc)
+        job = self.schedule(now=now - timedelta(minutes=2), urgent=True)
+        self.assertEqual(self.standalone_tick(), 1)
+        response = self.app.scheduler_tick()
+        self.assertEqual((response["fired"], response["queued_deliveries"]), (0, 1))
+        self.assertTrue(entered.wait(2))
+        self.assertEqual(self.standalone_tick(), 0)
+        original, = self.storage.load()["reminders"]
+        release.set()
+        self.app.reminders.deliver(now + timedelta(minutes=2), wait=True)
+        self.assert_single_receipt(job, original, accepted)
+        self.assertEqual(len(self.send_calls()), 2)
+        self.assertEqual(self.send_calls()[0], self.send_calls()[1])
+
+    def test_startup_recovers_a_send_that_lost_its_response_on_exit(self):
+        _, release, accepted = self.slow_send(send_error=KeyboardInterrupt())
+        release.set()
+        now = datetime.now(timezone.utc)
+        job = self.schedule(now=now - timedelta(minutes=2), urgent=True)
+        scheduler.run_due(self.storage, now)
+        with self.assertRaises(KeyboardInterrupt):
+            self.app.reminders.deliver(now)
+        original, = self.storage.load()["reminders"]
+        self.assertTrue(original["delivery"]["email"]["sending"])
+
+        restarted = Application(Storage(self.root.name), self.app.checkpoints, read_config(), gateway=self.gateway)
+        pending = self.storage.load()["reminders"][0]["delivery"]["email"]
+        self.assertTrue(pending["pending_reconcile"])
+        self.assertFalse(pending.get("sending"))
+        restarted.agent.config["agentmail"]["connection_id"] = "agentmail-test"
+        restarted.reminders.deliver(now + timedelta(minutes=2))
+        self.assert_single_receipt(job, original, accepted)
+        self.assertEqual(len(self.send_calls()), 2)
+        self.assertEqual(self.send_calls()[0], self.send_calls()[1])
+
+    def test_delivery_deadline_records_pending_and_keeps_late_receipt(self):
+        entered, release, accepted = self.slow_send()
+        now = datetime.now(timezone.utc)
+        job = self.schedule(now=now - timedelta(minutes=2), urgent=True)
+        expired = threading.Event()
+        expire = self.app.reminders.expire_send
+
+        def mark_pending(*args):
+            expire(*args)
+            expired.set()
+
+        with patch("hearth.reminders.DELIVERY_TIMEOUT", 0.25), \
+                patch.object(self.app.reminders, "expire_send", side_effect=mark_pending):
+            self.app.scheduler_tick()
+            self.assertTrue(entered.wait(2))
+            self.assertTrue(expired.wait(2))
+            original, = self.storage.load()["reminders"]
+            self.assertTrue(original["delivery"]["email"]["pending_reconcile"])
+            self.assertFalse(original["delivery"]["email"].get("sending"))
+            release.set()
+            with self.app.reminders.worker:
+                pass
+        self.assert_single_receipt(job, original, accepted)
+        self.assertEqual(len(self.send_calls()), 1)
+
+    def assert_single_receipt(self, job, original, accepted):
+        state = self.storage.load()
+        item, = state["reminders"]
+        self.assertEqual((item["job_id"], item["id"]), (job["id"], original["id"]))
+        email = item["delivery"]["email"]
+        self.assertEqual((email["status"], email["message_id"]), ("sent", "accepted-message"))
+        self.assertFalse(email.get("pending_reconcile"))
+        self.assertEqual(list(accepted), [f"hearth-reminder-{item['id']}"])
+        self.assertEqual(sum(row["title"].startswith("Email sent") for row in state["activity"]), 1)
+
     def test_email_retry_dedupe_and_safe_action_links(self):
         self.connect()
         self.app.reminders.save({"recipient": "user@example.com"})
@@ -125,7 +371,9 @@ class DeliveryTest(unittest.TestCase):
         at = datetime(2030, 1, 4, 7, tzinfo=timezone.utc)
         held = self.schedule("both", now=at)
         urgent = self.schedule(now=at, urgent=True)
-        self.due(at + timedelta(minutes=1))
+        result = scheduler.claim_due(self.storage, at + timedelta(minutes=1), tick=True)
+        self.assertEqual((result["fired"], result["queued_deliveries"]), (2, 1))
+        self.app.reminders.deliver(at + timedelta(minutes=1))
         items = {row["job_id"]: row["delivery"]["email"] for row in self.storage.load()["reminders"]}
         self.assertEqual(items[urgent["id"]]["status"], "sent")
         self.assertEqual(items[held["id"]]["reason"], "Quiet hours")

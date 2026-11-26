@@ -131,6 +131,45 @@ class PollingTest(unittest.TestCase):
         self.assertEqual(state["actions"][0]["status"], "expired")
         self.assertFalse(state["active_work"])
 
+    def test_checkpoint_restore_invalidates_state_and_home(self):
+        with self.storage.lock():
+            kept = self.app.threads.append("main", "assistant", "Before the checkpoint.")
+            checkpoint = self.app.checkpoints.create("Polling fixture")
+            self.app.threads.append("main", "assistant", "After the checkpoint.")
+            state = self.storage.load()
+            state["actions"]["restore"] = {"id": "restore", "kind": "tool", "status": "complete",
+                                           "title": "Polling fixture", "at": iso(), "checkpoint": checkpoint}
+            self.storage.save(state)
+        _, state_tag, current = self.get("state")
+        _, home_tag, home = self.get("home")
+        revision, _ = self.storage.revisions()
+        restored = threading.Event()
+        restore = self.app.restore_checkpoint
+
+        def finish(*args):
+            try:
+                restore(*args)
+            finally:
+                restored.set()
+
+        with (patch.object(self.app, "restore_checkpoint", side_effect=finish),
+              patch.object(self.app.memory_sync, "request")):
+            self.app.start_restore("restore")
+            self.assertTrue(restored.wait(5))
+
+        self.assertIsNone(self.app.restore)
+        self.assertEqual(self.storage.revisions(), (revision + 1, revision + 1))
+        status, tag, state = self.get("state", state_tag)
+        self.assertEqual(status, 200)
+        self.assertNotEqual(state["thread_revision"], current["thread_revision"])
+        self.assertEqual(state["messages"], [kept])
+        self.assertEqual(state["threads"][0]["last_reply"], kept["id"])
+        self.assertEqual(self.get("state", tag), (304, tag, None))
+        status, tag, state = self.get("home", home_tag)
+        self.assertEqual(status, 200)
+        self.assertNotEqual(state["builtin"]["activity"], home["builtin"]["activity"])
+        self.assertEqual(self.get("home", tag), (304, tag, None))
+
     def test_transcript_cursors_bound_pages_and_survive_appends(self):
         now = datetime.now(timezone.utc)
         total = 2 * TRANSCRIPT_SIZE + 7
