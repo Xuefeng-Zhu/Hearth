@@ -1204,6 +1204,11 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 }
 .message-menu-actions button:hover { background: var(--accent-light); }
 .message-menu-actions time { padding: 6px 8px 0; color: var(--muted); font-size: 12px; }
+#thread-summary { width: min(520px, calc(100% - 24px)); }
+#thread-summary form .icon-button { position: absolute; top: 5px; right: 5px; }
+#thread-summary-thread { overflow-wrap: anywhere; }
+#thread-summary-text { max-height: min(50dvh, 30rem); overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; }
+#reset-thread-summary { color: var(--thread-delete); }
 .chat-toast {
   position: fixed; z-index: 10; inset: auto 16px max(85px, env(safe-area-inset-bottom)) auto;
   color: var(--on-solid); background: var(--accent-fill); border-radius: 8px;

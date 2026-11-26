@@ -516,6 +516,13 @@ class Application:
                 if isinstance(thread_id, str) and thread_id in self.turns:
                     raise HearthError("Wait for this chat to finish before deleting it.")
         with self.storage.lock():
+            if operation == "reset" and body.keys() == {"thread_id"}:
+                thread = self.threads.describe(thread_id)
+                checkpoint = self.checkpoints.create("Before resetting a Hearth chat summary")
+                self.threads.reset_summary(thread_id)
+                action = self.agent.add_action("memory", "Thread summary reset", status="complete", checkpoint=checkpoint,
+                                               thread_id=thread_id, thread_title=thread["title"])
+                return {"summary": "", "action": action}
             self.threads.require_side(thread_id)
             if operation == "rename" and body.keys() == {"thread_id", "title"}:
                 title = " ".join(redact_text(require_text(body["title"], 80)).split())
@@ -688,6 +695,11 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/state":
                 thread_id = parse_qs(url.query).get("thread", [MAIN])[0]
                 self.json(self.app.info(thread_id), conditional=True)
+            elif url.path == "/api/threads/summary":
+                thread_id = parse_qs(url.query).get("thread", [MAIN])[0]
+                with self.app.storage.lock():
+                    summary = self.app.threads.summary(thread_id)
+                self.json({"summary": summary})
             elif url.path == "/api/home":
                 self.json({**self.app.home.snapshot(), "checkpoints": self.app.checkpoints.mode})
             elif url.path == "/api/proactivity/settings":
@@ -911,7 +923,8 @@ class Handler(BaseHTTPRequestHandler):
         routes = {"/api/chat", "/api/approve", "/api/undo", "/api/redo",
                   "/api/connections/rescan", "/api/connections/test", "/api/connections/settings",
                   "/api/brain/test", "/api/brain/settings", "/api/brain/route", "/api/threads/create", "/api/threads/rename",
-                  "/api/threads/delete", "/api/threads/share", "/api/memory/settings", "/api/memory/test",
+                  "/api/threads/delete", "/api/threads/share", "/api/threads/summary/reset",
+                  "/api/memory/settings", "/api/memory/test",
                   "/api/memory/search", "/api/memory/reindex", "/api/memory/sync", "/api/memory/forget",
                   "/api/memory/write", "/api/memory/move", "/api/memory/profile",
                   "/api/search/settings", "/api/search/test", "/api/browse/settings", "/api/browse/approve",

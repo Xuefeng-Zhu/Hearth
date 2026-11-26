@@ -913,11 +913,18 @@ function isWorking(thread) {
 }
 
 const threadMenu = byId("thread-menu");
+const summarySheet = byId("thread-summary");
 let threadMenuId;
+let summaryThread;
 
 function syncThreadMenu(thread) {
-  threadMenu.querySelector('[value="rename"]').disabled = busy || threadBusy || !thread;
-  threadMenu.querySelector('[value="delete"]').disabled = busy || threadBusy || !thread || !!thread.busy;
+  const pinned = thread?.id === mainThread.id;
+  const rename = threadMenu.querySelector('[value="rename"]');
+  const remove = threadMenu.querySelector('[value="delete"]');
+  rename.hidden = remove.hidden = pinned;
+  rename.disabled = busy || threadBusy || !thread;
+  remove.disabled = busy || threadBusy || !thread || !!thread.busy;
+  threadMenu.querySelector('[value="summary"]').disabled = !thread;
 }
 
 function openThreadMenu(thread) {
@@ -985,13 +992,11 @@ function renderThreads() {
     }
     const row = node("div", "thread-row");
     row.append(item);
-    if (thread.id !== mainThread.id) {
-      const more = iconButton("more", `Actions for ${thread.title}`, () => openThreadMenu(thread), "thread-overflow");
-      more.dataset.thread = thread.id;
-      more.setAttribute("aria-haspopup", "dialog");
-      more.setAttribute("aria-controls", threadMenu.id);
-      row.append(more);
-    }
+    const more = iconButton("more", `Actions for ${thread.title}`, () => openThreadMenu(thread), "thread-overflow");
+    more.dataset.thread = thread.id;
+    more.setAttribute("aria-haspopup", "dialog");
+    more.setAttribute("aria-controls", threadMenu.id);
+    row.append(more);
     return row;
   }));
   if (focused) [...list.querySelectorAll("button")].find((item) =>
@@ -2016,6 +2021,7 @@ function renderMemoryPreferences(info) {
   byId("memory-top-k").value = choice.top_k;
   byId("memory-similarity").value = choice.min_similarity;
   byId("memory-chat-history").checked = choice.include_chat;
+  byId("memory-summarize-chats").checked = choice.summarize_long_chats;
   byId("memory-remember").value = choice.auto_remember;
   const header = node("div", "scope-row");
   header.append(node("span", "", "Folder"), node("span", "", "Include"), node("span", "", "Exclude"));
@@ -2176,7 +2182,8 @@ function readPreferences(feature) {
     .map((element) => element.dataset[field]);
   return { backend: byId("memory-backend").value, model: byId("memory-model").value,
     top_k: byId("memory-top-k").valueAsNumber, min_similarity: byId("memory-similarity").valueAsNumber,
-    include_chat: byId("memory-chat-history").checked, auto_remember: byId("memory-remember").value,
+    include_chat: byId("memory-chat-history").checked, summarize_long_chats: byId("memory-summarize-chats").checked,
+    auto_remember: byId("memory-remember").value,
     include: scope("include"), exclude: scope("exclude") };
 }
 
@@ -2875,20 +2882,67 @@ function deleteThread(thread) {
 }
 byId("rename-thread").addEventListener("click", () => renameThread(threadList.find((item) => item.id === currentThread)));
 byId("delete-thread").addEventListener("click", () => deleteThread(threadList.find((item) => item.id === currentThread)));
+function showSummary(summary) {
+  const text = byId("thread-summary-text");
+  text.textContent = summary;
+  text.hidden = !summary;
+  byId("thread-summary-status").textContent = summary ? "" : "No summary yet.";
+}
+
+async function openSummary(thread) {
+  const target = { ...thread };
+  summaryThread = target;
+  showSummary("");
+  byId("thread-summary-thread").textContent = thread.title;
+  byId("thread-summary-status").textContent = "Loading summary…";
+  const reset = byId("reset-thread-summary");
+  reset.disabled = true;
+  summarySheet.showModal();
+  try {
+    const result = await api(`/api/threads/summary?thread=${encodeURIComponent(thread.id)}`);
+    if (summarySheet.open && summaryThread === target) {
+      showSummary(result.summary);
+      reset.disabled = false;
+    }
+  } catch (error) {
+    if (summarySheet.open && summaryThread === target) byId("thread-summary-status").textContent = error.message;
+  }
+}
+
+byId("reset-thread-summary").addEventListener("click", async (event) => {
+  const target = summaryThread;
+  if (!target || !window.confirm(`Reset the summary for “${target.title}”?`)) return;
+  const reset = event.currentTarget;
+  reset.disabled = true;
+  try {
+    const result = await api("/api/threads/summary/reset", { thread_id: target.id });
+    if (summarySheet.open && summaryThread === target) showSummary(result.summary);
+  } catch (error) {
+    if (summarySheet.open && summaryThread === target) byId("thread-summary-status").textContent = error.message;
+  } finally {
+    if (summarySheet.open && summaryThread === target) {
+      reset.disabled = false;
+      reset.focus({ preventScroll: true });
+    }
+  }
+});
 threadMenu.querySelector("form").addEventListener("submit", (event) => {
   event.preventDefault();
   const operation = event.submitter?.value;
   const thread = threadList.find((item) => item.id === threadMenuId);
   threadMenu.close();
+  if (operation === "summary" && thread) openSummary(thread);
   if (operation === "rename") renameThread(thread);
   if (operation === "delete") deleteThread(thread);
 });
-threadMenu.addEventListener("close", () => {
-  if (threadMenu.open || (mobile.isMobile() && !byId("workspace-drawer").open)) return;
+function focusThreadMenuTrigger() {
+  if (threadMenu.open || summarySheet.open || (mobile.isMobile() && !byId("workspace-drawer").open)) return;
   const trigger = [...byId("threads").querySelectorAll(".thread-overflow")]
     .find((item) => item.dataset.thread === threadMenuId);
   (trigger || byId("new-thread")).focus({ preventScroll: true });
-});
+}
+threadMenu.addEventListener("close", focusThreadMenuTrigger);
+summarySheet.addEventListener("close", focusThreadMenuTrigger);
 for (const tab of configTabs) {
   const panel = byId(`${tab}-panel`);
   const tabButton = byId(`${tab}-tab`);

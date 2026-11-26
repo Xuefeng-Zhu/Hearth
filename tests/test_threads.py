@@ -83,10 +83,26 @@ class ThreadTest(unittest.TestCase):
             with self.assertRaises(HTTPError) as blocked:
                 self.request(f"/api/threads/{suffix}", {"thread_id": "main", **body})
             self.assertEqual(blocked.exception.code, 400)
+        with self.storage.lock():
+            self.threads.save_summary(side, {"text": "Earlier profile decision.", "cursor": side_state["messages"][0]["id"]})
+        self.assertEqual(self.request(f"/api/threads/summary?thread={side}"), {"summary": "Earlier profile decision."})
+        self.assertIn("Earlier profile decision.", self.threads.context("main")[1][0]["earlier"])
+        action = self.request("/api/threads/summary/reset", {"thread_id": side})["action"]
+        self.assertTrue(self.app.agent.can_undo(action))
+        self.assertEqual(self.request(f"/api/threads/summary?thread={side}"), {"summary": ""})
+        self.assertEqual(self.state(side)["messages"], side_state["messages"])
+        saved_path = self.threads.summary_path(side).relative_to(self.storage.live)
+        backup = self.checkpoints.root / action["checkpoint"]["id"] / "live" / saved_path
+        saved_summary = json.loads(backup.read_text())
+        self.assertEqual(saved_summary["text"], "Earlier profile decision.")
+        with self.storage.lock():
+            self.threads.save_summary(side, saved_summary)
+        self.request("/api/threads/summary/reset", {"thread_id": "main"})
         deletion = self.request("/api/threads/delete", {"thread_id": side})
         self.assertEqual(deletion["thread_title"], "Profile notes")
         self.assertEqual(self.state(side)["thread_id"], "main")
         self.assertFalse(self.threads.path(side).exists())
+        self.assertFalse(self.threads.summary_path(side).exists())
         self.assertTrue((self.checkpoints.root / deletion["checkpoint"]["id"] / "live" / "threads" /
                          f"{side}.jsonl").is_file())
         self.request("/api/undo", {"id": deletion["id"]})
@@ -94,6 +110,7 @@ class ThreadTest(unittest.TestCase):
         while self.state(side)["thread_id"] != side and time.monotonic() < until:
             time.sleep(0.05)
         self.assertEqual(self.state(side)["messages"], side_state["messages"])
+        self.assertEqual(self.request(f"/api/threads/summary?thread={side}"), {"summary": saved_summary["text"]})
         resumed = Application(Storage(self.storage.root), self.checkpoints, self.config)
         self.assertEqual(resumed.info(side)["threads"][1]["title"], "Profile notes")
 

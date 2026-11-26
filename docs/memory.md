@@ -22,6 +22,14 @@ Hearth regenerates `live/memory/.index.json` after memory changes and refreshes 
 
 New workspaces default to **Automatic** in **Settings → Memory → Auto-remember**. Existing settings carry forward. **Ask first** queues unsolicited memory writes for approval. **Off** requires a direct request to edit a note. Connected brains are instructed to save durable details during the turn, keep one note per subject, mark inferences, and use the latest user statement when facts conflict. Hearth screens writes for recognized secrets, identity-document IDs, and payment card numbers. [Agent tools](../hearth/agent.py)
 
+## Long chats
+
+Hearth sends the latest 16 dialogue messages to the brain. With **Settings → Memory → Summarize long chats** enabled by default, Hearth folds older messages into a per-thread summary in the background after a reply is saved. Each update starts when at least eight messages have moved outside the window since the last fold. The summary uses the chat’s language and keeps decisions, facts, preferences, filenames, and open tasks in about 400 words. The summary goes into the brain’s context before the recent messages. Main can also use a short excerpt from each side chat’s summary.
+
+Hearth uses DeepSeek V4.1 Flash through the Hugging Face connector when available, with the default connected brain as a fallback. Folding sends older dialogue and the previous summary to the model. Hearth screens the input and output for recognized credentials and tool markup. Mock mode skips folding. If a fold fails, Hearth keeps the previous summary and cursor, logs a diagnostic in Timeline, and retries after a subsequent reply.
+
+Open **View summary** from a thread’s **⋯** menu. **Reset summary** clears the saved summary and starts the next fold from the current 16-message window. Reset saves a checkpoint and appears in Timeline. Turning the setting off pauses updates and stops Hearth from supplying saved summaries to the brain. Deleting a side chat removes its live summary. Checkpoints include summaries and their cursors alongside the transcript. [Thread storage](../hearth/threads.py)
+
 ## Migrating and undoing notes
 
 On first startup with legacy memory, Hearth adds front matter, preserves the old Markdown, moves matching legacy topic files into the standard paths when available, and adds the new topic and approvals files. It retains the original notes in `memory-backups/before-structured-memory.json` within the data directory. The **Memory moved to the new layout** Timeline entry offers item-level Undo and Redo. Later edits, renames, and ordinary note deletions can also be undone from Timeline. If a touched note has changed again, reverse the newer edit first.
@@ -38,6 +46,6 @@ Startup, edits, Undo, and Redo trigger reconciliation. Structured notes use head
 
 ## Permanent forget from chat
 
-Ask Hearth to forget a specific fact or subject. The connected brain identifies matching phrases and known variants. Hearth removes matching note passages, chat and voice transcript entries, recall activity, and copies in its local migration and Undo data. It adds a standing rule, using phrase hashes, to block matching details from being saved or recalled again. Pinecone record cleanup runs through sync. Timeline records the action without an Undo.
+Ask Hearth to forget a specific fact or subject. The connected brain identifies matching phrases and known variants. Hearth removes matching note passages, chat and voice transcript entries, thread summaries, recall activity, and copies in its local migration and Undo data. It adds a standing rule, using phrase hashes, to block matching details from being saved or recalled again. Pinecone record cleanup runs through sync. Timeline records the action without an Undo.
 
 Matching depends on the phrases and variants identified for the request. Independent source documents, provider logs, and native Sprite snapshots are outside Hearth’s writable memory stores. Hearth excludes matches from artifact recall and blocks in-app restoration of native snapshots that predate a permanent forget request. Use **Delete** in the Memory page for ordinary note removal with Undo. [Permanent forget implementation](../hearth/memory_purge.py)
