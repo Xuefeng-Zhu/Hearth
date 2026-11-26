@@ -131,11 +131,23 @@ class HomeTest(unittest.TestCase):
 
     def test_tick_refreshes_panels_and_weather(self):
         result = self.execute("create_panel", **spec(source={"type": "brain", "query": "Count notes"}))
+        finished = threading.Event()
+        run_due = self.app.home.run_due
+
+        def refresh():
+            try:
+                return run_due()
+            finally:
+                finished.set()
+
         with patch("hearth.home.weather_value", return_value=(home.DEFAULT_PLACE, {"temperature": 48, "code": 3})), \
-                patch("hearth.panels.read_source", return_value=5):
-            data = self.app.scheduler_tick()
-        self.assertEqual(data["panels_refreshed"], 2)
-        self.assertEqual(self.app.home.snapshot()["panels"][result["panels"][0]["id"]]["value"], 5)
+                patch("hearth.panels.read_source", return_value=5), \
+                patch.object(self.app.home, "run_due", side_effect=refresh):
+            self.app.scheduler_tick()
+            self.assertTrue(finished.wait(2))
+        snapshot = self.app.home.snapshot()
+        self.assertEqual(snapshot["panels"][result["panels"][0]["id"]]["value"], 5)
+        self.assertEqual(snapshot["builtin"]["weather"]["value"]["temperature"], 48)
 
     def test_refresh_from_old_revision_cannot_overwrite_edit(self):
         row = self.execute("create_panel", **spec(source={"type": "brain", "query": "Count notes"}))["panels"][0]

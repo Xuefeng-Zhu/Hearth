@@ -1,12 +1,64 @@
+import fcntl
 import re
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from . import delivery_journal
 from .gateway_tools import redact_text
-from .reminder_config import CHANNELS, saved
+from .reminder_config import CHANNELS, quiet_until, saved
 from .storage import HearthError, Storage, iso, new_id
 from .threads import MAIN_ORIGIN
+
+RESTORE_DRAIN_SECONDS = 2
+
+
+@contextmanager
+def workspace_lock(storage, name, *, wait=False, shared=False, timeout=None):
+    with (storage.root / f"{name}.lock").open("a") as file:
+        flags = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(file, flags | (0 if wait else fcntl.LOCK_NB))
+            except BlockingIOError:
+                if deadline is None or time.monotonic() >= deadline:
+                    yield False
+                    return
+                time.sleep(0.01)
+            else:
+                yield True
+                return
+
+
+def claims(storage):
+    return workspace_lock(storage, "scheduler-restore", shared=True)
+
+
+def reconcile(state, rows):
+    activity_ids = {event.get("id") for event in state.get("activity", [])} if rows else set()
+    changed = False
+    for item in email_records(state):
+        if item.get("delivery", {}).get("email") and (row := rows.get(delivery_journal.key(item))):
+            changed |= delivery_journal.project(state, item, row, activity_ids)
+    return changed, activity_ids
+
+
+def due_email(item, now):
+    email = item.get("delivery", {}).get("email", {})
+    return email.get("status") == "queued" and datetime.fromisoformat(email["next_at"]) <= now
+
+
+def hold_email(state, item, now, selection):
+    email = item["delivery"]["email"]
+    if item["urgent"] or email.get("attempts") or not (held := quiet_until(now, selection)):
+        return False
+    from .reminders import log
+    email.update(next_at=iso(held), reason="Quiet hours")
+    log(state, "Email queued · Quiet hours", item, now, provider="agentmail",
+        data={"reminder_id": item["id"], "next_due": iso(held), "status": "queued"})
+    return True
 
 
 def cron_field(field, low, high):
@@ -132,44 +184,63 @@ def occurrence(job, now, *, test=False):
             **{key: job[key] for key in ("source", "automation_path", "goal_id", "goal_checkin", "root_job_id") if key in job}}
 
 
-def run_due(storage, clock=None, *, tick=False):
+def claim_due(storage, clock=None, *, tick=False):
     now = clock or datetime.now(timezone.utc)
-    with storage.lock():
-        state = storage.load()
-        due = [job for job in state["jobs"] if job["status"] == "scheduled"
-               and datetime.fromisoformat(job.get("next_fire_at", job["next_at"])) <= now]
-        fired = 0
-        for job in due:
-            if job.get("goal_id"):
-                from .goals import goal_job_due
-                if not goal_job_due(state, job):
-                    job.update(status="canceled", next_fire_at=None)
-                    continue
-            item = occurrence(job, now)
-            fired += 1
-            state["reminders"].append(item)
-            if state.get("event_automations"):
-                from . import event_automations
-                event_automations.enqueue(state, {
-                    "type": "reminder", "id": item["id"], "at": item["delivered_at"], "job_id": job["id"],
-                    "title": job["message"], "body": job.get("note", ""), "source": job.get("source"),
-                    "automation_path": job.get("automation_path", []),
-                }, now)
-            if job.get("snoozed_at"):
-                job.pop("snoozed_at")
-            if job.get("cron"):
-                job["next_at"] = job["next_fire_at"] = iso(next_cron(
-                    job["cron"], now, zone=ZoneInfo(job["timezone"]) if job.get("timezone") else None))
-            else:
-                job["status"] = "complete"
-                job["next_fire_at"] = None
-        old = state.get("next_fire_at")
-        new = next_due(state)
-        if tick:
-            state["last_tick"] = iso(now)
-        if due or old != new or tick:
-            storage.save(state)
-        return fired
+    with claims(storage) as allowed:
+        if not allowed:
+            return {"fired": 0, "queued_deliveries": 0, "last_tick": None, "next_due": None}
+        with storage.lock():
+            state = storage.load()
+            rows = delivery_journal.load(storage)
+            changed, activity_ids = reconcile(state, rows)
+            due = [job for job in state["jobs"] if job["status"] == "scheduled"
+                   and datetime.fromisoformat(job.get("next_fire_at", job["next_at"])) <= now]
+            fired = 0
+            for job in due:
+                if job.get("goal_id"):
+                    from .goals import goal_job_due
+                    if not goal_job_due(state, job):
+                        job.update(status="canceled", next_fire_at=None)
+                        continue
+                item = occurrence(job, now)
+                if row := rows.get(delivery_journal.key(item)):
+                    delivery_journal.project(state, item, row, activity_ids)
+                fired += 1
+                state["reminders"].append(item)
+                if state.get("event_automations"):
+                    from . import event_automations
+                    event_automations.enqueue(state, {
+                        "type": "reminder", "id": item["id"], "at": item["delivered_at"], "job_id": job["id"],
+                        "title": job["message"], "body": job.get("note", ""), "source": job.get("source"),
+                        "automation_path": job.get("automation_path", []),
+                    }, now)
+                if job.get("snoozed_at"):
+                    job.pop("snoozed_at")
+                if job.get("cron"):
+                    job["next_at"] = job["next_fire_at"] = iso(next_cron(
+                        job["cron"], now, zone=ZoneInfo(job["timezone"]) if job.get("timezone") else None))
+                else:
+                    job["status"] = "complete"
+                    job["next_fire_at"] = None
+            queued = 0
+            selection = saved(state)
+            for item in email_records(state):
+                if due_email(item, now):
+                    if hold_email(state, item, now, selection):
+                        changed = True
+                    else:
+                        queued += 1
+            old = state.get("next_fire_at")
+            new = next_due(state)
+            if tick:
+                state["last_tick"] = iso(now)
+            if changed or due or old != new or tick:
+                storage.save(state)
+            return {"fired": fired, "queued_deliveries": queued, "last_tick": state.get("last_tick"), "next_due": new}
+
+
+def run_due(storage, clock=None, *, tick=False):
+    return claim_due(storage, clock, tick=tick)["fired"]
 
 
 def main():

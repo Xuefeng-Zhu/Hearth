@@ -6,6 +6,7 @@ import shutil
 import threading
 import time
 from collections import deque
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -123,7 +124,9 @@ class Application:
         self.memory_index.on_change = self.memory_sync.request
         self.artifacts.on_memory_change = self.memory_sync.request
         self.reminders = reminders.Reminders(self)
+        self.reminders.recover()
         self.inbox = inbox.Inbox(self)
+        self.scheduler_inbox = threading.Lock()
         self.home = home.Home(self)
         self.proactivity = proactivity.Proactivity(self)
         self.feed = feed.Feed(self)
@@ -134,18 +137,36 @@ class Application:
         approvals.upgrade_legacy(self.agent)
 
     def scheduler_tick(self):
-        fired = scheduler.run_due(self.storage, tick=True)
-        self.reminders.deliver(wait=True)
-        polled = self.inbox.poll(force=True)
+        result = scheduler.claim_due(self.storage, tick=True)
+        if result["last_tick"] is None:
+            return result
+        if result["queued_deliveries"]:
+            self.reminders.kick()
+        self.kick_scheduler_inbox(force=True)
         self.proactivity.kick()
         self.feed.kick()
         self.ideas.kick()
         self.memory_review.kick()
-        task_runs = self.task_runner.tick()
+        self.task_runner.kick()
         self.event_runner.kick()
-        info = self.reminders.info()
-        return {"fired": fired, "processed": polled, "last_tick": info["last_tick"], "next_due": info["next_due"],
-                "panels_refreshed": self.home.run_due(), "task_runs": task_runs}
+        self.home.kick()
+        return result
+
+    def kick_scheduler_inbox(self, *, force):
+        if not self.scheduler_inbox.acquire(blocking=False):
+            return
+
+        def poll():
+            try:
+                self.inbox.poll(force=force)
+            finally:
+                self.scheduler_inbox.release()
+
+        try:
+            threading.Thread(target=poll, name="hearth-scheduled-inbox", daemon=True).start()
+        except RuntimeError:
+            self.scheduler_inbox.release()
+            raise
 
     def restoring(self):
         return bool(self.restore and self.restore["status"] == "restoring")
@@ -159,11 +180,12 @@ class Application:
             woke = previous is None or now - previous > 20
             try:
                 if not self.restore or self.restore["status"] != "restoring":
-                    scheduler.run_due(self.storage, tick=woke)
+                    claimed = scheduler.claim_due(self.storage, tick=woke)
+                    if claimed["queued_deliveries"]:
+                        self.reminders.kick()
                     if woke or now >= next_inbox:
-                        threading.Thread(target=self.inbox.poll, kwargs={"force": woke}, daemon=True).start()
+                        self.kick_scheduler_inbox(force=woke)
                         next_inbox = now + 60
-                    self.reminders.deliver()
                     self.task_runner.kick()
                     self.event_runner.kick()
                     if woke or now >= next_home:
@@ -664,12 +686,10 @@ class Application:
         return self.restore, 202
 
     def start_restore(self, action_id):
+        if self.restoring():
+            raise HearthError("A checkpoint is being restored.")
         if self.workers.busy():
             raise HearthError("Wait for worker tools to finish before restoring a checkpoint.")
-        if self.event_runner.worker.locked():
-            raise HearthError("Wait for automation processing to finish before restoring a checkpoint.")
-        if self.task_runner.worker.locked():
-            raise HearthError("Wait for recurring task processing to finish before restoring a checkpoint.")
         if self.reindex_running() or self.memory_sync.running:
             raise HearthError("Wait for memory reindexing to finish before restoring a checkpoint.")
         with self.turn_lock:
@@ -683,35 +703,51 @@ class Application:
                 rule["at"] >= action["checkpoint"]["created_at"] for rule in memory.standing_rules(self.storage)
             ):
                 raise HearthError("This checkpoint predates a permanent forget request and cannot be restored.")
+        with ExitStack() as stack:
+            if not stack.enter_context(scheduler.workspace_lock(self.storage, "scheduler-restore", timeout=0.25)):
+                raise HearthError("The scheduler is busy. Try restoring again.")
+            barrier = stack.pop_all()
         self.restore = {"action_id": action_id, "status": "restoring"}
-        threading.Thread(target=self.restore_checkpoint, args=(action,), daemon=True).start()
+        try:
+            threading.Thread(target=self.restore_checkpoint, args=(action, barrier), daemon=True).start()
+        except RuntimeError:
+            barrier.close()
+            self.restore = {"action_id": action_id, "status": "failed"}
+            raise
 
-    def restore_checkpoint(self, action):
-        # Give the HTTP acknowledgement time to leave before the Sprite disconnects.
-        time.sleep(0.35)
-        with self.operation:
+    def restore_checkpoint(self, action, barrier):
+        with barrier:
+            # Give the HTTP acknowledgement time to leave before the Sprite disconnects.
+            time.sleep(0.35)
             try:
-                with self.storage.lock():
-                    self.checkpoints.restore(action["checkpoint"]["id"])
-            except (HearthError, OSError):
-                self.restore = {"action_id": action["id"], "status": "failed"}
-            else:
-                if self.checkpoints.mode == "local":
-                    selected = self.connections.selected
-                    self.connections.reset()
-                    self.connections.selected = selected
-                    self.reindex = None
-                    self.call_check = None
-                    self.reload_agent()
+                self.reminders.drain_for_restore()
+                with self.operation:
                     with self.storage.lock():
-                        memory.catalog(self.storage)
-                    self.restore = None
-                    self.memory_sync.request("startup")
-                    return
-        if self.restore["status"] == "restoring":
-            # A successful native restore restarts the server and discards this thread.
-            time.sleep(90)
-            with self.operation:
+                        rows = self.reminders.reconcile_locked(unfinished=True)
+                        checkpoint = action["checkpoint"]
+                        if self.checkpoints.mode == "sprite" and any(
+                            row["written_at"] >= checkpoint["created_at"] or row["email"].get("pending_reconcile")
+                            for row in rows.values()
+                        ):
+                            raise HearthError("This Sprite checkpoint can roll back reminder delivery records.")
+                        self.checkpoints.restore(checkpoint["id"])
+                        if self.checkpoints.mode == "local":
+                            self.reminders.reconcile_locked()
+                            memory.catalog(self.storage)
+                    if self.checkpoints.mode == "local":
+                        selected = self.connections.selected
+                        self.connections.reset()
+                        self.connections.selected = selected
+                        self.reindex = None
+                        self.call_check = None
+                        self.reload_agent()
+                        self.restore = None
+                        self.memory_sync.request("startup")
+                        return
+                # A successful native restore restarts the server and discards this thread.
+                time.sleep(90)
+                raise HearthError("The Sprite did not restart after restore.")
+            except (HearthError, OSError):
                 self.restore = {"action_id": action["id"], "status": "failed"}
 
 

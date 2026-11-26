@@ -1,5 +1,6 @@
 import hashlib
 import re
+from time import monotonic
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request
 
@@ -11,12 +12,16 @@ LIMIT = 64 * 1024
 
 
 class AgentMail:
-    def __init__(self, gateway, config):
+    def __init__(self, gateway, config, *, deadline=None):
         self.gateway, self.config = gateway, config
+        self.deadline = deadline
 
     def call(self, path, data=None, key=None):
+        timeout = 8 if self.deadline is None else min(8, self.deadline - monotonic())
+        if timeout <= 0:
+            raise ConnectorError("The AgentMail delivery timed out.", 504)
         return self.gateway.json(self.config, f"v0/inboxes{path}", data,
-                                 {"Idempotency-Key": key} if key else None, timeout=8)
+                                 {"Idempotency-Key": key} if key else None, timeout=timeout)
 
     def ensure_inbox(self):
         configured = self.config.get("inbox_id")
