@@ -628,7 +628,9 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
     });
     displayTrigger(rule?.trigger);
     for (const action of rule?.actions || [{ type: "prompt" }]) addAction(action);
-    form.append(label("Name", name), label("When", when), options, actionList, add, submit, feedback);
+    const controls = el("div", "action-row");
+    controls.append(add, submit);
+    form.append(label("Name", name), label("When", when), options, actionList, controls, feedback);
     dialog.append(form);
     name.focus();
     form.addEventListener("submit", async (event) => {

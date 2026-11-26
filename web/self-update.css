@@ -1,5 +1,6 @@
 .self-update-card,
 .self-update-settings {
+  --control-height: var(--touch-height);
   display: grid;
   gap: var(--grid-gap);
   min-width: 0;

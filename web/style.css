@@ -398,7 +398,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .settings-body :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
 .settings-body > *, .settings-layout > *, .preference-fields > * { min-width: 0; }
 .settings-body > .meta { margin: 0; }
-.settings-body > .brain-form { max-width: none; }
+.settings-body > .brain-form { width: 100%; }
 .settings-actions .meta { margin: 0; font-size: 13px; }
 .settings-button { display: inline-flex; align-items: center; justify-content: center; gap: var(--control-gap); margin-inline-start: auto; border-color: var(--focus); }
 .settings-button[aria-disabled="true"] { cursor: wait; opacity: .55; }
@@ -635,7 +635,9 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 #voice-level::-webkit-meter-optimum-value { background: linear-gradient(90deg, var(--meter-start), var(--meter-end)); border-radius: 99px; }
 #voice-level::-moz-meter-bar { background: var(--meter-fill); border-radius: 99px; }
 #voice-interim { margin: 0; color: var(--voice-interim); width: 100%; overflow-wrap: anywhere; max-height: 4.5em; overflow: auto; }
-.voice-settings + .voice-settings { margin-top: var(--grid-gap); }
+@media (min-width: 1280px) {
+  #settings-voice { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
 @keyframes voice-pulse { 50% { box-shadow: 0 0 0 4px var(--voice-pulse); } }
 @media (prefers-reduced-motion: reduce) { .voice-bar[data-phase="recording"] .voice-dot { animation: none; } }
 

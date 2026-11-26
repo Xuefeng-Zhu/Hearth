@@ -443,7 +443,11 @@
 
 @media (min-width: 1170px) {
   .home-card-feed { grid-column: span 2; }
-  .feed-scroll { max-height: clamp(240px, 33dvh, 355px); scrollbar-gutter: stable; }
+  .feed-scroll, .home-card-goals .goal-list, .home-card-checklist .home-rows {
+    max-block-size: clamp(216px, 28dvh, 320px);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
 }
 
 #feed-settings-form input[type="number"] { border-color: var(--field-edge); }
