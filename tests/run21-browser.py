@@ -39,7 +39,11 @@ def seed(app):
     with app.storage.lock():
         thread = app.threads.create()["id"]
         app.threads.rename(thread, "Seattle trip")
-        for title in ["Thanksgiving dinner", "Travel budget", "Book club", "Family plans", "Weekend errands"] * 4:
+        for title in ["Thanksgiving dinner menu and grocery list for twelve guests",
+                      "Seattle travel budget with ferry tickets and hotel options",
+                      "Book club discussion questions and next month's reading picks",
+                      "Family plans for the winter school break",
+                      "Weekend errands and supplies for the community garden"] * 4:
             sub = app.threads.create()
             app.threads.rename(sub["id"], title)
         app.threads.append(thread, "user", "Can you create a slide for Seattle trip?")
@@ -70,6 +74,17 @@ def test_navigation(page, mobile, output, label):
         edges = settings.bounding_box()
         assert edges["y"] > page.viewport_size["height"] - 80, edges
         drawer_body = sidebar.locator(".workspace-drawer-body")
+        expect(sidebar.get_by_role("heading", name="Threads")).to_be_visible()
+        assert sidebar.evaluate("(drawer) => drawer.scrollWidth <= drawer.clientWidth")
+        assert drawer_body.evaluate("""(body) => {
+          const bounds = body.getBoundingClientRect();
+          const links = [...body.querySelectorAll('nav button')];
+          return body.scrollWidth <= body.clientWidth && body.scrollTop === 0 && links.length === 7
+            && links.every(link => {
+              const area = link.getBoundingClientRect();
+              return area.width > 0 && area.height > 0 && area.top >= bounds.top && area.bottom <= bounds.bottom;
+            });
+        }""")
         scrolled = drawer_body.evaluate("(e) => { e.scrollTop = 200; return e.scrollTop; }")
         assert scrolled > 0
         assert settings.bounding_box()["y"] == edges["y"]

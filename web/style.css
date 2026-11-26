@@ -44,7 +44,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .thread-link { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); padding: 9px; text-align: left; font-size: 13px; }
 .thread-link:hover, .thread-link[aria-current] { color: var(--selection-text); background: var(--thread-active); }
 .thread-link[aria-current], .thread-row:first-child .thread-link { font-weight: 650; }
-.thread-link span:first-child, .thread-header h2 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.thread-link .thread-label, .thread-header h2 { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .thread-dot, .thread-activity::before { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--activity-dot); margin-left: auto; }
 .chat-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .thread-header { flex: none; display: flex; align-items: center; gap: 9px; min-height: 54px; padding: 6px 20px; border-bottom: 1px solid var(--border); }
@@ -222,10 +222,10 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 
 @media (max-width: 780px) {
   .chat-view { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .thread-panel { padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--border); }
-  .thread-panel-header { display: flex; gap: 8px; padding: 0; }
-  .thread-panel-header h2, .threads { display: none; }
-  .thread-select { display: block; flex: 1; min-width: 0; color: inherit; border: 1px solid var(--control-border); border-radius: 8px; background: var(--paper); padding: 6px 9px; font-size: 14px; text-overflow: ellipsis; }
+  .chat-view .thread-panel { padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .chat-view .thread-panel-header { display: flex; gap: 8px; padding: 0; }
+  .chat-view :is(.thread-panel-header h2, .threads) { display: none; }
+  .chat-view .thread-select { display: block; flex: 1; min-width: 0; color: inherit; border: 1px solid var(--control-border); border-radius: 8px; background: var(--paper); padding: 6px 9px; font-size: 14px; text-overflow: ellipsis; }
   .thread-header { min-height: 43px; padding: 4px 12px; }
 }
 

@@ -45,8 +45,8 @@
     font-size: 24px;
   }
   .workspace-drawer[open] {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template: auto minmax(0, 1fr) auto / minmax(0, 1fr);
     position: fixed;
     inset: var(--keyboard-top, 0px) auto auto 0;
     width: 85vw;
@@ -87,12 +87,27 @@
   }
   .workspace-drawer-header button { padding: 0; font-size: 24px; line-height: 1; }
   .workspace-drawer .notice { width: 100%; max-width: none; margin: 0 0 8px; }
-  .workspace-drawer nav { display: grid; gap: 2px; }
-  .workspace-drawer .nav-link { justify-content: start; gap: 8px; width: 100%; min-height: 44px; padding: 6px 8px; font-size: 14px; }
-  .workspace-drawer-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
-  .workspace-drawer-body > nav { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); row-gap: 0; }
+  .workspace-drawer-body {
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+  .workspace-drawer-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 4px;
+  }
+  .workspace-drawer .nav-link {
+    justify-content: flex-start;
+    gap: 8px;
+    min-width: 0;
+    min-height: 44px;
+    padding: 6px 8px;
+    font-size: 14px;
+  }
   .workspace-drawer .workspace-settings {
-    flex: none;
     grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
     padding-top: 6px;
@@ -100,16 +115,27 @@
     border-top: 1px solid var(--border);
   }
   .workspace-drawer .workspace-settings button { grid-area: 1 / 1; }
-  .workspace-drawer .workspace-status { grid-area: 1 / 2; justify-self: end; padding-inline: 8px; }
+  .workspace-drawer .workspace-status { grid-area: 1 / 2; justify-self: end; min-width: 0; padding-inline: 8px; }
+  .workspace-drawer .workspace-status span:last-child { min-width: 0; }
   .workspace-drawer .nav-link > .line-icon { width: 21px; }
-  #mobile-thread-panel { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+  #mobile-thread-panel { min-width: 0; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
   .workspace-drawer .thread-panel { display: block; padding: 0; border: 0; background: transparent; }
-  .workspace-drawer .thread-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 0 3px 5px; }
-  .workspace-drawer .thread-panel-header h2 { display: block; font-size: 15px; }
+  .workspace-drawer .thread-panel-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px 5px 8px;
+  }
+  .workspace-drawer .thread-panel-header h2 { margin: 0; font-size: 15px; }
   .workspace-drawer .thread-select { display: none; }
-  .workspace-drawer .threads { display: grid; overflow: visible; }
+  .workspace-drawer .threads { grid-template-columns: minmax(0, 1fr); min-width: 0; overflow: visible; }
   .workspace-drawer :is(.thread-link, .new-thread) { font-size: 15px; min-height: 44px; }
-  .workspace-drawer .thread-row { display: flex; border-radius: 8px; }
+  .workspace-drawer .new-thread { white-space: nowrap; }
+  .workspace-drawer .thread-row { display: flex; min-width: 0; border-radius: 8px; }
+  .workspace-drawer .thread-link { flex: 1; width: auto; min-width: 0; }
+  .workspace-drawer .thread-link .mascot { flex: none; margin: 0 0 0 auto; }
+  .workspace-drawer-body button:focus-visible { outline-offset: -2px; }
   .workspace-drawer .thread-row:has([aria-current]) { background: var(--thread-active); }
   .workspace-drawer .thread-link[aria-current] { box-shadow: inset 3px 0 var(--accent); }
   .workspace-drawer .thread-overflow {

@@ -928,7 +928,7 @@ function renderThreads() {
     item.className = "thread-link";
     item.dataset.thread = thread.id;
     item.title = thread.title;
-    item.append(node("span", "", thread.title));
+    item.append(node("span", "thread-label", thread.title));
     if (thread.id === currentThread) item.setAttribute("aria-current", "true");
     if (avatarMode !== "off") {
       const avatar = mascot(avatarLook, avatarColor);
