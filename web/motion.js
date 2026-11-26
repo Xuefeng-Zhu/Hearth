@@ -54,13 +54,15 @@ function animate(element, frames, options, done = () => {}) {
 }
 
 export function transitionView(update, enabled) {
+  viewTransition?.skipTransition();
   if (!enabled || reduced.matches || !document.startViewTransition || document.hidden) {
     update();
     return;
   }
-  viewTransition?.skipTransition();
   const transition = document.startViewTransition(update);
   viewTransition = transition;
+  // A newer navigation can skip this animation before it is ready to paint.
+  transition.ready.catch(() => {});
   transition.finished.then(clear, clear);
   function clear() {
     if (viewTransition === transition) viewTransition = undefined;

@@ -9,6 +9,7 @@ def motion_smoke(browser, origin, browser_page):
             page.add_init_script("""(() => {
               window.viewTransitions = 0;
               const start = document.startViewTransition.bind(document);
+              window.restoreViewTransition = () => { document.startViewTransition = start; };
               document.startViewTransition = (update) => {
                 window.viewTransitions++;
                 const transition = start(update);
@@ -72,6 +73,14 @@ def motion_smoke(browser, origin, browser_page):
             else:
                 page.wait_for_function("""() => [...document.querySelectorAll('#home-grid [data-panel]')].some(panel =>
                   panel.getAnimations().some(animation => animation.effect.getKeyframes().some(frame => frame.translate)))""")
+                page.evaluate("""() => {
+                  window.restoreViewTransition();
+                  for (const view of ['chat', 'inbox', 'home', 'skills']) {
+                    document.querySelector(`.sidebar [data-view="${view}"]`).click();
+                  }
+                }""")
+                expect(page.locator(".sidebar [data-view=skills]")).to_have_attribute("aria-current", "page")
+                expect(page.locator("#skills-view")).to_be_visible()
 
     with browser_page(browser, origin, viewport={"width": 390, "height": 844},
                       reduced_motion="reduce", is_mobile=True, has_touch=True) as page:
