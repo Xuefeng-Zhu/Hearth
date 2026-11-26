@@ -536,3 +536,4 @@
 }
 .idea-list .idea-card { scroll-snap-align: start; }
 .idea-list .idea-card:only-child { grid-column: 1 / -1; }
+.home-date::after { content: "Happy Hacksgiving"; display: block; font-size: 0.875rem; }
