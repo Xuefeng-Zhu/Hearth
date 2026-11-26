@@ -34,6 +34,7 @@ const paths = {
   bookmark: "M6 3h12v18l-6-4-6 4z",
   share: "M12 15V3m-5 5 5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7",
   box: "M21 8v13H3V8m-1-5h20v5H2zm8 9h4",
+  filter: "M4 7h16M7 12h10m-7 5h4",
   search: "M17.5 10.5a7 7 0 1 1-14 0 7 7 0 0 1 14 0Zm-2 5L21 21",
   list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
   grid: "M3 3h7v7H3Zm11 0h7v7h-7ZM3 14h7v7H3Zm11 0h7v7h-7Z",

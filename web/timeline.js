@@ -204,6 +204,17 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
   const filterBar = get("timeline-filters");
   const query = get("timeline-search");
   const threads = get("timeline-thread");
+  const mobileFilter = matchMedia("(max-width: 760px)");
+  const filterOpen = get("timeline-filter-open");
+  const filterSheet = get("timeline-filter-sheet");
+  const errorCount = get("timeline-error-count");
+  const activeChip = get("timeline-active-filter");
+  const clearFilters = get("timeline-filter-clear");
+  const compactSummary = get("timeline-compact-summary");
+  const threadLabel = get("timeline-thread-label");
+  const desktopControls = filterBar.parentElement;
+  let draftFilter;
+  let threadFilter = "";
   const feedback = get("timeline-feedback");
   const announcer = get("timeline-announcer");
   const chips = {};
@@ -240,14 +251,78 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
     render();
   };
   for (const [id, label] of Object.entries(categories)) {
-    const chip = control(label, () => selectFilter(id));
+    const chip = control(label, () => {
+      if (filterSheet.open) {
+        draftFilter = id;
+        showSelection(id);
+      } else selectFilter(id);
+    });
     const count = element("span", "", "0");
     chip.append(count);
     chips[id] = { chip, count, label };
     filterBar.append(chip);
   }
   query.addEventListener("input", render);
-  threads.addEventListener("change", render);
+  threads.addEventListener("change", () => {
+    if (!filterSheet.open) {
+      threadFilter = threads.value;
+      render();
+    }
+  });
+
+  function showSelection(active) {
+    for (const [id, { chip }] of Object.entries(chips)) chip.setAttribute("aria-pressed", String(id === active));
+  }
+
+  function placeFilters() {
+    if (mobileFilter.matches) {
+      get("timeline-filter-options").append(filterBar);
+      get("timeline-filter-thread").append(threadLabel, threads);
+    } else {
+      if (filterSheet.open) filterSheet.close();
+      desktopControls.prepend(filterBar);
+      filterOpen.before(threadLabel, threads);
+    }
+    threadLabel.classList.toggle("visually-hidden", !mobileFilter.matches);
+    threads.value = threadFilter;
+  }
+
+  filterOpen.addEventListener("click", () => {
+    draftFilter = todayErrors ? "error" : filter;
+    threads.value = threadFilter;
+    showSelection(draftFilter);
+    filterSheet.showModal();
+    chips[draftFilter].chip.focus();
+  });
+  get("timeline-filter-close").addEventListener("click", () => filterSheet.close());
+  get("timeline-filter-reset").addEventListener("click", () => {
+    draftFilter = "all";
+    threads.value = "";
+    showSelection(draftFilter);
+  });
+  get("timeline-filter-apply").addEventListener("click", () => {
+    threadFilter = threads.value;
+    filterSheet.close();
+    selectFilter(draftFilter);
+  });
+  filterSheet.addEventListener("click", (event) => {
+    const bounds = filterSheet.getBoundingClientRect();
+    if (event.target === filterSheet && (event.clientY < bounds.top || event.clientX < bounds.left
+      || event.clientX > bounds.right || event.clientY > bounds.bottom)) filterSheet.close();
+  });
+  filterSheet.addEventListener("close", () => {
+    threads.value = threadFilter;
+    showSelection(todayErrors ? "error" : filter);
+    if (mobileFilter.matches && !get("timeline-view").hidden) filterOpen.focus({ preventScroll: true });
+  });
+  clearFilters.addEventListener("click", () => {
+    threadFilter = "";
+    threads.value = "";
+    selectFilter("all");
+    filterOpen.focus({ preventScroll: true });
+  });
+  mobileFilter.addEventListener("change", placeFilters);
+  placeFilters();
 
   function setConfirmation(card, row, action) {
     const target = card.querySelector(".timeline-confirm");
@@ -429,12 +504,14 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
       threads.replaceChildren(new Option("All threads", ""), ...[...threadNames].sort(([, a], [, b]) =>
         a.localeCompare(b)).map(([id, title]) => new Option(title, id)));
       if (threadNames.has(threadId)) threads.value = threadId;
+      if (!threadNames.has(threadFilter)) threadFilter = "";
     }
 
     const text = query.value.trim().toLocaleLowerCase();
     const counts = Object.fromEntries(Object.keys(categories).map((key) => [key, 0]));
     const totals = { chat: 0, memory: 0, action: 0, connector: 0 };
     const days = new Map();
+    let allErrors = 0;
     for (const row of rows) {
       const matches = flags(row);
       const value = stamp(row.at);
@@ -445,7 +522,8 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
         if (matches.action && !matches.memory && row.data?.status !== "pending") totals.action++;
         if (matches.connector && row.kind !== "routing" && row.data?.status !== "pending") totals.connector++;
       }
-      if ((threads.value && row.thread_id !== threads.value) || (text && !searchText(row).includes(text))) continue;
+      if (matches.error) allErrors++;
+      if ((threadFilter && row.thread_id !== threadFilter) || (text && !searchText(row).includes(text))) continue;
       if (todayErrors && key !== today) continue;
       for (const category of Object.keys(categories)) if (matches[category]) counts[category]++;
       if (!matches[activeFilter]) continue;
@@ -454,9 +532,16 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
     }
     for (const [id, { chip, count, label }] of Object.entries(chips)) {
       count.textContent = counts[id];
-      chip.setAttribute("aria-pressed", String(id === activeFilter));
       chip.setAttribute("aria-label", `${label}, ${counts[id]}`);
     }
+    showSelection(filterSheet.open ? draftFilter : activeFilter);
+    errorCount.hidden = allErrors === 0;
+    errorCount.textContent = `${allErrors.toLocaleString()} ${allErrors === 1 ? "error" : "errors"}`;
+    const filterName = [activeFilter !== "all" ? (todayErrors ? "Today’s errors" : categories[activeFilter]) : "",
+      threadNames.get(threadFilter)].filter(Boolean).join(" · ");
+    activeChip.hidden = !filterName;
+    get("timeline-filter-name").textContent = filterName;
+    clearFilters.setAttribute("aria-label", `Remove filter ${filterName}`);
     for (const [id, value] of Object.entries({
       turns: totals.chat, memory: totals.memory, actions: totals.action, connectors: totals.connector,
     })) get(`timeline-${id}`).textContent = value.toLocaleString();
@@ -473,6 +558,18 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
     } else {
       last.textContent = "—";
       last.removeAttribute("title");
+    }
+    const compactDetails = [
+      `${totals.chat.toLocaleString()} ${totals.chat === 1 ? "turn" : "turns"}`,
+      `${totals.action.toLocaleString()} ${totals.action === 1 ? "action" : "actions"}`,
+    ].join(" · ");
+    const undoAt = previousUndo?.undone_at || previousUndo?.at;
+    if (compactSummary.dataset.values !== compactDetails || compactSummary.dataset.undo !== (undoAt || "")) {
+      compactSummary.dataset.values = compactDetails;
+      compactSummary.dataset.undo = undoAt || "";
+      compactSummary.textContent = compactDetails;
+      compactSummary.append(undoAt ? " · last undo " : " · no undo yet");
+      if (undoAt) compactSummary.append(timeLabel(undoAt));
     }
     const sections = [];
     for (const [key, { value, items }] of days) {
@@ -568,6 +665,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
   }
 
   function hide() {
+    if (filterSheet.open) filterSheet.close();
     stream?.close();
     stream = undefined;
     clearInterval(clock);
@@ -580,6 +678,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
   function setTodayErrors(enabled) {
     todayErrors = enabled;
     if (enabled) {
+      threadFilter = "";
       threads.value = "";
       query.value = "";
     }
@@ -608,7 +707,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
       render();
       const target = cards.get(row.id)?.card.querySelector("summary");
       if (target?.isConnected) target.focus({ preventScroll: true });
-      else chips[filter].chip.focus({ preventScroll: true });
+      else (mobileFilter.matches ? filterOpen : chips[filter].chip).focus({ preventScroll: true });
     }
   }
 
@@ -618,6 +717,7 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
     let card = find();
     if (!card && entries.some((row) => row.kind === "reminder"
       && (row.data.job?.id === payload?.id || (row.data.job?.message || row.data.message) === payload?.message))) {
+      threadFilter = "";
       threads.value = "";
       query.value = "";
       selectFilter("action");

@@ -570,6 +570,7 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
   border-radius: 15px;
   background: linear-gradient(120deg, var(--accent-light), var(--paper) 85%);
 }
+.timeline-compact-summary, .timeline-mobile-filter, .timeline-active-filter { display: none; }
 .timeline-today h3 {
   margin: 15px 18px 2px;
   color: var(--accent);
