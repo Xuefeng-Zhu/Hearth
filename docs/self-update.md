@@ -19,3 +19,4 @@ GitHub Actions runs tests on PRs. A merge to `main` triggers the same tests and 
 The card shows the result once the running Hearth reports that version. Timeline records proposals, revisions, approvals, merges, deployments, and discards. To undo an update, type “Revert the last Hearth update” or “Revert <short SHA>.” Hearth opens another reviewable PR if the affected files still match the merged snapshot.
 
 Configure the repository and proposal toggle under Settings → Connections → GitHub. Proposals default to on for `Xuefeng-Zhu/Hearth`.
+Review the displayed CI result before approving a proposal.
