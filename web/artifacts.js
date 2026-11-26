@@ -1,6 +1,7 @@
 import { fileGlyph, uploadURL } from "./attachments.js";
 import { icon, iconButton } from "./icons.js";
 import { createPageDetail, pageThumbnail } from "./pages.js";
+import { createFileQuestions } from "./file-questions.js";
 import { setTimeZone, timeFormatter } from "./time.js";
 
 const get = (id) => document.getElementById(id);
@@ -331,6 +332,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
   let layout = localStorage.getItem("hearth-artifact-layout") === "list" ? "list" : "grid";
   let formatFilter = "all";
   let snapshot, selected, request, detailRequest, opener, liveBrowse, confirming = false;
+  const questions = createFileQuestions(api);
 
   function connection(info) {
     const { connected, box_error: error, settings } = info;
@@ -825,6 +827,10 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     if (!get("page-dialog").open) target?.focus();
   });
   get("artifact-try-again").addEventListener("click", () => show({ fromRetry: true }));
+  get("file-question-open").addEventListener("click", async () => {
+    if (!snapshot) await show();
+    questions.open(snapshot);
+  });
   get("artifact-refresh").addEventListener("click", show);
   search.addEventListener("input", render);
   kind.addEventListener("change", render);

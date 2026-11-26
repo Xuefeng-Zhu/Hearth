@@ -192,6 +192,9 @@
             <span id="artifact-connection-copy"></span>
             <a href="#settings/connections" id="artifact-connect">Open Connections</a>
           </div>
+          <button type="button" class="artifact-control file-question-launch" id="file-question-open">
+            <span data-icon="message"></span> Ask my files
+          </button>
           <div class="artifact-toolbar">
             <label class="artifact-search"><span data-icon="search"></span>
               <span class="visually-hidden">Search artifacts</span>
@@ -932,6 +935,38 @@
         <p id="artifact-detail-status" class="artifact-detail-status" role="status"></p>
       </header>
       <div class="artifact-drawer-body" id="artifact-detail-body"></div>
+    </div>
+  </dialog>
+  <dialog class="artifact-drawer file-question-dialog" id="file-question-dialog" aria-labelledby="file-question-title">
+    <div class="artifact-drawer-shell">
+      <header class="artifact-drawer-header">
+        <button type="button" class="artifact-icon-button" id="file-question-close" aria-label="Close Ask my files">
+          <span data-icon="x"></span>
+        </button>
+        <h2 id="file-question-title">Ask my files</h2>
+        <p class="meta file-question-provider">Answered by Hearth from your Box files</p>
+      </header>
+      <div class="artifact-drawer-body">
+        <form id="file-question-form" class="file-question-form">
+          <fieldset id="file-question-scope">
+            <legend>Which files should Hearth read?</legend>
+            <label class="file-question-choice"><input type="radio" name="file-scope" value="recent" checked> All recent</label>
+            <label class="file-question-choice"><input type="radio" name="file-scope" value="selected"> Select files</label>
+          </fieldset>
+          <div class="file-question-picker" id="file-question-picker" hidden>
+            <label for="file-question-search">Find a file</label>
+            <input type="search" id="file-question-search" maxlength="160">
+            <p class="meta" id="file-question-selection" role="status"></p>
+            <div class="file-question-list" id="file-question-list" role="group" aria-label="Box files"></div>
+          </div>
+          <p class="meta" id="file-question-limit">Up to 25 files</p>
+          <label for="file-question-input">Question</label>
+          <textarea id="file-question-input" rows="3" maxlength="1500" required placeholder="What do the files say about…"></textarea>
+          <button type="submit" class="artifact-control file-question-submit" id="file-question-submit">Ask Hearth</button>
+          <p class="meta" id="file-question-status" role="status"></p>
+        </form>
+        <section id="file-question-result" class="file-question-result" aria-labelledby="file-answer-title" hidden></section>
+      </div>
     </div>
   </dialog>
   <dialog id="skill-editor" class="skill-editor" aria-labelledby="skill-title">

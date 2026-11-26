@@ -4,6 +4,7 @@ import { createVoiceInput } from "./voice.js";
 import { callDuration, captionLine, createVoiceCall } from "./voice-call.js";
 import { createTimeline } from "./timeline.js";
 import { artifactFilterFromHash, createArtifacts, markdown } from "./artifacts.js";
+import { fileAnswerSources } from "./file-questions.js";
 import { channelChip, createReminders } from "./reminders.js";
 import { reconcileChildren } from "./dom.js";
 import { setupMobile } from "./mobile.js";
@@ -743,7 +744,8 @@ function messageBubble(role, content, { message, status, prompt, working, attach
   }
   const body = node("div", "message-body");
   if (skill) body.append(skillChip(skill));
-  const text = role === "assistant" && message?.id ? markdown(content, "chat-markdown") : node("p", "", content);
+  const text = message?.file_answer ? node("p", "file-answer-text", content)
+    : role === "assistant" && message?.id ? markdown(content, "chat-markdown") : node("p", "", content);
   const cards = node("div", "cards");
   const notices = node("div");
   notices.setAttribute("role", "status");
@@ -778,6 +780,7 @@ function messageBubble(role, content, { message, status, prompt, working, attach
     body.append(toggle);
   }
   body.append(cards);
+  if (message?.file_answer) body.append(fileAnswerSources(message.file_answer));
   if (message?.source === "voice-call" && role === "assistant") body.append(node("p", "meta", "Voice call"));
   if (message?.remembered?.length) {
     const sources = node("details", "remembered");
