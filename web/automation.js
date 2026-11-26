@@ -8,11 +8,18 @@ const marks = { send: "mail", spend: "clock", public: "share", destructive: "tra
 const statuses = {
   pending: "Needs approval", expired: "Expired", declined: "Declined", cancelled: "Stopped", changing: "Execution unconfirmed",
   complete: "Completed", sent: "Sent", simulated: "Simulated", failed: "Failed", request_unknown: "Outcome unconfirmed",
-  partial: "Partially applied", running: "Running", retrying: "Retry scheduled", approval_needed: "Needs approval",
+  partial: "Partially applied", skipped: "Skipped", queued: "Queued", rate_limited: "Hourly limit reached", running: "Running", retrying: "Retry scheduled", approval_needed: "Needs approval",
 };
 const delivery = [["app", "In app"], ["email", "Email"], ["both", "Both"]];
 const scheduleTypes = ["Once", "Daily", "Weekly", "Interval", "Cron"];
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const triggerTypes = [["email", "Incoming email"], ["reminder", "Reminder fires"],
+  ["feed", "Feed card appears"], ["schedule", "Schedule"]];
+const actionTypes = [["prompt", "Run a prompt"], ["save_attachments", "Save email attachments"],
+  ["reminder", "Create an in-app reminder"], ["email_summary", "Email the summary"], ["feed_card", "Add a Feed card"]];
+const feedKinds = { read: "Read", idea: "Idea", digest: "Digest", "reminder-context": "Reminder",
+  action: "Action", "memory-review": "Memory review", automation: "Automation" };
+const actionLabel = (type) => actionTypes.find(([key]) => type === key)?.[1] || type;
 const editLabels = { subject: "Subject", text: "Message", body: "Request body (JSON)" };
 
 function el(tag, className = "", content) {
@@ -106,7 +113,7 @@ function summary(title, glyph, status) {
   return head;
 }
 
-export function createAutomation({ api, refresh, openThread, undo }) {
+export function createAutomation({ api, refresh, openThread, openInbox, undo }) {
   const dialog = get("automation-dialog");
   let dialogTrigger;
   let activeTab = "reminders";
@@ -120,6 +127,7 @@ export function createAutomation({ api, refresh, openThread, undo }) {
 
   dialog.addEventListener("close", () => {
     if (dialogTrigger?.isConnected) dialogTrigger.focus();
+    else if (!get("settings-automations").hidden) get("new-event-automation").focus();
     else if (get("new-task").checkVisibility()) get("new-task").focus();
     dialogTrigger = undefined;
   });
@@ -143,6 +151,7 @@ export function createAutomation({ api, refresh, openThread, undo }) {
     try {
       const result = await api(`/api/approvals/${verb}`, { id: row.id, ...(changes ? { changes } : {}) });
       if (deleting?.id === row.id) deleting = result;
+      if (eventDeletion?.id === row.id) eventDeletion = result;
       if (dialog.open) dialog.close();
       if (card.isConnected) card.replaceWith(approvalCard(result, card.dataset.surface));
       await refresh();
@@ -190,11 +199,13 @@ export function createAutomation({ api, refresh, openThread, undo }) {
     const article = el("article", "card automation-approval");
     article.dataset.approvalId = row.id;
     article.dataset.surface = surface;
-    const confirmation = row.tool === "create_recurring_task";
+    const eventConfirmation = row.tool === "create_event_automation";
+    const taskConfirmation = row.tool === "create_recurring_task";
+    const confirmation = eventConfirmation || taskConfirmation;
     const status = row.status === "pending" && Date.parse(row.expires_at) <= Date.now() ? "expired" : row.status;
     const category = row.categories[0];
     article.append(summary(row.title, confirmation ? "clock" : marks[category] || "shield",
-      pill(status, status === "pending" && confirmation ? "Confirm schedule" : undefined)));
+      pill(status, status === "pending" && confirmation ? (eventConfirmation ? "Confirm automation" : "Confirm schedule") : undefined)));
     if (row.worker_title) article.append(el("p", "thread-source", `Worker · ${row.worker_title}`));
     const fields = el("dl", "automation-fields");
     if (row.email) {
@@ -204,6 +215,7 @@ export function createAutomation({ api, refresh, openThread, undo }) {
     } else if (!confirmation) {
       dataField(fields, "Target", row.target);
       if (row.categories.includes("spend")) dataField(fields, "Estimated cost", row.amount);
+      if (row.attachment_names?.length) dataField(fields, "Attachments", row.attachment_names.join("\n"));
       if (row.steps?.length) dataField(fields, "Steps", row.steps.map(({ action, target, text }) =>
         [action, target, text].filter(Boolean).join(" ")).join("\n"));
       if (row.request?.body != null) dataField(fields, "Request", JSON.stringify(row.request.body, null, 2));
@@ -214,7 +226,8 @@ export function createAutomation({ api, refresh, openThread, undo }) {
       details.append(el("summary", "", "Review proposed Markdown"), el("pre", "", row.args.markdown));
       article.append(details);
     }
-    if (confirmation) {
+    if (eventConfirmation) article.append(eventDetails(row.args, row.automation_context || eventData));
+    if (taskConfirmation) {
       article.append(el("p", "automation-instruction", row.args.instruction),
         el("p", "automation-label", "Upcoming runs"), times(row.upcoming, row.args.timezone));
     }
@@ -237,7 +250,7 @@ export function createAutomation({ api, refresh, openThread, undo }) {
       }
       controls.append(button("Decline", "x", () => decision(row, "decline", article).catch(() => {})));
     }
-    if (row.undo_task && !row.undone) controls.append(button("Undo", "history", () => undo(row)));
+    if ((row.undo_task || row.undo_automation) && !row.undone) controls.append(button("Undo", "history", () => undo(row)));
     if (row.effect_action && ["memory_write", "delete_memory"].includes(row.tool) && !row.effect_undone) {
       controls.append(button("Undo", "history", () => undo({ id: row.effect_action, memory_change: true })));
     }
@@ -325,23 +338,12 @@ export function createAutomation({ api, refresh, openThread, undo }) {
     return "One time";
   }
 
-  function editor(task, trigger) {
-    openDialog(task ? "Edit recurring task" : "New recurring task", trigger);
-    const form = el("form", "automation-editor");
-    const name = input("name", "text", task?.name || "", 80);
-    name.required = true;
-    const instruction = el("textarea");
-    instruction.name = "instruction";
-    instruction.value = task?.instruction || "";
-    instruction.maxLength = 4000;
-    instruction.required = true;
-    const zone = input("timezone", "text", task?.timezone || DEFAULT_TIME_ZONE, 80);
+  function scheduleEditor(schedule = {}, zoneName = DEFAULT_TIME_ZONE) {
+    const zone = input("timezone", "text", zoneName, 80);
     zone.required = true;
-    const type = select("type", scheduleTypes.map((type) => [type.toLowerCase(), type]), task?.schedule.type || "daily");
-    const channel = select("delivery", delivery, task?.delivery || "app");
+    const type = select("type", scheduleTypes.map((type) => [type.toLowerCase(), type]), schedule.type || "daily");
     const fields = el("div", "automation-editor-fields");
     const dynamic = el("div", "automation-schedule-fields");
-    const schedule = task?.schedule || {};
     const at = input("at", "datetime-local", dateInput(schedule.at, zone.value));
     const time = input("time", "time", schedule.time || "08:00");
     const minutes = input("minutes", "number", schedule.minutes || 60);
@@ -357,6 +359,43 @@ export function createAutomation({ api, refresh, openThread, undo }) {
       days.append(label(day, checkbox));
       return checkbox;
     });
+    function showFields() {
+      const mode = type.value;
+      const [text, field] = { once: ["Date and time", at], daily: ["Local time", time], weekly: ["Local time", time],
+        interval: ["Minutes between runs", minutes], cron: ["Five-field cron", cron] }[mode];
+      field.required = true;
+      dynamic.replaceChildren(label(text, field));
+      if (mode === "weekly") dynamic.append(days);
+    }
+    type.addEventListener("change", showFields);
+    showFields();
+    fields.append(label("Schedule", type), label("Time zone", zone), dynamic);
+    return { fields, value() {
+      const mode = type.value;
+      const details = {
+        once: { at: at.value }, daily: { time: time.value },
+        weekly: { time: time.value, days: toggles.flatMap((item, index) => item.checked ? [index] : []) },
+        interval: { minutes: Number(minutes.value) }, cron: { cron: cron.value },
+      }[mode];
+      if (mode === "once" && schedule.at && at.value === dateInput(schedule.at, zoneName) && zone.value === zoneName) {
+        details.at = schedule.at;
+      }
+      return { timezone: zone.value, schedule: { type: mode, ...details } };
+    } };
+  }
+
+  function editor(task, trigger) {
+    openDialog(task ? "Edit recurring task" : "New recurring task", trigger);
+    const form = el("form", "automation-editor");
+    const name = input("name", "text", task?.name || "", 80);
+    name.required = true;
+    const instruction = el("textarea");
+    instruction.name = "instruction";
+    instruction.value = task?.instruction || "";
+    instruction.maxLength = 4000;
+    instruction.required = true;
+    const scheduleUI = scheduleEditor(task?.schedule, task?.timezone);
+    const channel = select("delivery", delivery, task?.delivery || "app");
     const enabled = input("enabled", "checkbox", "true");
     enabled.checked = task?.enabled ?? true;
     const preview = el("div", "automation-preview");
@@ -367,40 +406,21 @@ export function createAutomation({ api, refresh, openThread, undo }) {
     submit.type = "submit";
     controls.append(submit);
     let reviewed = false;
-    function showFields() {
-      const mode = type.value;
-      const [text, field] = { once: ["Date and time", at], daily: ["Local time", time], weekly: ["Local time", time],
-        interval: ["Minutes between runs", minutes], cron: ["Five-field cron", cron] }[mode];
-      field.required = true;
-      dynamic.replaceChildren(label(text, field));
-      if (mode === "weekly") dynamic.append(days);
-    }
     form.addEventListener("input", () => {
       reviewed = false;
       preview.replaceChildren();
       feedback.textContent = "";
       submit.textContent = "Preview schedule";
     });
-    type.addEventListener("change", showFields);
-    showFields();
-    fields.append(label("Schedule", type), label("Time zone", zone), dynamic, label("Delivery", channel));
-    form.append(label("Name", name), label("Instruction", instruction), fields, label("Enabled", enabled, "automation-enabled"),
+    scheduleUI.fields.append(label("Delivery", channel));
+    form.append(label("Name", name), label("Instruction", instruction), scheduleUI.fields, label("Enabled", enabled, "automation-enabled"),
       preview, controls, feedback);
     dialog.append(form);
     name.focus();
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const mode = type.value;
-      const details = {
-        once: { at: at.value }, daily: { time: time.value },
-        weekly: { time: time.value, days: toggles.flatMap((item, index) => item.checked ? [index] : []) },
-        interval: { minutes: Number(minutes.value) }, cron: { cron: cron.value },
-      }[mode];
-      if (mode === "once" && schedule.at && at.value === dateInput(schedule.at, task.timezone) && zone.value === task.timezone) {
-        details.at = schedule.at;
-      }
       const data = { ...(task ? { id: task.id } : {}), name: name.value, instruction: instruction.value,
-        timezone: zone.value, enabled: enabled.checked, delivery: channel.value, schedule: { type: mode, ...details } };
+        enabled: enabled.checked, delivery: channel.value, ...scheduleUI.value() };
       submit.disabled = true;
       try {
         if (!reviewed) {
@@ -422,6 +442,288 @@ export function createAutomation({ api, refresh, openThread, undo }) {
       }
     });
   }
+
+  const eventList = get("event-automation-list");
+  const eventStatus = get("event-automation-status");
+  let eventData;
+  let eventSignature;
+  let eventDeletion;
+  let eventRequest = 0;
+
+  function eventDetails(rule, data = eventData) {
+    const { trigger, actions } = rule;
+    const fields = el("dl", "automation-fields");
+    let when = triggerTypes.find(([key]) => key === trigger.type)?.[1];
+    if (trigger.type === "email") {
+      const filters = [trigger.sender, trigger.subject && `Subject contains “${trigger.subject}”`,
+        trigger.attachment && "Has attachment"].filter(Boolean);
+      when = filters.length ? filters.join(" · ") : "Any incoming email";
+    } else if (trigger.type === "feed") {
+      when += [trigger.kind && feedKinds[trigger.kind], trigger.topic].filter(Boolean).map((value) => ` · ${value}`).join("");
+    } else if (trigger.type === "reminder" && trigger.job_id) {
+      when = data?.reminders.find(({ id }) => id === trigger.job_id)?.message || `Reminder ${trigger.job_id}`;
+    } else if (trigger.type === "schedule") {
+      when = trigger.schedule.type === "once" ? date(trigger.schedule.at, trigger.timezone)
+        : `${scheduleText(trigger.schedule)} · ${trigger.timezone}`;
+    }
+    dataField(fields, "When", when);
+    dataField(fields, "Then", actions.map((action) => {
+      const target = action.thread_id === "new" ? "New side chat" : action.thread_id === "main" ? "Main chat"
+        : data?.threads.find(({ id }) => id === action.thread_id)?.title || action.thread_id;
+      const detail = {
+        prompt: `${target} · ${action.prompt}`,
+        save_attachments: action.destination === "box" ? "Box" : "Artifacts",
+        reminder: `${action.message} · ${action.delay_minutes} min after this action starts`,
+        feed_card: action.title && `${action.title} · ${action.topic}`,
+        email_summary: "Reminder address",
+      }[action.type];
+      return [actionLabel(action.type), detail].filter(Boolean).join(" · ");
+    }).join("\n"));
+    return fields;
+  }
+
+  function eventEditor(rule, trigger) {
+    openDialog(rule ? "Edit automation" : "New automation", trigger);
+    const form = el("form", "automation-editor event-automation-editor");
+    const name = input("name", "text", rule?.name || "", 80);
+    name.required = true;
+    const when = select("when", triggerTypes, rule?.trigger.type || "email");
+    const options = el("div", "event-trigger-fields");
+    const actionList = el("div", "event-action-fields");
+    const actionReaders = new Map();
+    const availableActions = () => actionTypes.filter(([key]) => key !== "save_attachments" || when.value === "email");
+    let readTrigger;
+
+    function field(host, labelText, key, value, { type = "text", required = false, limit, min, max } = {}) {
+      const control = type === "textarea" ? el("textarea") : input(key, type, value ?? "", limit);
+      if (type === "textarea") {
+        control.name = key;
+        control.value = value ?? "";
+        control.maxLength = limit;
+      }
+      if (type === "checkbox") control.checked = !!value;
+      if (type === "number") { control.min = min; control.max = max; }
+      control.required = required;
+      host.append(label(labelText, control, type === "checkbox" ? "event-checkbox" : ""));
+      return control;
+    }
+    function choose(host, caption, key, values, value) {
+      const control = select(key, values, value);
+      host.append(label(caption, control));
+      return control;
+    }
+    function displayTrigger(value = {}) {
+      const type = when.value;
+      options.replaceChildren();
+      if (type === "email") {
+        const sender = field(options, "From address (optional)", "sender", value.sender, { type: "email", limit: 254 });
+        const subject = field(options, "Subject contains (optional)", "subject", value.subject, { limit: 240 });
+        const attachment = field(options, "Require an attachment", "attachment", value.attachment, { type: "checkbox" });
+        readTrigger = () => ({ type, sender: sender.value.trim(), subject: subject.value.trim(), attachment: attachment.checked });
+      } else if (type === "reminder") {
+        const choices = [["", "Any reminder"], ...eventData.reminders.map(({ id, message }) => [id, message])];
+        if (value.job_id && !choices.some(([id]) => id === value.job_id)) choices.push([value.job_id, "Original reminder"]);
+        const job = choose(options, "Reminder", "job", choices, value.job_id || "");
+        readTrigger = () => ({ type, job_id: job.value });
+      } else if (type === "feed") {
+        const kind = choose(options, "Card kind", "kind",
+          [["", "Any kind"], ...eventData.feed_kinds.map((key) => [key, feedKinds[key]])], value.kind || "");
+        const topic = field(options, "Topic (optional)", "topic", value.topic, { limit: 60 });
+        readTrigger = () => ({ type, kind: kind.value, topic: topic.value.trim() });
+      } else {
+        const schedule = scheduleEditor(value.schedule, value.timezone || eventData.timezone);
+        options.append(schedule.fields);
+        readTrigger = () => ({ type, ...schedule.value() });
+      }
+    }
+    function addAction(value = { type: "prompt" }) {
+      const group = el("fieldset", "event-action");
+      const heading = el("legend", "", `Action ${actionReaders.size + 1}`);
+      const selectType = select("action", availableActions(), value.type);
+      const controls = el("div", "event-action-options");
+      const remove = button("Remove action", "x", () => {
+        actionReaders.delete(group);
+        group.remove();
+        updateActions();
+        add.focus();
+      });
+      function show(selection = {}) {
+        const type = selectType.value;
+        controls.replaceChildren();
+        let read = () => ({ type });
+        if (type === "prompt") {
+          const threads = [["new", "New side chat"], ...eventData.threads.map(({ id, title }) => [id, title])];
+          if (selection.thread_id && !threads.some(([id]) => id === selection.thread_id)) {
+            threads.push([selection.thread_id, "Original chat"]);
+          }
+          const thread = choose(controls, "Chat", "thread", threads, selection.thread_id || "new");
+          const prompt = field(controls, "Prompt", "prompt", selection.prompt, { type: "textarea", limit: 4000, required: true });
+          read = () => ({ type, thread_id: thread.value, prompt: prompt.value });
+        } else if (type === "save_attachments") {
+          const target = choose(controls, "Save to", "destination", [["artifacts", "Artifacts"], ["box", "Box"]], selection.destination || "artifacts");
+          read = () => ({ type, destination: target.value });
+        } else if (type === "reminder") {
+          const message = field(controls, "Reminder text", "message", selection.message, { required: true, limit: 800 });
+          const delay = field(controls, "Minutes after the run reaches this action", "delay", selection.delay_minutes ?? 1440,
+            { type: "number", required: true, min: 1, max: 525600 });
+          read = () => ({ type, message: message.value, delay_minutes: delay.valueAsNumber });
+        } else if (type === "feed_card") {
+          const title = field(controls, "Card title", "title", selection.title, { limit: 120, required: true });
+          const topic = field(controls, "Topic", "topic", selection.topic, { limit: 60, required: true });
+          read = () => ({ type, title: title.value, topic: topic.value });
+        } else if (type === "email_summary") {
+          controls.append(el("p", "meta", "Uses the address in Settings → Reminders."));
+        }
+        actionReaders.set(group, { read, heading, remove, selectType });
+      }
+      selectType.addEventListener("change", () => show());
+      group.append(heading, label("Action type", selectType), controls, remove);
+      actionList.append(group);
+      show(value);
+      updateActions();
+      return selectType;
+    }
+    function updateActions() {
+      const size = actionReaders.size;
+      add.disabled = size >= 6;
+      for (const [index, item] of [...actionReaders.values()].entries()) {
+        item.heading.textContent = `Action ${index + 1}`;
+        item.remove.hidden = size <= 1;
+      }
+    }
+    const add = button("Add action", "plus", () => addAction().focus());
+    const submit = el("button", "primary-setting automation-button", "Save automation");
+    submit.type = "submit";
+    const feedback = el("p", "meta");
+    feedback.setAttribute("role", "status");
+    when.addEventListener("change", () => {
+      displayTrigger();
+      for (const { selectType } of actionReaders.values()) {
+        const hasAttachments = [...selectType.options].some(({ value }) => value === "save_attachments");
+        if (when.value === "email" && !hasAttachments) {
+          const option = el("option", "", actionLabel("save_attachments"));
+          option.value = "save_attachments";
+          selectType.append(option);
+        } else if (hasAttachments) {
+          const changed = selectType.value === "save_attachments";
+          if (when.value !== "email") selectType.querySelector('[value="save_attachments"]').remove();
+          if (changed && when.value !== "email") {
+            selectType.value = "prompt";
+            selectType.dispatchEvent(new Event("change"));
+          }
+        }
+      }
+    });
+    displayTrigger(rule?.trigger);
+    for (const action of rule?.actions || [{ type: "prompt" }]) addAction(action);
+    form.append(label("Name", name), label("When", when), options, actionList, add, submit, feedback);
+    dialog.append(form);
+    name.focus();
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      submit.disabled = true;
+      try {
+        await api(`/api/event-automations/${rule ? "update" : "create"}`, {
+          ...(rule ? { id: rule.id } : {}), name: name.value, trigger: readTrigger(),
+          actions: [...actionReaders.values()].map(({ read }) => read()),
+        });
+        dialog.close();
+        eventStatus.textContent = "Automation saved.";
+        await eventSettings();
+      } catch (error) {
+        feedback.textContent = error.message;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  }
+
+  function eventCard(rule, expanded) {
+    const card = el("article", "card automation-approval event-automation-card");
+    const controls = el("div", "automation-controls");
+    const last = rule.runs[0];
+    const toggle = button(rule.enabled ? "Pause" : "Enable", rule.enabled ? "pause" : "play",
+      (event) => eventAction(rule, "update", event.currentTarget, { enabled: !rule.enabled }));
+    toggle.setAttribute("aria-label", `${toggle.textContent} ${rule.name}`);
+    controls.append(toggle, button("Edit", "edit", (event) => eventEditor(rule, event.currentTarget)),
+      button("Delete", "trash", (event) => eventAction(rule, "delete", event.currentTarget)));
+    card.append(summary(rule.name, "clock", pill(rule.enabled ? "complete" : "changing", rule.enabled ? "Enabled" : "Paused")),
+      eventDetails(rule));
+    const state = el("p", "event-last-run");
+    state.append(el("strong", "", "Last run "), last ? pill(last.status) : el("span", "meta", "No runs yet"));
+    if (last) state.append(el("span", "meta", date(last.at)));
+    card.append(state);
+    if (rule.next_at) card.append(el("p", "meta", `Next run ${date(rule.next_at, rule.trigger.timezone)}`));
+    card.append(controls);
+    const history = el("details", "event-run-history");
+    history.dataset.automationHistory = rule.id;
+    history.open = expanded.has(rule.id);
+    history.append(el("summary", "", "Run history"));
+    const list = el("ul", "event-run-list");
+    for (const run of rule.runs) {
+      const item = el("li");
+      item.append(el("span", "meta", date(run.at)), pill(run.status));
+      if (run.steps.length) {
+        const steps = el("ol");
+        for (const step of run.steps) {
+          const detail = step.message || step.error || statuses[step.status] || step.status;
+          steps.append(el("li", "", `${actionLabel(step.type)} · ${detail}`));
+        }
+        item.append(steps);
+      }
+      if (run.thread_id !== "main") item.append(button("Open chat", "message", () => openThread(run.thread_id)));
+      if (run.status === "approval_needed") {
+        item.append(button("Open Inbox approvals", "shield", openInbox));
+      }
+      list.append(item);
+    }
+    history.append(rule.runs.length ? list : el("p", "meta", "No runs yet."));
+    card.append(history);
+    return card;
+  }
+
+  async function eventAction(rule, operation, control, extra = {}) {
+    control.disabled = true;
+    try {
+      const result = await api(`/api/event-automations/${operation}`, { id: rule.id, ...extra });
+      if (operation === "delete") {
+        eventDeletion = result.action;
+        get("event-automation-approval").replaceChildren(approvalCard(eventDeletion, "automations"));
+        get("event-automation-approval").querySelector("button")?.focus();
+      }
+      eventStatus.textContent = operation === "update" ? (result.enabled ? "Automation enabled." : "Automation paused.") : "";
+      await eventSettings();
+    } catch (error) {
+      eventStatus.textContent = error.message;
+    } finally {
+      control.disabled = false;
+    }
+  }
+
+  async function eventSettings() {
+    const request = ++eventRequest;
+    try {
+      const data = await api("/api/event-automations");
+      if (get("settings-automations").hidden || request !== eventRequest) return;
+      eventData = data;
+      get("new-event-automation").disabled = false;
+      if (eventDeletion?.undo_automation && !eventDeletion.undone &&
+          data.automations.some(({ id }) => id === eventDeletion.undo_automation)) {
+        eventDeletion = { ...eventDeletion, undone: true };
+        get("event-automation-approval").replaceChildren(approvalCard(eventDeletion, "automations"));
+      }
+      const signature = JSON.stringify([data.automations, data.reminders]);
+      if (eventSignature === signature) return;
+      eventSignature = signature;
+      const expanded = new Set([...eventList.querySelectorAll("details[open]")].map((row) => row.dataset.automationHistory));
+      eventList.replaceChildren(...data.automations.map((row) => eventCard(row, expanded)));
+      if (!data.automations.length) eventList.append(el("p", "meta", "No automations yet."));
+    } catch (error) {
+      eventStatus.textContent = error.message;
+    }
+  }
+
+  get("new-event-automation").addEventListener("click", (event) => eventEditor(null, event.currentTarget));
 
   function taskDetail(task) {
     const article = el("article", "card automation-task-detail");
@@ -543,5 +845,5 @@ export function createAutomation({ api, refresh, openThread, undo }) {
     return chooseTab("tasks");
   }
 
-  return { approvalCard, home, inbox, settings, loadTasks, openTask, openReminders: () => chooseTab("reminders"), tasksActive: () => activeTab === "tasks" };
+  return { approvalCard, home, inbox, settings, eventSettings, loadTasks, openTask, openReminders: () => chooseTab("reminders"), tasksActive: () => activeTab === "tasks" };
 }

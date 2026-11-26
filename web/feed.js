@@ -4,7 +4,7 @@ import { timeFormatter } from "./time.js";
 const kinds = {
   read: ["Read", "book"], idea: ["Idea", "sparkle"], digest: ["Digest", "list"],
   "reminder-context": ["Reminder", "bell"], action: ["Action", "check"],
-  "memory-review": ["Memory", "book"],
+  "memory-review": ["Memory", "book"], automation: ["Automation", "clock"],
 };
 
 function element(tag, className, text) {

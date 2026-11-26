@@ -44,6 +44,7 @@ const settingsGroups = [
     ["reminders", "Reminders", "Delivery and forwarded mail", "bell"],
     ["feed", "Feed", "Topics and steering", "sparkle"],
     ["proactivity", "Action suggestions", "Quiet hours and email digests", "bell"],
+    ["automations", "Automations", "When events trigger actions", "clock"],
     ["approvals", "Approvals", "When Hearth asks first", "shield"],
   ]],
   ["App", [
@@ -138,7 +139,7 @@ const artifactLibrary = createArtifacts({
   onFilter: selectArtifactFilter,
 });
 const automation = createAutomation({
-  api, refresh: refreshView, undo, openThread: async (thread) => {
+  api, refresh: refreshView, undo, openInbox: () => openView("inbox"), openThread: async (thread) => {
     activateThread(thread);
     await openView("chat");
   },
@@ -2257,6 +2258,7 @@ async function openSettings(section, target) {
   if (section === "feed") return feed.settings();
   if (section === "proactivity") return proactivity.settings();
   if (section === "approvals") return automation.settings();
+  if (section === "automations") return automation.eventSettings();
   if (section === "reminders") return delivery.settings();
   if (section === "voice") {
     syncVoiceSettings();
@@ -2345,6 +2347,7 @@ async function refreshView() {
   if (view === "artifacts") return artifactLibrary.show();
   if (view === "reminders") return automation.tasksActive() ? automation.loadTasks() : delivery.reminders();
   if (view === "inbox") return delivery.inbox();
+  if (isSetting("automations")) return automation.eventSettings();
   if (!await refreshState()) return;
   if (view === "chat") renderChat();
   else if (view === "memory") await renderMemory();
@@ -2719,13 +2722,14 @@ async function approve(action) {
 }
 
 async function undo(action, { confirmed = false, timelineTitle, redo = false } = {}) {
-  if (action.job || action.inbox_id || action.undo_task) {
+  if (action.job || action.inbox_id || action.undo_task || action.undo_automation || action.automation_id) {
     if (busy) return;
     setBusy(true);
     try {
       await api(action.inbox_id ? "/api/inbox/undo" : "/api/undo", { id: action.inbox_id || action.id });
       await refreshView();
-      showNotice(action.inbox_id ? "Email acceptance undone." : action.undo_task ? "Task restored." : "Reminder canceled.");
+      showNotice(action.inbox_id ? "Email acceptance undone." : action.undo_task ? "Task restored."
+        : action.undo_automation ? "Automation restored." : action.automation_id ? "Run changes undone." : "Reminder canceled.");
     } catch (error) {
       showNotice(error.message);
     } finally {
@@ -3153,7 +3157,7 @@ let polling = false;
 window.addEventListener("offline", renderWorkspaceStatus);
 window.addEventListener("online", renderWorkspaceStatus);
 setInterval(async () => {
-  if ((!byId("workspace-drawer").open && !isSetting("connections") && !["chat", "reminders", "home", "inbox"].includes(view))
+  if ((!byId("workspace-drawer").open && !isSetting("connections") && !isSetting("automations") && !["chat", "reminders", "home", "inbox"].includes(view))
       || busy || threadBusy || document.hidden || polling) return;
   polling = true;
   try {

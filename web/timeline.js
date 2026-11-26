@@ -17,7 +17,7 @@ const kinds = {
   skill: ["Skill", "skill"],
   worker: ["Worker", "workers"],
   undo: ["Undo", "retry"], inbox: ["Inbox", "inbox"], email: ["Email", "mail"],
-  approval: ["Approval", "shield"], task: ["Recurring task", "clock"], proactivity: ["Proactivity", "sparkle"],
+  approval: ["Approval", "shield"], task: ["Recurring task", "clock"], automation: ["Automation", "clock"], proactivity: ["Proactivity", "sparkle"],
   panel: ["Home panel", "home"], checkpoint: ["Checkpoint", "history"], thread: ["Side chat", "message"], tool: ["Tool", "wrench"],
 };
 kinds.remember = kinds.memory;
@@ -83,7 +83,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["approval", "task", "proactivity", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill", "worker"]
+    action: ["approval", "task", "automation", "proactivity", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill", "worker"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -113,6 +113,9 @@ function detailFields(row, gatewayResponse) {
     ["Version", data.page_version && `v${data.page_version}`],
     ["Change", row.kind === "page" && data.note],
     ["Category", row.kind === "proactivity" && data.category],
+    ["Trigger", row.kind === "automation" && { email: "Incoming email", feed: "Feed card",
+      reminder: "Reminder fired", schedule: "Schedule" }[data.trigger]],
+    ["Actions", row.kind === "automation" && join(data.steps?.map((step) => step.message || step.error || step.status))],
     ["Session ID", data.session_id],
     ["Browse time", Number.isInteger(data.duration_ms) ? `${(data.duration_ms / 1000).toFixed(2)} s` : ""],
     ["Mode", row.kind === "browse" && data.mock && "Mock"],
@@ -330,13 +333,15 @@ export function createTimeline({ api, approve, undo, gatewayResults, isBusy, onF
     const button = card.querySelector(".timeline-undo");
     button.setAttribute("aria-expanded", String(!target.hidden));
     if (!target.hidden && !target.firstElementChild) {
-      const itemChange = ["artifact", "inbox", "reminder", "page", "skill"].includes(row.kind) || action.memory_change || action.undo_task;
+      const itemChange = ["artifact", "automation", "inbox", "reminder", "page", "skill"].includes(row.kind) || action.memory_change || action.undo_task || action.undo_automation;
       const message = row.redoable ? "Apply this memory change again?"
         : row.kind === "page" ? "Undo this page change?"
         : row.kind === "skill" ? "Undo this skill change?"
         : row.kind === "artifact" ? "Undo this artifact change?"
           : row.kind === "inbox" ? "Undo the changes from this email?"
           : row.kind === "reminder" ? "Cancel this reminder?"
+            : row.kind === "automation" ? "Remove this run’s Feed cards and cancel any remaining reminders?"
+            : row.data.undo_automation ? "Restore this automation?"
             : row.data.undo_task ? "Restore this recurring task?"
           : action.memory_change ? "Undo this memory change?"
             : "Restore this checkpoint? Newer chats, notes, and reminders will roll back. Delivered email stays delivered.";
