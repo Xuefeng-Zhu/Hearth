@@ -58,6 +58,10 @@ def clean_message(row):
     return {**row, "content": clean(row["content"])}
 
 
+def record_id(thread_id, position, row):
+    return row.get("id") or f"{thread_id}:{position}"
+
+
 class Threads:
     """Thread files and their index are read and changed under Storage.lock()."""
 
@@ -134,6 +138,42 @@ class Threads:
                 rows = list(messages if limit is None else deque(messages, maxlen=limit))
         return [clean_message(row) for row in rows]
 
+    def search_records(self, thread_id):
+        path = self.path(thread_id)
+        if path.is_file():
+            with path.open("rb") as stream:
+                offset = 0
+                for line in stream:
+                    yield offset, json.loads(line)
+                    offset += len(line)
+        elif thread_id == MAIN:
+            yield from enumerate(self.storage.load().get("messages", ()), 1)
+
+    def page_around(self, thread_id, state, message_id):
+        """Find a message's record and use the usual cursor to read its window."""
+        path = self.path(thread_id)
+        half = TRANSCRIPT_SIZE // 2
+        if not path.is_file():
+            rows = state.get("messages", []) if thread_id == MAIN else []
+            for index, row in enumerate(rows):
+                if record_id(thread_id, index + 1, row) == message_id:
+                    end = index + half
+                    before = f"l:{end}" if end < len(rows) else None
+                    return (*self.page(thread_id, state, before), bool(before))
+            return None
+        with path.open("rb") as stream:
+            newer = deque(maxlen=half)
+            for offset, raw in reverse_lines(stream, stream.seek(0, 2)):
+                row = json.loads(raw)
+                if record_id(thread_id, offset, row) == message_id:
+                    before = None
+                    if len(newer) == half:
+                        boundary, line = newer[0]
+                        before = f"{boundary}:{sha256(line).hexdigest()[:16]}"
+                    return (*self.page(thread_id, state, before), bool(before))
+                newer.append((offset, raw))
+        return None
+
     def page(self, thread_id, state, before=None):
         """Page by a validated record boundary that stays valid after appends."""
         path = self.path(thread_id)
@@ -151,7 +191,8 @@ class Threads:
             if start and rows[start]["role"] != "user":
                 earlier = reversed(rows[max(0, start - TRANSCRIPT_SIZE):start])
                 prompt = next((row for row in earlier if row["role"] == "user"), None)
-            return ([clean_message({"id": f"{thread_id}:{i + 1}", **rows[i]}) for i in range(start, end)],
+            return ([clean_message({**row, "id": record_id(thread_id, i, row)})
+                     for i, row in enumerate(rows[start:end], start + 1)],
                     f"l:{start}" if start else None, clean_message(prompt) if prompt else None)
         with path.open("rb") as stream:
             end = stream.seek(0, 2)
@@ -176,8 +217,11 @@ class Threads:
                 if json.loads(line)["role"] != "user":
                     candidates = (json.loads(raw) for _, raw in islice(chain([earlier], lines), TRANSCRIPT_SIZE))
                     prompt = next((row for row in candidates if row["role"] == "user"), None)
-        return ([clean_message({"id": f"{thread_id}:{offset}", **json.loads(line)})
-                 for offset, line in reversed(records)], older, clean_message(prompt) if prompt else None)
+        messages = []
+        for offset, line in reversed(records):
+            row = json.loads(line)
+            messages.append(clean_message({**row, "id": record_id(thread_id, offset, row)}))
+        return messages, older, clean_message(prompt) if prompt else None
 
     def last_reply(self, thread_id, legacy=()):
         """Read the newest assistant ID without loading every thread's history."""
@@ -249,7 +293,8 @@ class Threads:
             previous = path.read_text(encoding="utf-8")
         else:
             legacy = self.storage.load() if thread_id == MAIN else {}
-            previous = "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in legacy.get("messages", []))
+            previous = "".join(json.dumps({**item, "id": record_id(thread_id, index, item)}, ensure_ascii=False) + "\n"
+                               for index, item in enumerate(legacy.get("messages", ()), 1))
         self.storage.bump_revision(threads=True)
         atomic_write(path, previous + json.dumps(message, ensure_ascii=False) + "\n")
         if legacy is not None and "messages" in legacy:

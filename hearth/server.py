@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 from . import approvals, artifacts, box, browserbase, event_automations, feed, home, inbox, memory, memory_edits, memory_purge, memory_review, page_policy, pages, proactivity, proactive_context, recall, reminders, router, scheduler, search, skills, tasks, timeline, uploads, voice, voice_call, workers
 from . import file_questions, goals, ideas, self_update
 from .agent import Agent, require_text
+from .chat_search import ChatSearch
 from .checkpoints import LocalCheckpoints, RestoreInProgress, SpriteCheckpoints
 from .connections import Connections, catalog_entry, validate_pool
 from .connectors import Gateway, read_config
@@ -112,6 +113,8 @@ STATIC = {
     "/avatar.js": ("avatar.js", "text/javascript; charset=utf-8"),
     "/avatar-state.js": ("avatar-state.js", "text/javascript; charset=utf-8"),
     "/chat-state.js": ("chat-state.js", "text/javascript; charset=utf-8"),
+    "/chat-search.js": ("chat-search.js", "text/javascript; charset=utf-8"),
+    "/chat-search.css": ("chat-search.css", "text/css; charset=utf-8"),
     "/self-update.js": ("self-update.js", "text/javascript; charset=utf-8"),
     "/self-update.css": ("self-update.css", "text/css; charset=utf-8"),
     "/sse.js": ("sse.js", "text/javascript; charset=utf-8"),
@@ -142,6 +145,7 @@ class Application:
         self.self_updates = self_update.SelfUpdates(self)
         self.subsystem_status = SubsystemStatus()
         self.threads = Threads(storage)
+        self.chat_search = ChatSearch(self.threads)
         self.checkpoints = checkpoints
         self.gateway = gateway or Gateway()
         self.connections = Connections(
@@ -464,9 +468,9 @@ class Application:
                 self.restore, bool(self.memory_index.hf_entry(self.agent.config)),
                 voice_call.PROVIDER in self.connections.selected)
 
-    def state_poll(self, thread_id, action_id):
-        return self.state_cache.get((thread_id, action_id), self.state_signature,
-                                    lambda now: self.state_snapshot(thread_id, action_id, now))
+    def state_poll(self, thread_id, action_id, around=None):
+        return self.state_cache.get((thread_id, action_id, around), self.state_signature,
+                                    lambda now: self.state_snapshot(thread_id, action_id, now, around=around))
 
     def home_poll(self):
         def build(now):
@@ -478,7 +482,7 @@ class Application:
     def info(self, thread_id=MAIN):
         return self.state_snapshot(thread_id, None, datetime.now(timezone.utc))[0]
 
-    def state_snapshot(self, thread_id, action_id, now):
+    def state_snapshot(self, thread_id, action_id, now, *, around=None):
         active = self.active_turns()
         with self.storage.lock():
             state = self.storage.load()
@@ -487,7 +491,8 @@ class Application:
             threads, following = self.threads.sidebar(index, active, state.get("messages", ()), selected=selected)
             if approvals.expire(state, now):
                 self.storage.save(state)
-            transcript = self.transcript(state, selected, extra_action=action_id, include_recent=True)
+            transcript = self.transcript(state, selected, extra_action=action_id, include_recent=True,
+                                         around=around if selected == thread_id else None)
             thread_revision = self.sidebar_revision()
         sending = {item["thread_id"] for item in scheduler.email_records(state)
                    if item.get("delivery", {}).get("email", {}).get("sending")}
@@ -513,8 +518,13 @@ class Application:
             self.threads.require(thread_id)
             return self.transcript(self.storage.load(), thread_id, before)
 
-    def transcript(self, state, thread_id, before=None, *, extra_action=None, include_recent=False):
-        messages, cursor, prompt = self.threads.page(thread_id, state, before)
+    def transcript(self, state, thread_id, before=None, *, extra_action=None, include_recent=False, around=None):
+        window = self.threads.page_around(thread_id, state, around) if around else None
+        if window:
+            messages, cursor, prompt, has_newer = window
+        else:
+            messages, cursor, prompt = self.threads.page(thread_id, state, before)
+            has_newer = False
         message_ids = {row["id"] for row in messages}
         turn_ids = message_ids | {row["worker_turn_id"] for row in messages if row.get("worker_turn_id")}
         worker_rows = [row for row in state.get("workers", {}).values() if row["thread_id"] == thread_id
@@ -543,6 +553,7 @@ class Application:
             actions.append(action)
         uploads_from = [*messages, prompt] if prompt else messages
         return {"thread_id": thread_id, "messages": messages, "before": cursor, "actions": actions,
+                **({"around": around} if has_newer else {}),
                 "self_updates": self_update.in_transcript(state, messages, thread_id),
                 "workers": worker_rows, "history_revision": self.history_revision(),
                 "record_revision": sha256(repr(revision(self.storage.state)).encode()).hexdigest()[:24],
@@ -959,8 +970,17 @@ class Handler(BaseHTTPRequestHandler):
     def get_state(self, request):
         query = request.query
         thread_id = query.get("thread", [MAIN])[0]
-        data, etag = self.app.state_poll(thread_id, query.get("action", [None])[0])
+        around = query.get("around", [None])[0]
+        if around is not None and len(around) > 128:
+            raise HearthError("Choose a valid chat message.")
+        data, etag = self.app.state_poll(thread_id, query.get("action", [None])[0], around)
         self.json(data, etag=etag)
+
+    def get_chat_search(self, request):
+        query = request.query
+        self.json(self.app.chat_search.search(query.get("q", [""])[0], query.get("thread", [None])[0],
+                                            query.get("limit", ["50"])[0], query.get("before", [None])[0],
+                                            self.app.history_revision))
 
     def get_transcript(self, request):
         query = request.query
@@ -1227,7 +1247,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Sec-Fetch-Site") not in (None, "none", "same-origin") or (
             origin is not None and not self.same_origin(origin)
         ):
-            message = "Open Timeline from Hearth." if self.command == "GET" else "Send this request from Hearth."
+            message = "Open this view from Hearth." if self.command == "GET" else "Send this request from Hearth."
             raise RequestError(message, 403)
 
     def require_ready(self):

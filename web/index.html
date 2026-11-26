@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="/workers.css">
   <link rel="stylesheet" href="/memory.css">
   <link rel="stylesheet" href="/combobox.css">
+  <link rel="stylesheet" href="/chat-search.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -134,7 +135,14 @@
               <option value="beside">Beside chat</option>
               <option value="face">Full screen</option>
             </select>
+            <button type="button" id="open-chat-search" class="chat-search-icon" title="Search chats"
+              aria-label="Search chats" aria-haspopup="dialog" aria-expanded="false" aria-controls="chat-search-dialog"
+              aria-keyshortcuts="Meta+K Control+K /"><span data-icon="search"></span></button>
           </header>
+          <div class="chat-find" id="chat-find" hidden></div>
+          <div class="chat-history-navigation" id="chat-history-navigation" hidden>
+            <button type="button" id="chat-latest"><span data-icon="arrow-down" data-icon-size="16"></span> Back to latest</button>
+          </div>
           <section class="face-stage" id="face-stage" aria-label="Face to face" hidden>
             <div class="face-portrait" id="avatar-portrait"></div>
             <h3 id="avatar-name">Ember</h3>
@@ -894,6 +902,38 @@
     <div class="message-menu-actions">
       <button type="button" id="reset-thread-summary" disabled>Reset summary</button>
     </div>
+  </dialog>
+  <dialog id="chat-search-dialog" class="chat-search-dialog" aria-labelledby="chat-search-title" hidden>
+    <section id="chat-search" role="search" aria-labelledby="chat-search-title">
+      <div class="chat-search-heading">
+        <h2 id="chat-search-title">Search chats</h2>
+        <button type="button" id="close-chat-search" class="chat-search-icon" aria-label="Close search"
+          title="Close search"><span data-icon="x"></span></button>
+      </div>
+      <div class="chat-search-modes" role="group" aria-label="Search scope">
+        <button type="button" id="search-all-chats" aria-pressed="true">All chats</button>
+        <button type="button" id="search-this-chat" aria-pressed="false">This chat</button>
+      </div>
+      <div class="chat-search-field">
+        <label class="visually-hidden" for="chat-search-query">Search messages</label>
+        <span data-icon="search" data-icon-size="18"></span>
+        <input type="search" id="chat-search-query" placeholder="Search messages…" maxlength="400"
+          autocomplete="off" spellcheck="false">
+        <button type="button" id="clear-chat-search" class="chat-search-icon" aria-label="Clear search"
+          title="Clear search" hidden><span data-icon="x" data-icon-size="16"></span></button>
+      </div>
+      <div class="chat-find-controls" id="chat-find-controls" hidden>
+        <button type="button" id="chat-find-up" class="chat-search-icon" aria-label="Previous match"
+          title="Previous match"><span data-icon="arrow-up" data-icon-size="18"></span></button>
+        <button type="button" id="chat-find-down" class="chat-search-icon" aria-label="Next match"
+          title="Next match"><span data-icon="arrow-down" data-icon-size="18"></span></button>
+      </div>
+      <p id="chat-search-status" class="chat-search-status" role="status"></p>
+      <div id="chat-search-results" class="chat-search-results" role="listbox" aria-label="Matching messages" hidden></div>
+      <div class="chat-search-footer" id="chat-search-footer" hidden>
+        <button type="button" id="chat-search-more">Show more</button>
+      </div>
+    </section>
   </dialog>
   <div id="chat-toast" class="chat-toast" role="status" hidden></div>
   <dialog id="message-menu" class="message-menu" aria-labelledby="message-menu-title">

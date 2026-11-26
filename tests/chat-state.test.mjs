@@ -101,6 +101,19 @@ test("streaming, stopping, and late snapshots stay isolated across a thread swit
   assert.deepEqual(f.view().local, []);
 });
 
+test("an addressed transcript window drops pages from the old window and the latest viewport drops archive pages", () => {
+  const f = fixture(), first = user("first"), hit = user("hit"), latest = user("latest");
+  f.poll([hit, latest], { before: "live" });
+  f.apply({ type: "page", page: snapshot([first]), cursor: "live" });
+  f.poll([hit], { around: hit.id, before: "archive" });
+  assert.deepEqual(f.view().transcript.messages, [hit]);
+  f.apply({ type: "page", page: snapshot([first]), cursor: "archive" });
+  f.poll([hit], { around: hit.id, before: "archive" });
+  assert.deepEqual(f.view().transcript.messages, [first, hit]);
+  f.poll([hit, latest]);
+  assert.deepEqual(f.view().transcript.messages, [hit, latest]);
+});
+
 test("paged rows merge by ID and refresh without losing history as the latest window moves", () => {
   const f = fixture();
   const first = user("u1"), second = user("u2"), third = user("u3"), fourth = user("u4");

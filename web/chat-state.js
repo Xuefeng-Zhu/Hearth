@@ -35,7 +35,8 @@ function mergeTranscript(pages, snapshot) {
 }
 
 function advancePages(state, next) {
-  if (!state.pages.length || next.history_revision !== state.snapshot.history_revision) return [];
+  if (!state.pages.length || next.history_revision !== state.snapshot.history_revision ||
+      next.around !== state.snapshot.around) return [];
   const oldest = next.messages[0]?.id;
   const overlap = state.snapshot.messages.findIndex((message) => message.id === oldest);
   if (overlap < 0) return [];

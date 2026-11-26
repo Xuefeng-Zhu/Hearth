@@ -10,6 +10,7 @@ import { reconcileChildren } from "./dom.js";
 import { setupMobile } from "./mobile.js";
 import { createThreadMenu } from "./thread-menu.js";
 import { setupSearchableSelects } from "./combobox.js";
+import { createChatSearch } from "./chat-search.js";
 import { createAttachments } from "./attachments.js";
 import { icon, iconButton, mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
@@ -114,12 +115,20 @@ let stateTag;
 let stateVariant;
 let olderRequest;
 let historyRefresh;
+let aroundMessage;
+let windowRequest;
+let searchHit;
+let searchHitTimer;
 let sidebarRequest;
 let sidebarTail = [];
 let homeCache;
 let homeSequence = 0;
 let homeActive = false;
 let view = "home";
+const chatSearch = createChatSearch({
+  api, thread: () => currentThread, jump: openChatSearchResult, reveal: revealChatSearchResult,
+  prepareFind: () => { if (avatarMode === "face") chooseAvatarMode("beside"); },
+});
 let memoryFindRequest = 0;
 let busy = false;
 let connectionState;
@@ -1062,7 +1071,7 @@ function markSeenReplies() {
   let changed = false;
   for (const thread of threadList) {
     const canRead = view === "chat" && !document.hidden && !byId("workspace-drawer").open
-      && state.thread_id === thread.id && currentThread === thread.id;
+      && !aroundMessage && state.thread_id === thread.id && currentThread === thread.id;
     if ((!seenReplies.has(thread.id) || canRead) && seenReplies.get(thread.id) !== thread.last_reply) {
       seenReplies.set(thread.id, thread.last_reply);
       changed = true;
@@ -1254,7 +1263,8 @@ function updateConversation(update) {
 
 function renderChat(force = false, preserveScroll = false) {
   renderThreads();
-  const { transcript: history, local } = conversationView(conversation);
+  const { transcript: history, local: pending } = conversationView(conversation);
+  const local = conversation.snapshot?.around ? [] : pending;
   const actions = new Map((history.actions || []).map((action) => [action.id, action]));
   const proposals = new Map((history.self_updates || []).map((proposal) => [proposal.id, proposal]));
   const messages = history.messages || [];
@@ -1325,6 +1335,7 @@ function renderChat(force = false, preserveScroll = false) {
       }
     }
     nextRows.set(message.id, row);
+    if (searchHit === message.id) row.item.classList.add("chat-search-hit");
     rows.push(row.item);
     if (workers.has(message.id) && !localPrompts.has(message.id) && !savedBatches.has(message.id)) {
       const activity = messageBubble("assistant", "");
@@ -1513,20 +1524,24 @@ async function refreshVisibleHistory() {
   }
 }
 
-async function refreshState(actionId, { background } = {}) {
+async function refreshState(actionId, { background, signal, around = aroundMessage } = {}) {
+  if (background && windowRequest) return false;
   const request = ++stateRequest;
   const thread = currentThread;
   const params = new URLSearchParams({ thread });
   if (actionId) params.set("action", actionId);
+  if (around) params.set("around", around);
   const variant = params.toString();
   const headers = conversation.snapshot && stateTag && stateVariant === variant ? { "If-None-Match": stateTag } : {};
   const load = async () => {
+    const timeout = AbortSignal.timeout(6000);
     const response = await fetch(`/api/state?${variant}`, {
-      headers, signal: AbortSignal.timeout(6000),
+      headers, signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
     return [response, response.status === 304 ? null : await readResponse(response)];
   };
   const [response, next] = await (view === "chat" ? trackRefresh("/api/state", background, load) : load());
+  if (signal?.aborted) return false;
   if (response.status === 304) {
     const current = request === stateRequest && thread === currentThread;
     if (current) {
@@ -1544,7 +1559,10 @@ async function refreshState(actionId, { background } = {}) {
     avatarStates.delete(deleted);
     updateConversation({ type: "delete-thread", threadId: deleted });
   }
-  if (conversation.snapshot?.history_revision !== next.history_revision) olderRequest = undefined;
+  if (conversation.snapshot?.history_revision !== next.history_revision ||
+      conversation.snapshot?.around !== next.around) olderRequest = undefined;
+  aroundMessage = next.around;
+  byId("chat-history-navigation").hidden = !aroundMessage;
   state = next;
   updateConversation({ type: "snapshot", snapshot: next });
   setTimeZone(state.timezone);
@@ -2699,7 +2717,10 @@ async function openView(nextView, updateHistory = true, section, target) {
   if (nextView !== previousView) threadActions.close({ restoreFocus: false });
   if (previousView === "home" && nextView !== "home") homePage.closeAdd({ restoreFocus: false });
   if (nextView !== previousView) showNotice();
-  if (nextView !== "chat") voice.cancel();
+  if (nextView !== "chat") {
+    chatSearch.close({ restoreFocus: false });
+    voice.cancel();
+  }
   if (updateHistory) {
     const hash = nextView === "settings" ? settingsHash(section) : nextView === "artifacts" ? artifactHash()
       : nextView === "skills" ? skillHash() : "";
@@ -2760,6 +2781,9 @@ function activateThread(threadId) {
   voice.cancel();
   threadDrafts.set(currentThread, input.value);
   currentThread = threadId;
+  aroundMessage = undefined;
+  byId("chat-history-navigation").hidden = true;
+  clearChatSearchHit();
   selectionVersion++;
   stateRequest++;
   updateConversation({ type: "select", threadId });
@@ -2773,9 +2797,11 @@ function activateThread(threadId) {
   resizeInput();
   renderChat(true);
   scrollDown();
+  chatSearch.threadChanged();
 }
 
 async function selectThread(threadId, focus = false) {
+  if (threadId === currentThread && aroundMessage) aroundMessage = undefined;
   activateThread(threadId);
   if (focus && mobile.isMobile()) mobile.closeDrawer();
   showNotice();
@@ -2846,6 +2872,14 @@ async function openArtifactThread(threadId, messageId) {
   activateThread(threadId);
   await openView("chat");
   const version = selectionVersion;
+  if (aroundMessage && threadId === currentThread && !chatRows.has(messageId)) {
+    try {
+      await latestChatMessages();
+    } catch (error) {
+      showNotice(error.message);
+      return;
+    }
+  }
   let message = chatRows.get(messageId)?.item;
   while (!message && threadId === currentThread && view === "chat" && version === selectionVersion &&
       await loadOlderMessages()) {
@@ -2859,6 +2893,59 @@ async function openArtifactThread(threadId, messageId) {
   } else if (threadId !== currentThread) {
     showNotice("The source chat is no longer available.");
   }
+}
+
+async function openChatSearchResult({ thread_id: thread, id }, signal) {
+  signal.throwIfAborted();
+  if (avatarMode === "face") chooseAvatarMode("beside");
+  activateThread(thread);
+  if (!chatRows.has(id)) {
+    try {
+      if (await refreshChatWindow(id, signal)) renderChat(true, true);
+    } finally {
+      if (view === "chat" && currentThread === thread && !conversation.snapshot) schedulePoll(true);
+    }
+  }
+  const item = chatRows.get(id)?.item;
+  if (!item || signal.aborted || currentThread !== thread || view !== "chat") throw new Error("Message unavailable.");
+  return item;
+}
+
+async function refreshChatWindow(around, signal) {
+  const request = {};
+  windowRequest = request;
+  try {
+    return await refreshState(undefined, { around, signal });
+  } finally {
+    if (windowRequest === request) windowRequest = undefined;
+  }
+}
+
+function clearChatSearchHit() {
+  clearTimeout(searchHitTimer);
+  chatRows.get(searchHit)?.item.classList.remove("chat-search-hit");
+  searchHit = undefined;
+}
+
+function revealChatSearchResult(item, { focus } = {}) {
+  clearChatSearchHit();
+  searchHit = item.dataset.messageId;
+  item.classList.add("chat-search-hit");
+  if (focus) {
+    item.tabIndex = -1;
+    item.focus({ preventScroll: true });
+  }
+  item.scrollIntoView({ block: "center", behavior: "instant" });
+  searchHitTimer = setTimeout(clearChatSearchHit, 3200);
+}
+
+async function latestChatMessages() {
+  if (!aroundMessage) return true;
+  if (!await refreshChatWindow(null)) return false;
+  clearChatSearchHit();
+  renderChat(true);
+  scrollDown();
+  return true;
 }
 
 async function changeThread(operation, body = {}) {
@@ -2980,6 +3067,14 @@ async function chat(prompt, { keepDraft = false, approval, suggestion, threadId 
   if (!attachments || (!prompt && !approval && !suggestion && !attachments.length)) return;
   voice.cancel();
   const source = approval?.thread_id || threadId;
+  if (source === currentThread && aroundMessage) {
+    try {
+      if (!await latestChatMessages() || source !== currentThread) return;
+    } catch (error) {
+      showNotice(error.message);
+      return;
+    }
+  }
   const command = !attachments.length && source === mainThread.id && /^\/(side|btw)(?:\s|$)/i.test(prompt);
   const key = Symbol();
   updateConversation({ type: "begin", key, source, turn: {
@@ -3234,6 +3329,7 @@ byId("voice-settings-form").addEventListener("submit", (event) => {
 });
 document.addEventListener("keydown", (event) => {
   if (voiceCall.open) return;
+  if (chatSearch.shortcut(event, view === "chat" && !document.querySelector("dialog[open]:not(#chat-search-dialog)"))) return;
   if (event.key === "Escape" && voice.active) {
     event.preventDefault();
     voice.cancel();
@@ -3271,6 +3367,13 @@ byId("voice-cancel").addEventListener("click", () => {
   byId("mic").focus({ preventScroll: true });
 });
 byId("thread-select").addEventListener("change", (event) => selectThread(event.target.value));
+byId("chat-latest").addEventListener("click", async () => {
+  try {
+    if (await latestChatMessages()) byId("thread-title").focus({ preventScroll: true });
+  } catch (error) {
+    showNotice(error.message);
+  }
+});
 byId("new-thread").addEventListener("click", () => changeThread("create"));
 function renameThread(thread) {
   if (!thread || busy || threadBusy) return;

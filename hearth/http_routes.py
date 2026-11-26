@@ -32,6 +32,7 @@ GET = {
     "/api/status": Route("get_status", during_restore=True),
     "/api/state": Route("get_state", during_restore=True),
     "/api/transcript": Route("get_transcript"),
+    "/api/chat/search": Route("get_chat_search", origin=True),
     "/api/threads": Route("get_threads"),
     "/api/threads/summary": Route("get_threads_summary"),
     "/api/home": Route("get_home", during_restore=True),
