@@ -1043,7 +1043,19 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 .artifact-card-links { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-1) var(--control-gap); margin-top: var(--space-2); }
 .artifact-thread, .artifact-text-button { font-size: 12px; }
 .artifact-thread { margin-inline-end: auto; overflow-wrap: anywhere; }
-.artifact-text-button { border: 0; background: transparent; color: var(--accent); padding: 1px 0; text-decoration: underline; text-underline-offset: 3px; }
+.artifact-text-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding-inline: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.artifact-text-button:hover { background: var(--accent-light); }
 .artifact-empty { padding: var(--space-10) var(--card-padding); text-align: center; background: var(--artifact-empty-bg); border: 1px dashed var(--artifact-empty-border); border-radius: var(--radius-card); }
 .artifact-empty h3 { margin: var(--space-3) 0 var(--space-2); font: 500 25px Georgia, serif; }
 .artifact-empty p { margin: 0; color: var(--muted); font-size: 14px; }

@@ -147,6 +147,7 @@
   padding: .55rem .7rem;
   overflow-wrap: anywhere;
 }
+.automation-task-selector > .line-icon { grid-row: span 2; }
 .automation-task-selector small { grid-column: 2; }
 .automation-task-detail { min-width: 0; }
 .automation-task-controls { margin-block: .65rem; }

@@ -28,6 +28,7 @@
   padding: var(--space-2);
   font-weight: 650;
 }
+.memory-tab:has(> small) > .line-icon, .memory-list-item > .line-icon { grid-row: span 2; }
 .memory-tab small, .memory-list-item small { grid-column: 2; color: var(--secondary-text); font-weight: 400; }
 #memory-view :is(.memory-tab, .memory-list-item):hover { border-color: var(--focus); }
 #memory-view .memory-tab[aria-selected="true"], #memory-view .memory-list-item[aria-pressed="true"] {
