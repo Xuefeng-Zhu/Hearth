@@ -86,7 +86,7 @@ def verify(page, origin, width, theme, output, app):
 
     page.reload(wait_until="domcontentloaded")
     expect(section.get_by_role("article")).to_have_count(1)
-    section.get_by_role("article", name=BIRTHDAY).get_by_role("button", name="Do it").click()
+    section.get_by_role("article", name=BIRTHDAY).get_by_role("button", name="Prepare a gift message").click()
     expect(page.get_by_role("heading", name="Chat", level=1)).to_be_visible()
     approval = page.locator(".automation-approval").filter(has_text="Send this email")
     expect(approval.get_by_text("Needs approval")).to_be_visible()

@@ -37,7 +37,7 @@
         <button type="button" class="nav-link" data-view="skills"><span data-icon="skill"></span> Skills</button>
       </nav>
       <nav class="workspace-settings" aria-label="Preferences">
-        <p class="workspace-status" role="status" hidden><span class="dot" aria-hidden="true"></span><span data-workspace-status></span></p>
+        <p class="workspace-status" role="status" hidden><span class="dot" aria-hidden="true"></span><span data-workspace-status></span><a href="#settings/connections" data-connection-warning hidden>Check connections</a></p>
         <button type="button" class="nav-link" data-view="settings"><span data-icon="settings"></span> Settings</button>
       </nav>
     </aside>
@@ -56,7 +56,9 @@
       <section class="view home-view" id="home-view" aria-labelledby="view-title">
         <div class="home-inner">
           <div class="home-heading">
-            <p class="home-date" id="home-date"></p>
+            <div class="home-date" id="home-date">
+              <time id="home-date-full"></time><time id="home-date-compact"></time>
+            </div>
             <button type="button" class="home-edit" id="home-edit" aria-pressed="false" disabled>
               <span data-icon="grid" data-icon-size="17"></span><span id="home-edit-label">Edit layout</span>
             </button>
@@ -764,7 +766,7 @@
       <div id="mobile-thread-panel"></div>
     </div>
     <nav class="workspace-settings" aria-label="Preferences">
-      <p class="workspace-status" role="status" hidden><span class="dot" aria-hidden="true"></span><span data-workspace-status></span></p>
+      <p class="workspace-status" role="status" hidden><span class="dot" aria-hidden="true"></span><span data-workspace-status></span><a href="#settings/connections" data-connection-warning hidden>Check connections</a></p>
       <button type="button" class="nav-link" data-view="settings"><span data-icon="settings"></span> Settings</button>
     </nav>
   </dialog>

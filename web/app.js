@@ -603,13 +603,6 @@ function messageToolbar(message, content, prompt) {
     stamp.title = date(message.at);
     footer.append(stamp);
   }
-  if (message.routing) {
-    const route = message.routing;
-    const model = shortModel(route);
-    const label = node("span", "", model);
-    label.title = route.model || model;
-    footer.append(label);
-  }
   toolbar.append(actions, footer);
   return toolbar;
 }
@@ -752,17 +745,13 @@ function messageBubble(role, content, { message, status, prompt, working, attach
   if (message?.source === "voice-call" && role === "assistant") body.append(node("p", "meta", "Voice call"));
   if (message?.remembered?.length) {
     const sources = node("details", "remembered");
-    const best = message.remembered[0];
-    const via = memoryNames[best.backend];
-    const detail = via ? ` · via ${via}${Number.isFinite(best.score) ? ` · ${best.score.toFixed(3)}` : ""}` : "";
-    const summary = node("summary", "", `Remembered · ${message.remembered.length}${detail}`);
+    const count = message.remembered.length;
+    const summary = node("summary", "", `${count} memory ${count === 1 ? "source" : "sources"}`);
     const sourceThread = currentThread;
     summary.addEventListener("click", () => avatarSignal(sourceThread, { type: "remembered" }));
     sources.append(summary);
-    sources.append(...message.remembered.map((hit) => {
-      const caption = Number.isFinite(hit.score) ? ` · ${hit.score.toFixed(3)}` : "";
-      return button(memoryLabel(hit) + caption, () => openMemorySource(hit));
-    }));
+    sources.append(...message.remembered.map((hit) =>
+      button(memoryLabel(hit), () => openMemorySource(hit))));
     body.append(sources);
   }
   if (attachments.length) body.append(artifactLibrary.attachmentCards(attachments));
@@ -913,7 +902,6 @@ function actionCard(action) {
   if (action.detail) card.append(node("p", "", action.detail));
   if (action.kind === "skill" && (action.undoable ?? !action.undone)) card.append(button("Undo", () => undo(action)));
   if (action.checkpoint) {
-    card.append(node("p", "meta", `Checkpoint ${action.checkpoint.id}`));
     if (action.kind !== "gateway" && (action.kind !== "email" || action.mocked)) card.append(button("Undo", () => undo(action)));
   }
   for (const item of card.querySelectorAll("button")) item.disabled = busy;
@@ -1239,12 +1227,15 @@ function renderBrain({ model, model_id: id }) {
 }
 
 function renderWorkspaceStatus() {
-  const connectorError = view === "home" ? homeConnectorError : workspaceConnectorError;
-  const status = !navigator.onLine ? "Offline" : connectorError ? "Connector error"
-    : workspaceModel === "mock" ? "Mock mode" : "";
+  const connectorError = workspaceConnectorError || (view === "home" && homeConnectorError);
+  const showWarning = navigator.onLine && connectorError;
+  const status = !navigator.onLine ? "Offline" : !showWarning && workspaceModel === "mock" ? "Mock mode" : "";
   for (const label of workspaceStatusLabels) {
-    label.textContent = status;
-    label.parentElement.hidden = !status;
+    const container = label.parentElement;
+    updateText(label, status);
+    label.hidden = !status;
+    container.querySelector("[data-connection-warning]").hidden = !showWarning;
+    container.hidden = !status && !showWarning;
   }
 }
 
@@ -2760,7 +2751,7 @@ async function undo(action, { confirmed = false, timelineTitle, redo = false } =
       if (!state.actions.some((item) => item.id === action.id && item.checkpoint?.id === action.checkpoint.id)) {
         timeline.restored(action, timelineTitle);
         await refreshView();
-        showNotice(`Restored checkpoint ${action.checkpoint.id}.`);
+        showNotice("Workspace restored.");
         return;
       }
     }
@@ -3043,6 +3034,12 @@ input.addEventListener("keydown", (event) => {
 });
 for (const prompt of document.querySelectorAll("[data-prompt]")) {
   prompt.addEventListener("click", () => chat(prompt.dataset.prompt));
+}
+for (const link of document.querySelectorAll("[data-connection-warning]")) {
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    openConnections();
+  });
 }
 for (const item of nav) {
   item.addEventListener("click", () => openView(item.dataset.view));

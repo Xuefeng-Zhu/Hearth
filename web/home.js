@@ -109,7 +109,7 @@ export function createHome({ api, openView, openWeatherSettings, openConnections
   let dragged;
   let hovered;
   let signature;
-  let dayFormat, timeFormat, dateTimeFormat, compactDateTime, dateKey;
+  let dayFormat, shortDayFormat, timeFormat, dateTimeFormat, compactDateTime, dateKey;
   const pending = new Set();
 
   const titleFor = (id) => builtIns[id]?.title || snapshot.panels[id]?.title;
@@ -130,6 +130,9 @@ export function createHome({ api, openView, openWeatherSettings, openConnections
       }
       signature = next;
       dayFormat = new Intl.DateTimeFormat(undefined, { ...calendar, timeZone: data.timezone });
+      shortDayFormat = new Intl.DateTimeFormat(undefined, {
+        weekday: "short", month: "short", day: "numeric", timeZone: data.timezone,
+      });
       timeFormat = new Intl.DateTimeFormat(undefined, { ...standardTime, timeZone: data.timezone });
       dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: data.timezone });
       compactDateTime = new Intl.DateTimeFormat(undefined, {
@@ -207,7 +210,7 @@ export function createHome({ api, openView, openWeatherSettings, openConnections
       body.append(labelCount(data.count, "event today", "events today"));
       if (data.errors) {
         const link = node("a", "home-link home-error",
-          `${data.errors} actionable ${data.errors === 1 ? "error" : "errors"} today`);
+          `${data.errors} ${data.errors === 1 ? "error" : "errors"} today`);
         link.href = "#timeline/errors";
         body.append(link);
       }
@@ -283,7 +286,11 @@ export function createHome({ api, openView, openWeatherSettings, openConnections
   function updateClocks() {
     if (!snapshot || section.hidden) return;
     const now = new Date();
-    get("home-date").textContent = dayFormat.format(now);
+    for (const [id, format] of [["home-date-full", dayFormat], ["home-date-compact", shortDayFormat]]) {
+      const day = get(id);
+      day.textContent = format.format(now);
+      day.dateTime = dateKey.format(now);
+    }
     const clock = get("home-clock");
     if (clock) {
       clock.textContent = new Intl.DateTimeFormat(undefined, { ...standardTime, timeZone: snapshot.clock_zone }).format(now);

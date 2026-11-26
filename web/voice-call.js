@@ -2,7 +2,7 @@ import { setPose } from "./avatar.js";
 
 const byId = (id) => document.getElementById(id);
 const preferencesKey = "hearth-voice-call";
-const demoLabel = "Demo call — Vocal Bridge not connected";
+const demoLabel = "Sample conversation";
 const defaultPreferences = { language: "auto", minutes: 10, autoSave: true };
 
 function readPreferences() {
@@ -87,7 +87,7 @@ export function createVoiceCall({ api, getThread, isConfigured, prepare, makeMas
     if (!active(call) || call.startedAt !== undefined) return;
     clearTimeout(call.connectTimer);
     call.startedAt = performance.now();
-    phase.textContent = "Live";
+    phase.textContent = call.demo ? "Demo call" : "Live";
     clock.hidden = byId("call-caption-panel").hidden = false;
     mute.hidden = minimize.hidden = false;
     end.textContent = "End call";

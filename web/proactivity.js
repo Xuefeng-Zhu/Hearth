@@ -1,5 +1,3 @@
-import { icon } from "./icons.js";
-
 const urgency = { soon: "Time-sensitive", upcoming: "Upcoming", low: "Flexible" };
 const kinds = {
   gifts: "Gifts & birthdays", travel: "Travel & bookings", events: "Events & hosting",
@@ -96,13 +94,11 @@ export function createProactivity({ api, runSuggestion }) {
       button("1 week", "suggestion-secondary", () => update("snooze", 7)),
     );
     actions.append(
-      button("Do it", "suggestion-primary", () => update("do")),
+      button(row.action_label || "Start in chat", "suggestion-primary", () => update("do")),
       snooze,
       button("Dismiss", "suggestion-secondary", () => update("dismiss")),
     );
-    const offer = node("p", "suggestion-offer");
-    offer.append(icon(row.urgency === "soon" ? "clock" : "sparkle", 15), node("span", "", row.action_label));
-    article.append(badges, title, node("p", "suggestion-why", row.why), offer, actions, choices,
+    article.append(badges, title, node("p", "suggestion-why", row.why), actions, choices,
       button("Not interested in this kind", "suggestion-mute", () => update("block")));
     return article;
   }

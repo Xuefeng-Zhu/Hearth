@@ -24,12 +24,13 @@ nav { display: grid; gap: 5px; }
 .sidebar .workspace-settings { margin-top: auto; }
 .workspace-status { display: flex; align-items: center; gap: 7px; margin: 0; padding: 4px 12px; color: var(--muted); font-size: 12px; }
 .workspace-status .dot { flex: none; background: currentColor; }
+.workspace-status a { color: var(--accent); text-underline-offset: 3px; }
 main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .header { flex: none; display: flex; align-items: center; padding: 0 30px; min-height: 67px; border-bottom: 1px solid var(--border); }
 .header h1 { font-size: 16px; margin: 0; font-weight: 650; }
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--connection-dot); }
-.notice { flex: none; margin: 10px auto 0; padding: 8px 14px; border-radius: 8px; background: var(--accent-light); color: var(--notice-text); max-width: calc(100% - 28px); font-size: 14px; }
+.notice { flex: none; margin: 10px auto 0; padding: 8px 14px; border-radius: 8px; background: var(--accent-light); color: var(--notice-text); max-width: calc(100% - 28px); font-size: 14px; overflow-wrap: anywhere; }
 .connection-guidance { color: inherit; text-underline-offset: 2px; }
 .view { flex: 1; min-height: 0; }
 .chat-view { display: grid; grid-template-columns: minmax(165px, 214px) minmax(0, 1fr); }
@@ -1170,8 +1171,6 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
   line-height: 1.2;
 }
 .message-route time { flex: none; }
-.message-route span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.message-route time + span::before { content: ""; display: inline-block; width: 3px; height: 3px; margin: 0 5px 2px 0; border-radius: 50%; background: currentColor; }
 .message-menu {
   position: fixed;
   width: min(330px, calc(100% - 24px));

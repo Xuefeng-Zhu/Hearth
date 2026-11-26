@@ -25,6 +25,8 @@
   letter-spacing: -.055em;
 }
 
+#home-date-compact { display: none; }
+
 .home-edit {
   display: inline-flex;
   flex: none;
@@ -412,18 +414,6 @@
   font-size: .84rem;
   line-height: 1.48;
 }
-.suggestion-offer {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  margin: auto 0 12px;
-  padding-top: 9px;
-  border-top: 1px solid var(--artifact-border);
-  color: var(--text);
-  font-size: .81rem;
-  line-height: 1.35;
-}
-.suggestion-offer svg { flex: none; color: var(--accent); }
 .suggestion-actions, .suggestion-snooze {
   display: flex;
   flex-wrap: wrap;
@@ -459,6 +449,9 @@
   .suggestion-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {
+  .home-date { font-size: clamp(22px, 6vw, 29px); }
+  #home-date-full { display: none; }
+  #home-date-compact { display: inline; }
   .suggestion-grid { grid-template-columns: minmax(0, 1fr); }
   .suggestion-primary, .suggestion-secondary { min-height: 44px; }
   .suggestion-mute { min-height: 40px; }
