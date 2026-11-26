@@ -11,9 +11,9 @@ function node(tag, className, text) {
   return item;
 }
 
-export function fileAnswerSources(result, { showSource = true } = {}) {
+export function fileAnswerSources(result) {
   const details = node("div", "file-answer-sources");
-  if (showSource && result.source) details.append(node("p", "meta", result.source));
+  if (result.source) details.append(node("p", "meta", result.source));
   const citations = (result.citations || []).filter((item) => boxLink.test(item.box_url));
   if (citations.length) {
     const list = node("ul", "file-citation-list");
@@ -112,7 +112,7 @@ export function createFileQuestions(api) {
         question.focus();
       });
       result.append(title, node("p", "meta file-answer-question", body.question),
-        node("p", "file-answer-text", answer.answer), fileAnswerSources(answer, { showSource: false }), edit);
+        node("p", "file-answer-text", answer.answer), fileAnswerSources(answer), edit);
       form.hidden = true;
       result.hidden = false;
       status.textContent = "";
