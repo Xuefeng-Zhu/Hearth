@@ -74,6 +74,12 @@ class AutomationTest(unittest.TestCase):
             try:
                 self.assertTrue(started.wait(5))
                 self.assertEqual(approvals.decide(self.agent, row["id"], "approve")["status"], "changing")
+                timeline = self.app.timeline_info()["entries"]
+                decision = next(entry for entry in timeline if entry["title"].startswith("Approved · "))
+                self.assertEqual(decision["data"]["status"], "authorized")
+                self.assertFalse(decision.get("error"))
+                action = next(entry for entry in timeline if entry.get("action_id") == row["id"])
+                self.assertEqual(action["data"]["status"], "changing")
             finally:
                 release.set()
                 thread.join(5)

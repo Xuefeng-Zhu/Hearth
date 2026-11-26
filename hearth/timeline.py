@@ -149,8 +149,7 @@ def entries(storage, threads, can_undo, *, pinecone=None, mail_connected=False):
         activity = state.get("activity", [])
         artifacts = state.get("artifacts", {})
         undo_artifacts = state.get("artifact_undo", {})
-        activity = [{**event, "undoable": artifacts.get(undo["id"], {}).get("revision") == undo["revision"]}
-                    if (undo := undo_artifacts.get(event["id"])) else event for event in activity]
+        activity = [event_view(event, artifacts, undo_artifacts) for event in activity]
         recall_messages = {event.get("message_id") for event in activity if event["kind"] == "recall"}
         thread_list = threads.list()
         titles = {thread["id"]: thread["title"] for thread in thread_list}
@@ -216,6 +215,16 @@ def entries(storage, threads, can_undo, *, pinecone=None, mail_connected=False):
         if pinecone is not None:
             actionable(rows, state, pinecone, mail_connected)
     return [{**row, "thread_title": titles.get(row["thread_id"], row["thread_title"])} for row in rows]
+
+
+def event_view(event, artifacts, undo_artifacts):
+    if undo := undo_artifacts.get(event["id"]):
+        return {**event, "undoable": artifacts.get(undo["id"], {}).get("revision") == undo["revision"]}
+    data = event.get("data", {})
+    if event["kind"] == "approval" and data.get("approval_id") and data.get("status") == "changing":
+        # The decision records permission at the moment execution starts. The action row records the outcome.
+        return {**event, "data": {**data, "status": "authorized"}}
+    return event
 
 
 class ActivityStream:
