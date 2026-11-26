@@ -113,6 +113,28 @@ def write_json(path, value):
     atomic_write(path, json.dumps(value, ensure_ascii=False))
 
 
+def scrub_summary(file, rules, replacements):
+    try:
+        before = json.loads(file.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return
+    except ValueError:
+        file.unlink(missing_ok=True)
+        return
+    if not isinstance(before, dict) or not isinstance(before.get("text"), str):
+        file.unlink(missing_ok=True)
+        return
+    after = dict(before)
+    if memory.matches_rule(before["text"], rules):
+        after["text"] = ""
+    for key in ("cursor", "reset_after"):
+        cursor = before.get(key)
+        if isinstance(cursor, str) and cursor in replacements:
+            after[key] = replacements[cursor]
+    if after != before:
+        write_json(file, after)
+
+
 def scrub_workspace(live, rules, message_id=None):
     root = live / "memory"
     removed = 0
@@ -129,12 +151,22 @@ def scrub_workspace(live, rules, message_id=None):
             file.unlink()
         else:
             atomic_write(file, after)
-    for file in (live / "threads").glob("*.jsonl"):
+    thread_root = live / "threads"
+    replacements = {}
+    for file in thread_root.glob("*.jsonl"):
         rows = [json.loads(line) for line in file.read_text(encoding="utf-8").splitlines()]
         clean, ids = scrub_messages(rows, rules, message_id)
         if ids:
             atomic_write(file, "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in clean))
-    thread_index = live / "threads" / "index.json"
+            predecessor = None
+            for row in rows:
+                if row.get("id") in ids:
+                    replacements.setdefault(file.stem, {})[row.get("id")] = predecessor
+                elif row["role"] != "call":
+                    predecessor = row.get("id")
+    for file in thread_root.glob("*/summary.json"):
+        scrub_summary(file, rules, replacements.get(file.parent.name, {}))
+    thread_index = thread_root / "index.json"
     if thread_index.is_file():
         data = json.loads(thread_index.read_text(encoding="utf-8"))
         cleaned = scrub_value(data, rules)

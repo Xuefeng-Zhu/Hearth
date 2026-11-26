@@ -25,7 +25,8 @@ FOLDERS = ("root", "people", "locations", "topics", "projects", "daily")
 OLD_FOLDERS = {"root", "people", "topics", "daily"}
 DEFAULTS = {
     "backend": "auto", "model": next(iter(MODELS)), "top_k": 8, "min_similarity": 0.55,
-    "include_chat": False, "auto_remember": "off", "include": list(FOLDERS), "exclude": [],
+    "include_chat": False, "summarize_long_chats": True, "auto_remember": "off",
+    "include": list(FOLDERS), "exclude": [],
 }
 BACKENDS = ("pinecone", "local", "huggingface", "keyword")
 KINDS = ("fact", "preference", "person", "event", "artifact", "transcript")
@@ -44,7 +45,7 @@ def settings(values):
     if (result["backend"] not in ("auto", *BACKENDS) or result["model"] not in tuple(MODELS)
             or type(result["top_k"]) is not int or not 1 <= result["top_k"] <= 20
             or type(result["min_similarity"]) not in (int, float) or not 0 <= result["min_similarity"] <= 1
-            or type(result["include_chat"]) is not bool
+            or type(result["include_chat"]) is not bool or type(result["summarize_long_chats"]) is not bool
             or result["auto_remember"] not in ("off", "ask", "automatic")):
         raise HearthError("Choose a memory backend, model, top-k from 1–20, and similarity from 0–1.")
     for field in ("include", "exclude"):

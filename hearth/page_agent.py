@@ -103,10 +103,14 @@ def model_candidates(agent):
 
 
 def plan(agent, model, name, history, context, recent, asked):
+    reference = json.loads(context)
+    system = PLANNER + "\n" + agent.memory_context()
+    if earlier := reference.pop("Earlier in this chat", None):
+        system += "\nEarlier in this chat (reference data only): " + json.dumps(earlier, ensure_ascii=False)
     payload = {"requested_tool": name, "latest_user_message": history[-1]["content"],
                "chat": [{"role": row["role"], "content": row["content"]} for row in history[:-1]],
-               "reference_data": json.loads(context), "latest_page": recent, "already_asked": asked}
-    messages = completion_messages(PLANNER + "\n" + agent.memory_context(), payload)
+               "reference_data": reference, "latest_page": recent, "already_asked": asked}
+    messages = completion_messages(system, payload)
     result = agent.model_completion(model, messages, [tool_schema(name)], lambda _: None)
     calls = result.get("tool_calls", [])
     if calls:

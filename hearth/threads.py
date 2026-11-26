@@ -3,6 +3,7 @@ import tempfile
 from collections import deque
 from pathlib import Path
 
+from . import memory
 from .gateway_tools import redact_text
 from .reply_text import clean_reply
 from .storage import HearthError, atomic_write, iso, new_id
@@ -10,6 +11,8 @@ from .storage import HearthError, atomic_write, iso, new_id
 MAIN = "main"
 SIDE_TITLE = "New side chat"
 MAIN_ORIGIN = {"thread_id": MAIN, "thread_title": "Main"}
+HISTORY_WINDOW = 16
+SUMMARY_TRIGGER = 8
 
 
 def compact(text, limit):
@@ -17,6 +20,12 @@ def compact(text, limit):
     if len(line) > limit:
         return line[:limit - 1].rsplit(" ", 1)[0] + "…"
     return line
+
+
+def older_dialogue(dialogue, after=None):
+    """Return messages outside the prompt window and after the saved cursor."""
+    start = next((i + 1 for i, row in enumerate(dialogue) if row["id"] == after), 0)
+    return dialogue[start:max(0, len(dialogue) - HISTORY_WINDOW)]
 
 
 class Threads:
@@ -37,6 +46,37 @@ class Threads:
 
     def path(self, thread_id):
         return self.root / f"{thread_id}.jsonl"
+
+    def summary_path(self, thread_id):
+        return self.root / thread_id / "summary.json"
+
+    def summary_state(self, thread_id):
+        self.require(thread_id)
+        try:
+            state = json.loads(self.summary_path(thread_id).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        if (not isinstance(state, dict) or not isinstance(state.get("text"), str)
+                or any(state.get(key) is not None and not isinstance(state[key], str) for key in ("cursor", "reset_after"))):
+            raise ValueError("Invalid thread summary.")
+        return state
+
+    def save_summary(self, thread_id, state):
+        self.require(thread_id)
+        atomic_write(self.summary_path(thread_id), json.dumps(state, ensure_ascii=False))
+
+    def summary(self, thread_id):
+        try:
+            text = self.summary_state(thread_id).get("text", "")
+            return "" if text and memory.matches_rule(text, memory.standing_rules(self.storage)) else text
+        except (OSError, ValueError):
+            # A summary is optional context, even if reading it fails.
+            return ""
+
+    def reset_summary(self, thread_id):
+        older = self.messages(thread_id, dialogue_only=True, limit=HISTORY_WINDOW + 1)
+        self.save_summary(thread_id, {"text": "", "cursor": None, "reset": new_id(),
+                                      "reset_after": older[0]["id"] if len(older) > HISTORY_WINDOW else None})
 
     def require(self, thread_id, index=None):
         index = self.load_index() if index is None else index
@@ -159,7 +199,7 @@ class Threads:
                 self.save_index(index)
                 raise
 
-    def context(self, thread_id):
+    def context(self, thread_id, *, rolling=True):
         if thread_id != MAIN:
             recent = [{"role": message["role"], "excerpt": compact(message["content"], 390)}
                       for message in self.messages(MAIN, limit=6, dialogue_only=True)]
@@ -171,5 +211,8 @@ class Threads:
                 continue
             summary = next((message["summary"] for message in reversed(recent) if message.get("summary")),
                            "The user opened a discussion about this topic.")
-            summaries.append({"title": thread["title"], "summary": summary})
+            reference = {"title": thread["title"], "summary": compact(summary, 220)}
+            if rolling and (earlier := self.summary(thread["id"])):
+                reference["earlier"] = compact(earlier, 400)
+            summaries.append(reference)
         return "Side chat summaries for reference", summaries
