@@ -7,6 +7,7 @@ import { artifactFilterFromHash, createArtifacts, markdown } from "./artifacts.j
 import { fileAnswerSources } from "./file-questions.js";
 import { channelChip, createReminders } from "./reminders.js";
 import { reconcileChildren, slashSearchShortcut } from "./dom.js";
+import { arrive, confirmControl, moveNavHighlight, prepareListMotion, transitionView } from "./motion.js";
 import { setupMobile } from "./mobile.js";
 import { createThreadMenu } from "./thread-menu.js";
 import { setupSearchableSelects } from "./combobox.js";
@@ -100,6 +101,7 @@ let chatNoticeTurn;
 let selectionVersion = 0;
 let stateRequest = 0;
 let threadSignature;
+let threadListReady = false;
 let seenReplies;
 try {
   seenReplies = new Map(JSON.parse(localStorage.getItem("hearth-seen-replies") || "[]"));
@@ -109,6 +111,7 @@ try {
 let sendingTestReminder = false;
 let chatSignature;
 let chatRows = new Map();
+let chatMotion;
 const workerCards = new Map();
 let threadBusy = false;
 let state;
@@ -126,6 +129,7 @@ let homeCache;
 let homeSequence = 0;
 let homeActive = false;
 let view = "home";
+let viewRequest = 0;
 const listSearches = Object.fromEntries(["reminders", "inbox", "skills"].map((name) =>
   [name, createListSearch(name, (query) => {
     const hash = listSearchHash(name, query, listSearchRoute(location.hash)?.target);
@@ -688,6 +692,7 @@ function showToast(message) {
   clearTimeout(toastTimer);
   toast.textContent = message;
   toast.hidden = false;
+  arrive([toast]);
   toastTimer = setTimeout(() => { toast.hidden = true; }, 1700);
 }
 
@@ -726,6 +731,7 @@ function messageToolbar(message, content, prompt) {
       for (const choice of actions.querySelectorAll("[data-vote]")) {
         choice.setAttribute("aria-pressed", String(messageVotes.get(message.id) === choice.dataset.vote));
       }
+      confirmControl(vote);
     });
     vote.dataset.vote = key;
     vote.setAttribute("aria-pressed", String(messageVotes.get(message.id) === key));
@@ -832,7 +838,7 @@ function checkCollapsedReplies() {
 }
 window.addEventListener("resize", checkCollapsedReplies);
 
-function messageBubble(role, content, { message, status, prompt, working, attachments = [], skill = message?.skill,
+function messageBubble(role, content, { message, status, prompt, working, streaming = working, attachments = [], skill = message?.skill,
   linkedArtifacts, uploadMetadata = state?.message_uploads } = {}) {
   const item = node("article", `message ${role}`);
   let avatar;
@@ -849,16 +855,18 @@ function messageBubble(role, content, { message, status, prompt, working, attach
   const notices = node("div");
   notices.setAttribute("role", "status");
   if (status) notices.append(node("p", "queued-label", status));
-  if (working) {
-    body.classList.add("message-working");
+  text.hidden = !content;
+  body.append(notices, text);
+  if (streaming) {
     const dots = node("span", "typing-dots");
     dots.setAttribute("aria-hidden", "true");
     dots.append(node("i"), node("i"), node("i"));
     body.append(dots);
+  }
+  if (working) {
+    body.classList.add("message-working");
     text.setAttribute("role", "status");
   }
-  text.hidden = !content;
-  body.append(notices, text);
   if (role === "assistant" && message?.id && content) {
     const toggle = button("Show more", () => {
       const expanded = toggle.getAttribute("aria-expanded") === "true";
@@ -1102,6 +1110,7 @@ function renderThreads() {
   if (signature === threadSignature) return;
   threadSignature = signature;
   const list = byId("threads");
+  const play = threadListReady ? prepareListMotion(list, entries.map((thread) => thread.id)) : undefined;
   const focused = list.contains(document.activeElement) ? document.activeElement : null;
   updateText(byId("thread-list-status"), entries.filter((thread) => thread.status)
     .map((thread) => `${thread.title}: ${thread.status}`).join(". "));
@@ -1134,6 +1143,7 @@ function renderThreads() {
       item.append(dot, node("span", "visually-hidden", ` · ${thread.status}`));
     }
     const row = node("div", "thread-row");
+    row.dataset.motionKey = thread.id;
     row.append(item);
     const more = iconButton("more", `Actions for ${thread.title}`,
       (event) => openThreadMenu(thread, event.currentTarget), "thread-overflow");
@@ -1150,6 +1160,7 @@ function renderThreads() {
     row.append(more);
     return row;
   }));
+  play?.();
   if (focused) {
     const replacement = [...list.querySelectorAll("button")].find((item) =>
       item.dataset.thread === focused.dataset.thread && item.className === focused.className);
@@ -1296,6 +1307,15 @@ function renderChat(force = false, preserveScroll = false) {
   if (!force && signature === chatSignature) return;
   chatSignature = signature;
   const follow = !preserveScroll && nearBottom();
+  const previousMotion = chatMotion?.thread === currentThread ? chatMotion : undefined;
+  const arrivals = [];
+  const live = view === "chat" && previousMotion && !preserveScroll && !conversation.snapshot?.around;
+  const tail = previousMotion?.last ? messages.findIndex((message) => message.id === previousMotion.last) + 1 : 0;
+  const newHistory = live && previousMotion.loaded && (!previousMotion.last || tail > 0);
+  const optimistic = newHistory && new Set([...local, ...previousMotion.turns.values()]
+    .flatMap((turn) => [turn.user?.id, turn.reply?.id].filter(Boolean)));
+  chatMotion = { thread: currentThread, loaded: !!conversation.snapshot,
+    last: messages.at(-1)?.id, turns: new Map(local.map((turn) => [turn.key, turn])) };
   turnBubbles.clear();
   const rows = [];
   const nextRows = new Map();
@@ -1346,6 +1366,9 @@ function renderChat(force = false, preserveScroll = false) {
     nextRows.set(message.id, row);
     if (searchHit === message.id) row.item.classList.add("chat-search-hit");
     rows.push(row.item);
+    if (newHistory && index >= tail && !optimistic.has(message.id) && !optimistic.has(message.reply_to)) {
+      arrivals.push(row.item);
+    }
     if (workers.has(message.id) && !localPrompts.has(message.id) && !savedBatches.has(message.id)) {
       const activity = messageBubble("assistant", "");
       activity.cards.append(workersCard(workers.get(message.id)));
@@ -1357,21 +1380,26 @@ function renderChat(force = false, preserveScroll = false) {
     if (message.role === "user") previousPrompt = { text: message.content, attachments };
   }
   for (const turn of local) {
+    const previousTurn = previousMotion?.turns.get(turn.key);
     if (turn.showPrompt) {
-      rows.push(messageBubble("user", turn.user?.content || turn.prompt, {
+      const item = messageBubble("user", turn.user?.content || turn.prompt, {
         message: turn.user, status: turn.user ? undefined : "Queued", attachments: turn.attachments,
-      }).item);
+      }).item;
+      rows.push(item);
+      if (live && !previousTurn?.showPrompt) arrivals.push(item);
     }
     if (!turn.showReply) continue;
     const content = turn.reply ? turn.reply.content
       : turn.text || turn.error || (turn.stopped ? "Reply stopped." : turn.browse ? "" : turnProgress(turn));
+    const streaming = !turn.reply && !turn.error && !turn.browse && !turn.stopped;
     const bubble = messageBubble("assistant", content, {
       message: turn.reply, skill: turn.skill, prompt: { text: turn.prompt, attachments: turn.attachments },
-      working: !turn.reply && !turn.error && !turn.text && !turn.browse && !turn.stopped,
+      streaming, working: streaming && !turn.text,
     });
     turnBubbles.set(turn.key, bubble);
     bubble.text.hidden = !content && !!turn.browse;
     rows.push(bubble.item);
+    if (live && !previousTurn?.showReply) arrivals.push(bubble.item);
     const workerRows = turn.workers?.size ? [...turn.workers.values()] : workers.get(turn.user?.id);
     if (workerRows?.length) bubble.cards.append(workersCard(workerRows));
     for (const warning of turn.warnings) bubble.notices.append(node("p", "model-warning", warning));
@@ -1398,6 +1426,7 @@ function renderChat(force = false, preserveScroll = false) {
     rows.push(activity.item);
   }
   reconcileChildren(transcript, rows);
+  arrive(arrivals.slice(-6));
   checkCollapsedReplies();
   chatRows = nextRows;
   for (const id of workerCards.keys()) {
@@ -1446,6 +1475,7 @@ function installSidebar(complete) {
   if (isSetting("memory")) renderMemoryThreadOptions();
   markSeenReplies();
   renderThreads();
+  threadListReady ||= complete;
 }
 
 async function extendSidebar() {
@@ -2713,6 +2743,7 @@ async function refreshView(options) {
 }
 
 async function openView(nextView, updateHistory = true, section, target) {
+  const request = ++viewRequest;
   const previousView = view;
   const fromDrawer = mobile.closeDrawer({ restoreFocus: false });
   if (nextView !== previousView) threadActions.close({ restoreFocus: false });
@@ -2735,36 +2766,38 @@ async function openView(nextView, updateHistory = true, section, target) {
   history.replaceState({ ...history.state, hearthView: nextView }, "");
   if (view === "timeline" && nextView !== view) timeline.hide();
   if (nextView !== "skills") skills.clearLink();
-  view = nextView;
   const searchRoute = listSearchRoute(location.hash);
-  listSearches[view]?.sync(searchRoute?.view === view ? searchRoute.query : "");
-  schedulePoll();
-  byId("start-call").hidden = view !== "chat";
-  byId("view-title").textContent = view[0].toUpperCase() + view.slice(1);
-  clearTimeout(reindexPoll);
-  for (const item of nav) {
-    const active = item.dataset.view === view;
-    if (active) {
-      item.setAttribute("aria-current", "page");
-    } else {
-      item.removeAttribute("aria-current");
+  const update = () => {
+    if (request !== viewRequest) return;
+    if (previousView !== nextView) moveNavHighlight(nav, nextView);
+    view = nextView;
+    listSearches[view]?.sync(searchRoute?.view === view ? searchRoute.query : "");
+    schedulePoll();
+    byId("start-call").hidden = view !== "chat";
+    byId("view-title").textContent = view[0].toUpperCase() + view.slice(1);
+    clearTimeout(reindexPoll);
+    for (const item of nav) {
+      const active = item.dataset.view === view;
+      if (active) item.setAttribute("aria-current", "page");
+      else item.removeAttribute("aria-current");
+      byId(`${item.dataset.view}-view`).hidden = !active;
     }
-    byId(`${item.dataset.view}-view`).hidden = !active;
-  }
-  if (fromDrawer) byId("view-title").focus({ preventScroll: true });
-  paintAvatars();
-  renderWorkspaceStatus();
-  if (view !== "settings") renderRefreshStatus();
+    if (fromDrawer) byId("view-title").focus({ preventScroll: true });
+    if (previousView !== nextView && ["home", "settings", "skills"].includes(view)) byId(`${view}-view`).scrollTop = 0;
+    paintAvatars();
+    renderWorkspaceStatus();
+    if (view !== "settings") renderRefreshStatus();
+  };
+  const switching = transitionView(update, request > 1 && previousView !== nextView);
+  if (switching) await switching;
+  if (request !== viewRequest) return;
   if (view === "timeline") timeline.setTodayErrors(location.hash === timelineErrorRoute);
   if (view === "settings") {
-    if (previousView !== "settings") byId("settings-view").scrollTop = 0;
     await openSettings(section, target);
   } else if (view === "home") {
-    if (previousView !== "home") byId("home-view").scrollTop = 0;
     await homePage.load();
     if (previousView !== "home" && feed.root.isConnected) feed.show(true);
   } else if (view === "skills") {
-    if (previousView !== "skills") byId("skills-view").scrollTop = 0;
     await skills.loadLinked(target);
   } else if (view === "artifacts") {
     artifactLibrary.selectFormat(artifactFilterFromHash(location.hash) || "all");
@@ -3021,8 +3054,10 @@ function readChatEvent(key, { event: name, data, id: eventId }) {
     const follow = visible && nearBottom();
     avatarSignal(turn.threadId, { type: name, text: payload.text });
     if (bubble) {
+      const working = bubble.text.parentElement.classList.contains("message-working");
       bubble.text.textContent = turn.text || turnProgress(turn);
       bubble.text.parentElement.classList.toggle("message-working", !turn.text);
+      if (working && turn.text && view === "chat") arrive([bubble.text]);
     }
     if (avatarMode === "face" && visible) updateFaceCaption(turn.text);
     if (follow) scrollDown();
@@ -3615,6 +3650,9 @@ for (const link of document.querySelectorAll("[data-connection-warning]")) {
 for (const item of nav) {
   item.addEventListener("click", () => openView(item.dataset.view));
 }
+document.addEventListener("change", (event) => {
+  if (event.target.matches('input[type="checkbox"], input[type="radio"]')) confirmControl(event.target);
+});
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     spaceHeld = false;

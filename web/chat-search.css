@@ -163,7 +163,7 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .message.user.chat-search-hit, .message.assistant.chat-search-hit > .message-body {
-    animation: chat-search-hit 170ms ease-out;
+    animation: chat-search-hit var(--motion-base) var(--motion-emphasized-decelerate);
   }
   @keyframes chat-search-hit { from { outline-color: transparent; } }
 }

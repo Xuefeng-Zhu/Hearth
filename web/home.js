@@ -1,7 +1,7 @@
 import { icon, iconButton } from "./icons.js";
 import { createGoals } from "./goals.js";
 import { threadMenuPosition } from "./thread-menu.js";
-import { anchorOrigin, fixedBounds, freezeAnchor } from "./motion.js";
+import { anchorOrigin, arrive, fixedBounds, freezeAnchor, prepareListMotion } from "./motion.js";
 
 const get = (id) => document.getElementById(id);
 const demoPrompt = "Create the Thanksgiving countdown and shopping list Home panels";
@@ -149,6 +149,7 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
   let dragged;
   let hovered;
   let signature;
+  let presented = false;
   let dayFormat, shortDayFormat, timeFormat, dateTimeFormat, compactDateTime, dateKey;
   const pending = new Set();
 
@@ -158,6 +159,7 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
   function setFeedback(message = "", openChat = false) {
     feedback.textContent = message;
     if (openChat) feedback.append(" ", control("Open Chat", openMainChat));
+    if (message) arrive([feedback]);
   }
 
   const add = control("Add panel", () => addPopover.hidden ? openAdd() : closeAdd(), null, "home-card home-add-card");
@@ -581,6 +583,7 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     const row = kind ? snapshot.builtin[id] : snapshot.panels[id];
     const element = node("article", `home-card home-card-${kind ? id : row.kind}`);
     element.dataset.panel = id;
+    element.dataset.motionKey = id;
     const header = node("header", "home-card-header");
     const mark = node("span", "home-card-icon");
     mark.append(icon(kind?.icon || kindIcons[row.kind], 19));
@@ -608,6 +611,7 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     const panel = active.closest("[data-panel]")?.dataset.panel;
     const key = active.dataset.control;
     const order = visible();
+    const play = prepareListMotion(grid, order, { stagger: !presented });
     const cards = order.map((id) => card(id, order));
     if (editing) cards.push(add);
     else closeAdd({ restoreFocus: false });
@@ -619,6 +623,8 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     edit.disabled = false;
     edit.setAttribute("aria-pressed", String(editing));
     get("home-edit-label").textContent = editing ? "Done" : "Edit layout";
+    presented = true;
+    play();
     if (editing && active === add) add.focus({ preventScroll: true });
     if (panel && key) grid.querySelector(`[data-panel="${CSS.escape(panel)}"] [data-control="${CSS.escape(key)}"]`)?.focus();
     positionAdd();

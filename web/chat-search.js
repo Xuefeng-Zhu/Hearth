@@ -92,6 +92,7 @@ export function createChatSearch({ api, thread, jump, reveal, prepareFind }) {
     cancel();
     hideDialog();
     find.hidden = true;
+    find.inert = true;
     trigger.setAttribute("aria-expanded", "false");
     if (restoreFocus) (focusBack?.getClientRects().length ? focusBack : trigger).focus({ preventScroll: true });
     return true;
@@ -112,6 +113,7 @@ export function createChatSearch({ api, thread, jump, reveal, prepareFind }) {
     controls.hidden = global;
     if (global) {
       find.hidden = true;
+      find.inert = true;
       if (panel.parentElement !== dialog) dialog.append(panel);
       input.setAttribute("role", "combobox");
       input.setAttribute("aria-autocomplete", "list");
@@ -122,6 +124,7 @@ export function createChatSearch({ api, thread, jump, reveal, prepareFind }) {
       prepareFind();
       if (panel.parentElement !== find) find.append(panel);
       find.hidden = false;
+      find.inert = false;
       for (const attr of ["role", "aria-autocomplete", "aria-controls", "aria-expanded"]) input.removeAttribute(attr);
     }
     schedule();

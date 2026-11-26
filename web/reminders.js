@@ -2,6 +2,7 @@ import { icon } from "./icons.js";
 import { localInputTime, localTimeToISO, setTimeZone, timeFormatter } from "./time.js";
 import { appendHighlighted, reconcileChildren } from "./dom.js";
 import { listSearchExcerpt, listSearchPath } from "./list-search.js";
+import { confirmControl, prepareListMotion } from "./motion.js";
 
 const channels = { app: "In app", email: "Email", both: "Both" };
 const icons = { app: ["bell"], email: ["mail"], both: ["bell", "mail"] };
@@ -85,6 +86,8 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
   processedGroup.hidden = true;
   const reviewEmpty = el("p", "delivery-empty", "No email waiting for review.");
   let inboxRows = new Map();
+  let inboxUnfiltered = false;
+  let remindersUnfiltered = false;
   const editing = new Set();
 
   for (const [value, label] of Object.entries(kinds)) {
@@ -104,6 +107,7 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
       const copy = button("Copy address", async () => {
         try {
           await navigator.clipboard.writeText(info.inbox_address);
+          confirmControl(copy);
           copy.textContent = "Copied";
         } catch {
           const selection = window.getSelection();
@@ -292,11 +296,10 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
       if (result.timezone) setTimeZone(result.timezone);
       const count = result.jobs.length + result.delivered.length + result.outbox.length;
       reminderSearch.count(count);
-      target.hidden = !!query && !count;
       const signature = JSON.stringify([query, result]);
       if (signature === reminderSignature) return;
       reminderSignature = signature;
-      target.replaceChildren();
+      const content = document.createDocumentFragment();
       const groups = [
         ["Upcoming", [
           ...result.jobs.filter((job) => !job.snoozed_at),
@@ -307,14 +310,19 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
       ];
       for (const [name, entries] of groups) {
         if (query && !entries.length) continue;
-        const group = heading(target, name, entries.length);
+        const group = heading(content, name, entries.length);
         if (!entries.length) group.append(el("p", "delivery-empty", `No ${name.toLowerCase()} reminders.`));
-        else group.append(...entries.map(reminderCard));
+        else group.append(...entries.map((row) => {
+          const card = reminderCard(row);
+          card.dataset.motionKey = `${name}:${card.dataset.reminder}`;
+          return card;
+        }));
       }
       if (result.outbox.length) {
-        const outbox = heading(target, "Outbox", result.outbox.length);
+        const outbox = heading(content, "Outbox", result.outbox.length);
         for (const row of result.outbox) {
           const card = el("article", "card delivery-card");
+          card.dataset.motionKey = `outbox:${row.id}`;
           const matches = row.search_matches;
           const title = link("", `/api/reminders/outbox?id=${encodeURIComponent(row.id)}`);
           appendHighlighted(title, matches?.title, row.subject);
@@ -328,6 +336,12 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
           outbox.append(card);
         }
       }
+      const keys = [...content.querySelectorAll("[data-motion-key]")].map((card) => card.dataset.motionKey);
+      const play = remindersUnfiltered && !query ? prepareListMotion(target, keys) : undefined;
+      remindersUnfiltered = !query;
+      target.hidden = !!query && !count;
+      target.replaceChildren(content);
+      play?.();
     } catch (error) {
       if (!background && request === reminderRequest && query === reminderSearch.query) {
         reminderSearch.fail();
@@ -472,7 +486,6 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
         { background, signal: AbortSignal.timeout(6000) });
       if (request !== inboxRequest || query !== inboxSearch.query || currentView() !== "inbox") return;
       inboxSearch.count(result.cards.length);
-      inboxTarget.hidden = !!query && !result.cards.length;
       onInbox(result.task_notifications || [], result.approvals || []);
       if (result.settings?.timezone) setTimeZone(result.settings.timezone);
       const connection = JSON.stringify([result.connected, result.inbox_address, result.inbox_error, result.connection_message]);
@@ -488,12 +501,17 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
         let row = inboxRows.get(card.id);
         if (!row || (row.signature !== signature && !editing.has(card.id))) {
           row = { signature, element: inboxCard(card), status: card.status };
+          row.element.dataset.motionKey = `${row.status === "review" ? "review" : "processed"}:${card.id}`;
         }
         next.set(card.id, row);
         (row.status === "review" ? review : processed).push(row.element);
       }
       for (const id of editing) if (!next.has(id)) editing.delete(id);
       inboxRows = next;
+      const keys = [...review, ...processed].map((card) => card.dataset.motionKey);
+      const play = inboxUnfiltered && !query ? prepareListMotion(inboxTarget, keys) : undefined;
+      inboxUnfiltered = !query;
+      inboxTarget.hidden = !!query && !result.cards.length;
       reviewGroup.hidden = !!query && !review.length;
       processedGroup.hidden = !processed.length;
       for (const [group, rows] of [[reviewGroup, review], [processedGroup, processed]]) {
@@ -501,6 +519,7 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
         title.firstElementChild.textContent = rows.length;
         reconcileChildren(group, [title, ...(group === reviewGroup && !rows.length ? [reviewEmpty] : rows)]);
       }
+      play?.();
     } catch (error) {
       if (!background && request === inboxRequest && query === inboxSearch.query) {
         inboxSearch.fail();

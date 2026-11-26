@@ -57,18 +57,96 @@ dialog[open]::backdrop { pointer-events: auto; }
 
 .chat-find { --motion-origin: right top; }
 
+:root { view-transition-name: none; }
+main > .view:not([hidden]) { view-transition-name: workspace-view; }
+::view-transition { pointer-events: none; }
+::view-transition-group(workspace-view) { animation: none; overflow: clip; }
+::view-transition-old(workspace-view) {
+  animation: workspace-out var(--motion-fast) var(--motion-emphasized-accelerate) both;
+}
+::view-transition-new(workspace-view) {
+  animation: workspace-in var(--motion-base) var(--motion-emphasized-decelerate) both;
+}
+@keyframes workspace-out { to { opacity: 0; } }
+@keyframes workspace-in { from { opacity: 0; translate: 0 6px; } }
+
+.nav-link[aria-current]:has(> .nav-motion-highlight) {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+}
+.nav-motion-highlight { display: none; }
+[aria-current] > .nav-motion-highlight {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--nav-active);
+  pointer-events: none;
+}
+
+[data-motion-key] { transform-origin: top; }
+.motion-list-exit {
+  position: fixed;
+  z-index: 2;
+  margin: 0;
+  pointer-events: none;
+}
+
+:where(.thread-row, .thread-link, .card, .home-card, .artifact-card, .timeline-card,
+  .chat-search-result, .combobox-option, .workspace-drawer a, .list-search-clear, summary) {
+  transition: color var(--motion-base) var(--motion-standard),
+    background-color var(--motion-base) var(--motion-standard);
+}
+button {
+  transition: color var(--motion-base) var(--motion-standard),
+    background-color var(--motion-base) var(--motion-standard),
+    scale var(--motion-fast) var(--motion-standard);
+}
+
+.home-loading-skeleton {
+  display: inline-block;
+  position: relative;
+  width: 72px;
+  height: 8px;
+  margin-inline-start: var(--space-2);
+  overflow: clip;
+  border-radius: var(--radius-pill);
+  background-color: var(--border);
+}
+.home-loading-skeleton::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--paper), transparent);
+  content: "";
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  button:active:not(:disabled) { scale: .98; }
+  .home-loading-skeleton::after { animation: skeleton-shimmer var(--motion-slow) var(--motion-standard) infinite; }
+  @keyframes skeleton-shimmer {
+    from { translate: -100% 0; }
+    to { translate: 100% 0; }
+  }
+}
+
 @media (max-width: 760px) {
   :is(dialog, .home-add-popover, .combobox-popup) {
     --surface-motion-offset: 0 100%;
     --surface-motion-scale: none;
   }
-  .workspace-drawer { --surface-motion-offset: -100% 0; }
   :is(.home-add-popover, .combobox-popup, .chat-search-dialog)::backdrop { background: var(--overlay-scrim); }
 }
+
+.workspace-drawer { --surface-motion-offset: -100% 0; --surface-motion-scale: none; }
 
 @media (prefers-reduced-motion: reduce) {
   :is(.thread-menu, .home-add-popover, .combobox-popup, .chat-find, dialog) {
     --surface-motion-offset: none;
     --surface-motion-scale: none;
   }
+  ::view-transition-old(workspace-view), ::view-transition-new(workspace-view) { animation: none; }
+  button, :where(.thread-row, .thread-link, .card, .home-card, .artifact-card, .timeline-card,
+    .chat-search-result, .combobox-option, .workspace-drawer a, .list-search-clear, summary) { transition: none; }
 }

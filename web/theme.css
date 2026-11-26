@@ -68,7 +68,6 @@
   --appearance-selected: #f7eef4;
   --mic-bg: #f3ebf2;
   --mic-hover: #e8d9eb;
-  --timeline-arrival: #eee0f0;
   --timeline-hover: #f6eff6;
   --timeline-chat-bg: #efe8f5;
   --timeline-status-bg: #eee3ef;
@@ -103,7 +102,6 @@
   --appearance-active-border: #9b6a94;
   --call-card-border: #a37aa9;
   --timeline-filter-border: #dfd0e3;
-  --timeline-arrival-border: #dbc2de;
   --timeline-button-border: #dac7df;
   --timeline-confirm-border: #dfc9e1;
   --artifact-hover-border: #bd9dc4;
@@ -229,7 +227,6 @@
   --drawer-shadow: #25142e3d;
   --drawer-scrim: #22192e53;
   --floating-shadow: #43214626;
-  --voice-pulse: #ac46632b;
   --face-glow: #ffead788;
   --meter-track: #f0e2eb;
   --meter-start: #ab73b4;
@@ -324,7 +321,6 @@
     --appearance-selected: var(--accent-light);
     --mic-bg: var(--accent-light);
     --mic-hover: var(--accent-light);
-    --timeline-arrival: var(--accent-light);
     --timeline-hover: var(--accent-light);
     --timeline-chat-bg: var(--accent-light);
     --timeline-status-bg: var(--accent-light);
@@ -356,7 +352,6 @@
     --appearance-active-border: var(--control-border);
     --call-card-border: var(--control-border);
     --timeline-filter-border: var(--control-border);
-    --timeline-arrival-border: var(--control-border);
     --timeline-button-border: var(--control-border);
     --timeline-confirm-border: var(--control-border);
     --artifact-hover-border: var(--control-border);
