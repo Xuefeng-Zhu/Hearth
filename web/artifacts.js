@@ -313,7 +313,7 @@ function preview(artifact) {
     ? "Download this file to view it." : "Open this file in Box to view it.");
 }
 
-export function createArtifacts({ api, openThread, openConnections, showNotice, refreshChat, onFilter }) {
+export function createArtifacts({ api, openThread, showNotice, refreshChat, onFilter }) {
   const collection = get("artifact-collection");
   const drawer = get("artifact-drawer");
   const detailBody = get("artifact-detail-body");
@@ -804,10 +804,6 @@ export function createArtifacts({ api, openThread, openConnections, showNotice, 
     }
   });
 
-  get("artifact-connect").addEventListener("click", (event) => {
-    event.preventDefault();
-    openConnections();
-  });
   get("artifact-close").addEventListener("click", () => drawer.close());
   drawer.addEventListener("click", (event) => { if (event.target === drawer) drawer.close(); });
   drawer.addEventListener("close", () => {

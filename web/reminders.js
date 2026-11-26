@@ -114,9 +114,8 @@ export function createReminders({ api, openView, openSettings, startSending, sto
       target.append(line, el("p", "meta", "Forward emails here to turn them into proposals in Inbox."));
     } else {
       target.append(el("p", "meta", info.connection_message || info.inbox_error || "Hearth is preparing your AgentMail inbox."));
-      if (!info.connected) {
-        const connect = link("Open Connections", "#connections");
-        target.append(connect);
+      if (!info.connected && target.id !== "email-hearth-connection") {
+        target.append(link("Open Connections", "#settings/connections"));
       }
     }
   }
@@ -199,10 +198,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
     });
   }
 
-  get("open-reminder-settings").addEventListener("click", async () => {
-    await openView("settings");
-    if (currentView() === "settings") await openSettings("reminders");
-  });
+  get("open-reminder-settings").addEventListener("click", () => openSettings("reminders"));
 
   const reminderForm = get("reminder-create-form");
   reminderForm.addEventListener("submit", async (event) => {
@@ -258,7 +254,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
         if (delivery.next_at && delivery.status === "queued" && !delivery.sending) {
           reason.append(` · Next attempt ${formatDate(delivery.next_at)}`);
         }
-        if (delivery.reason?.startsWith("Not connected")) reason.append(" · ", link("Connections", "#connections"));
+        if (delivery.reason?.startsWith("Not connected")) reason.append(" · ", link("Connections", "#settings/connections"));
         card.append(reason);
       }
     }
@@ -467,7 +463,7 @@ export function createReminders({ api, openView, openSettings, startSending, sto
         await inbox();
         if (manual) feedback.textContent = result.processed ? `Processed ${result.processed} email(s).` : "Check complete.";
       }
-      if (currentView() === "connections") await connections();
+      if (currentView() === "settings" && currentSettings() === "connections") await connections();
       if (currentView() === "settings" && currentSettings() === "reminders") wakeStatus(await api("/api/reminders/settings"));
     } catch (error) {
       if (manual) feedback.textContent = error.message;

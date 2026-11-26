@@ -47,7 +47,7 @@ def error_message(error, operation):
     if unsupported(error):
         return f"The Sprites Box connector does not support {operation}."
     if error.status in (401, 403):
-        return "Box denied access. Check the authorization in Connections."
+        return "Box denied access. Check the authorization in Settings → Connections."
     if error.status == 404:
         return "Box could not find this file or folder."
     if error.status in (409, 412):

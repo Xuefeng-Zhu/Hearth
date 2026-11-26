@@ -235,7 +235,12 @@ def test_dashboard(page, base, mobile, label, shots, app):
         expect(stale).to_contain_text("Fresh bulletin")
     expect(stale).not_to_contain_text("The source failed.")
 
-    go(page, "Connections", mobile)
+    section = (page.locator('.settings-disclosure[aria-controls="settings-connections"]') if mobile
+               else page.locator('[data-settings="connections"]'))
+    expect(section.locator("svg")).to_have_count(1)
+    page.get_by_role("article", name="Connections health").get_by_role("button", name="Open Connections").click()
+    expect(page.locator("#view-title")).to_have_text("Settings")
+    expect(section).to_have_attribute("aria-expanded" if mobile else "aria-current", "true" if mobile else "page")
     apify = page.locator('[data-provider="apify"]')
     expect(apify.locator("xpath=ancestor::section/h3")).to_have_text("Available, not used")
     apify.get_by_role("button", name="Test Apify").click()
@@ -243,6 +248,36 @@ def test_dashboard(page, base, mobile, label, shots, app):
     expect(apify.locator(".connection-status")).to_have_text("Not used by Hearth")
     expect(apify.locator(".error, .unauthorized, .failed, .denied")).to_have_count(0)
     expect(page.locator(".sidebar [data-workspace-status]")).to_have_text("Mock mode")
+    expect(page).to_have_url(base + "/#settings/connections/configured")
+    if shots:
+        page.reload()
+        expect(apify).to_be_visible()
+        expect(page.locator("#rescan-connections")).to_have_attribute("aria-disabled", "false")
+        page.screenshot(path=shots / f"run22-settings-connections-{label}.png", animations="disabled")
+    page.locator("#configured-tab").press("ArrowRight")
+    expect(page.locator("#not-configured-tab")).to_be_focused()
+    expect(page.locator("#not-configured-tab")).to_have_attribute("aria-selected", "true")
+    expect(page.locator("#not-configured-panel")).to_be_visible()
+    page.go_back()
+    expect(apify).to_be_visible()
+    page.goto(base + "/#connections/not-configured")
+    expect(page).to_have_url(base + "/#settings/connections/not-configured")
+    expect(page.locator("#not-configured-panel")).to_be_visible()
+    page.reload()
+    expect(page.locator("#not-configured-panel")).to_be_visible()
+    page.goto(base + "/#connections")
+    expect(page).to_have_url(base + "/#settings/connections/not-configured")
+    go(page, "Inbox", mobile)
+    page.locator("#inbox-address").get_by_role("link", name="Open Connections").click()
+    expect(page.locator("#settings-connections")).to_be_visible()
+    page.go_back()
+    expect(page.locator("#inbox-view")).to_be_visible()
+    go(page, "Settings", mobile)
+    page.locator('.settings-disclosure[aria-controls="settings-memory"]' if mobile else '[data-settings="memory"]').click()
+    page.locator("#memory-connect").click()
+    expect(page.locator("#settings-connections")).to_be_visible()
+    page.go_back()
+    expect(page.locator("#settings-memory")).to_be_visible()
     assert not errors, errors
     print(f"{label}: passed, minimum sampled text contrast {min(row['ratio'] for row in contrast):.2f}:1", flush=True)
 
@@ -252,7 +287,7 @@ def run(options):
         options.shots.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=options.chromium)
-        for width, height, mobile in [(1440, 1080, False), (390, 844, True)]:
+        for width, height, mobile in [(1440, 1080, False), (390, 844, True), (375, 812, True)]:
             for theme in ("light", "dark"):
                 if options.only and options.only != f"{width}-{theme}":
                     continue

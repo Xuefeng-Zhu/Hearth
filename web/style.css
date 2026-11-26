@@ -30,6 +30,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--connection-dot); }
 .notice { flex: none; margin: 10px auto 0; padding: 8px 14px; border-radius: 8px; background: var(--accent-light); color: var(--notice-text); max-width: calc(100% - 28px); font-size: 14px; }
+.connection-guidance { color: inherit; text-underline-offset: 2px; }
 .view { flex: 1; min-height: 0; }
 .chat-view { display: grid; grid-template-columns: minmax(165px, 214px) minmax(0, 1fr); }
 .thread-panel { display: flex; flex-direction: column; min-height: 0; padding: 19px 12px; border-right: 1px solid var(--border); background: var(--thread-panel); }
@@ -136,7 +137,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .connection-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 225px); gap: 12px; }
 .connection-filters label { display: grid; gap: 6px; font-size: 13px; font-weight: 650; }
 .connection-filters input, .connection-filters select {
-  width: 100%; min-width: 0; background: var(--paper); color: inherit; border: 1px solid var(--field-border);
+  width: 100%; min-width: 0; background: var(--paper); color: inherit; border: 1px solid var(--focus);
   border-radius: 8px; min-height: 41px; padding: 7px 10px; font-weight: 400;
 }
 .connection-summary { display: flex; flex-wrap: wrap; gap: 4px 18px; justify-content: space-between; margin: 12px 0 23px; }
@@ -175,7 +176,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .connector-settings { margin: 0 0 12px; }
 .connector-settings label { display: block; margin-bottom: 5px; font-size: 13px; font-weight: 600; }
 .connector-controls { display: flex; align-items: center; gap: 7px; }
-.connector-controls input { min-width: 0; flex: 1; border: 1px solid var(--field-border); border-radius: 7px; background: var(--field-surface); color: inherit; padding: 6px 8px; }
+.connector-controls input { min-width: 0; flex: 1; border: 1px solid var(--focus); border-radius: 7px; background: var(--field-surface); color: inherit; padding: 6px 8px; }
 .connector-controls button { margin-top: 0; }
 .brain-active { overflow-wrap: anywhere; }
 .brain-active strong { margin-right: 4px; }
@@ -228,9 +229,11 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
   .thread-header { min-height: 43px; padding: 4px 12px; }
 }
 
-.settings-nav { display: flex; gap: 4px; margin: 0 0 22px; border-bottom: 1px solid var(--border); }
-.settings-nav button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; padding: 9px 15px 11px; color: var(--muted); font-weight: 650; }
+.settings-nav { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 22px; border-bottom: 1px solid var(--border); }
+.settings-nav button, .settings-label { display: inline-flex; align-items: center; gap: 6px; }
+.settings-nav button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; padding: 9px 12px 11px; color: var(--muted); font-weight: 650; }
 .settings-nav button[aria-current] { border-bottom-color: var(--accent); color: var(--accent); }
+#memory-connect { color: var(--accent); text-underline-offset: 2px; }
 .settings-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; max-width: 1040px; }
 .settings-layout .brain-form { max-width: none; }
 .settings-stack { display: grid; gap: 16px; min-width: 0; }
@@ -419,7 +422,6 @@ body:has(.face-view:not([hidden])) .notice { position: fixed; z-index: 11; top: 
 .avatar-color { font-size: 13px; }
 .avatar-color input { width: 43px; height: 33px; padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--paper); cursor: pointer; }
 .avatar-color button { margin: 0; }
-.settings-nav { overflow-x: auto; }
 
 .composer { display: grid; grid-template-columns: 38px minmax(0, 1fr) 38px 38px; }
 .composer textarea { grid-column: 2; }

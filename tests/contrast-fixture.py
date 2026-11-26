@@ -33,6 +33,7 @@ def seed(app, gateway):
         "### Seattle weekend\n\nPack a light rain jacket and comfortable shoes.\n\n"
         "- Start at **Pike Place Market**.\n- See the [Space Needle](https://www.spaceneedle.com/).\n\n"
         "| Stop | Time |\n| --- | --- |\n| Kerry Park | Sunset |\n\n```text\nSeattle, WA\n```",
+        skill={"id": "research-and-compare", "name": "Research and compare"},
         remembered=[{"id": "fixture-memory", "path": "USER.md", "line": 1, "backend": "pinecone", "score": 0.91}],
         notices=["The first connector timed out. Tried another brain."],
         routing={"name": "Hugging Face", "provider": "huggingface", "model": "deepseek-ai/DeepSeek-V4.1-Flash:fastest",

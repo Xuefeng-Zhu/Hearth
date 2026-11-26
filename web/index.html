@@ -33,9 +33,7 @@
         <button type="button" class="nav-link" data-view="artifacts"><span data-icon="files"></span> Artifacts</button>
         <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>
         <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
-        <button type="button" class="nav-link" data-view="connections"><span data-icon="plug"></span> Connections</button>
         <button type="button" class="nav-link" data-view="memory"><span data-icon="book"></span> Memory</button>
-        <button type="button" class="nav-link" data-view="skills"><span data-icon="skill"></span> Skills</button>
       </nav>
       <nav class="workspace-settings" aria-label="Preferences">
         <p class="workspace-status" role="status" hidden><span class="dot" aria-hidden="true"></span><span data-workspace-status></span></p>
@@ -183,14 +181,6 @@
         <div id="memory-status" role="status" class="meta"></div>
         <div id="memory-area" role="tabpanel" tabindex="0"></div>
       </section>
-      <section class="view panel" id="skills-view" aria-labelledby="view-title" hidden>
-        <div class="section-intro skills-intro">
-          <div><h2>Playbook library</h2><p>Save repeatable workflows for Hearth to use in chat.</p></div>
-          <button type="button" class="skill-button skill-primary" id="skill-new"><span data-icon="plus" data-icon-size="17"></span> New skill</button>
-        </div>
-        <p class="meta" id="skills-status" role="status"></p>
-        <div id="skill-list" class="skill-list" aria-label="Playbooks"></div>
-      </section>
       <section class="view panel" id="artifacts-view" aria-labelledby="view-title" hidden>
         <div class="artifact-library">
           <div class="section-intro artifact-intro">
@@ -202,7 +192,7 @@
           </div>
           <div id="artifact-connection" class="artifact-connection" hidden>
             <span id="artifact-connection-copy"></span>
-            <a href="#connections" id="artifact-connect">Open Connections</a>
+            <a href="#settings/connections" id="artifact-connect">Open Connections</a>
           </div>
           <div class="artifact-toolbar">
             <label class="artifact-search"><span data-icon="search"></span>
@@ -316,44 +306,11 @@
         <p class="visually-hidden" id="timeline-announcer" role="status"></p>
         <div class="timeline" id="timeline"></div>
       </section>
-      <section class="view panel" id="connections-view" aria-labelledby="view-title" hidden>
-        <div class="section-intro connections-intro">
-          <div><h2>Fly connector catalog</h2><p class="empty" id="connection-notice" role="status">Checking connections…</p></div>
-          <button type="button" class="rescan" id="rescan-connections">Refresh</button>
-        </div>
-        <section id="email-hearth-connection" class="card email-hearth-card" aria-label="Email Hearth"></section>
-        <div class="connection-tabs" id="connection-tabs" role="tablist" aria-label="Connector configuration">
-          <button type="button" id="configured-tab" data-connection-tab="configured" role="tab" aria-controls="configured-panel" aria-selected="false" tabindex="-1">
-            Configured <span class="connection-badge" hidden></span>
-          </button>
-          <button type="button" id="not-configured-tab" data-connection-tab="not-configured" role="tab" aria-controls="not-configured-panel" aria-selected="true">
-            Not configured <span class="connection-badge" hidden></span>
-          </button>
-        </div>
-        <p class="connection-promotion" id="connection-promotion" role="status" hidden></p>
-        <section id="configured-panel" role="tabpanel" aria-labelledby="configured-tab" tabindex="0" hidden></section>
-        <section id="not-configured-panel" role="tabpanel" aria-labelledby="not-configured-tab" tabindex="0">
-          <p class="connection-setup">Add a connector in the Fly dashboard. Turn off <strong>Allow all sprites</strong>, set <strong>Name Prefix</strong> to <strong>hearth</strong>, then click <strong>Refresh</strong> here.</p>
-        </section>
-        <template id="connection-content">
-          <div class="connection-filters">
-            <label>Search providers
-              <input type="search" placeholder="Name or capability" autocomplete="off">
-            </label>
-            <label>Category
-              <select><option value="">All categories</option></select>
-            </label>
-          </div>
-          <div class="connection-summary" role="status">
-            <p class="empty connection-count"></p>
-            <a class="connection-match-link" hidden></a>
-          </div>
-          <div class="connection-groups"></div>
-        </template>
-      </section>
       <section class="view panel" id="settings-view" aria-labelledby="view-title" hidden>
         <nav class="settings-nav" aria-label="Settings sections">
           <button type="button" data-settings="brain" aria-current="page">Brain</button>
+          <button type="button" data-settings="connections"><span data-icon="plug"></span> Connections</button>
+          <button type="button" data-settings="skills"><span data-icon="skill"></span> Skills</button>
           <button type="button" data-settings="memory">Memory</button>
           <button type="button" data-settings="artifacts">Artifacts</button>
           <button type="button" data-settings="search">Search</button>
@@ -365,6 +322,49 @@
           <button type="button" data-settings="approvals">Approvals</button>
         </nav>
         <div class="settings-sections" id="settings-sections">
+        <div id="settings-skills" hidden>
+          <div class="section-intro skills-intro">
+            <div><h2>Playbook library</h2><p>Save repeatable workflows for Hearth to use in chat.</p></div>
+            <button type="button" class="skill-button skill-primary" id="skill-new"><span data-icon="plus" data-icon-size="17"></span> New skill</button>
+          </div>
+          <p class="meta" id="skills-status" role="status"></p>
+          <div id="skill-list" class="skill-list" aria-label="Playbooks"></div>
+        </div>
+        <div id="settings-connections" hidden>
+          <div class="section-intro connections-intro">
+            <div><h2>Fly connector catalog</h2><p class="empty" id="connection-notice" role="status">Checking connections…</p></div>
+            <button type="button" class="rescan" id="rescan-connections">Refresh</button>
+          </div>
+          <section id="email-hearth-connection" class="card email-hearth-card" aria-label="Email Hearth"></section>
+          <div class="connection-tabs" id="connection-tabs" role="tablist" aria-label="Connector configuration">
+            <button type="button" id="configured-tab" data-connection-tab="configured" role="tab" aria-controls="configured-panel" aria-selected="false" tabindex="-1">
+              Configured <span class="connection-badge" hidden></span>
+            </button>
+            <button type="button" id="not-configured-tab" data-connection-tab="not-configured" role="tab" aria-controls="not-configured-panel" aria-selected="true">
+              Not configured <span class="connection-badge" hidden></span>
+            </button>
+          </div>
+          <p class="connection-promotion" id="connection-promotion" role="status" hidden></p>
+          <section id="configured-panel" role="tabpanel" aria-labelledby="configured-tab" tabindex="0" hidden></section>
+          <section id="not-configured-panel" role="tabpanel" aria-labelledby="not-configured-tab" tabindex="0">
+            <p class="connection-setup">Add a connector in the Fly dashboard. Turn off <strong>Allow all sprites</strong>, set <strong>Name Prefix</strong> to <strong>hearth</strong>, then click <strong>Refresh</strong> here.</p>
+          </section>
+          <template id="connection-content">
+            <div class="connection-filters">
+              <label>Search providers
+                <input type="search" placeholder="Name or capability" autocomplete="off">
+              </label>
+              <label>Category
+                <select><option value="">All categories</option></select>
+              </label>
+            </div>
+            <div class="connection-summary" role="status">
+              <p class="empty connection-count"></p>
+              <a class="connection-match-link" hidden></a>
+            </div>
+            <div class="connection-groups"></div>
+          </template>
+        </div>
         <div id="settings-approvals" hidden>
           <div class="section-intro"><h2>Approvals</h2><p>Choose when Hearth should ask before taking an action.</p></div>
           <form id="approval-settings-form" class="card brain-form approval-settings">
@@ -584,6 +584,7 @@
                 <h3 id="memory-index-title">Pinecone index</h3>
                 <dl id="pinecone-index-details" class="memory-index-details"></dl>
                 <p class="meta" id="memory-index-status" role="status">Checking index…</p>
+                <a class="meta" id="memory-connect" href="#settings/connections" hidden>Open Connections</a>
                 <progress id="memory-index-progress" aria-label="Memory index progress" hidden></progress>
                 <div class="memory-index-actions">
                   <button class="primary-setting" id="memory-sync" type="button" disabled>Sync memories to Pinecone</button>
@@ -779,9 +780,7 @@
         <button type="button" class="nav-link" data-view="artifacts"><span data-icon="files"></span> Artifacts</button>
         <button type="button" class="nav-link" data-view="reminders"><span data-icon="bell"></span> Reminders</button>
         <button type="button" class="nav-link" data-view="inbox"><span data-icon="inbox"></span> Inbox</button>
-        <button type="button" class="nav-link" data-view="connections"><span data-icon="plug"></span> Connections</button>
         <button type="button" class="nav-link" data-view="memory"><span data-icon="book"></span> Memory</button>
-        <button type="button" class="nav-link" data-view="skills"><span data-icon="skill"></span> Skills</button>
       </nav>
       <p class="notice" id="drawer-notice" role="status" hidden></p>
       <div id="mobile-thread-panel"></div>

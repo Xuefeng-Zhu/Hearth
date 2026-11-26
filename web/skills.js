@@ -22,12 +22,13 @@ function element(tag, className, text) {
 }
 
 export function skillChip(skill, label = "Using skill") {
-  const chip = element("span", "skill-chip");
+  const chip = element(skill.id ? "a" : "span", "skill-chip");
+  if (skill.id) chip.href = `#settings/skills/${encodeURIComponent(skill.id)}`;
   chip.append(icon("skill", 15), element("span", "", `${label}: ${skill.name}`));
   return chip;
 }
 
-export function createSkills({ api, openChat }) {
+export function createSkills({ api, openChat, onLinkedClose }) {
   const library = get("skill-list");
   const status = get("skills-status");
   const editor = get("skill-editor");
@@ -46,8 +47,10 @@ export function createSkills({ api, openChat }) {
   let pending = false;
   let listRequest = 0;
   let opener;
+  let linkedRequest;
 
   const detail = (id, version) => api("/api/skills/detail?" + new URLSearchParams({ id, ...(version ? { version } : {}) }));
+  const cardButton = (id) => [...library.querySelectorAll("[data-skill]")].find((button) => button.dataset.skill === id);
 
   function toggle(next) {
     mode = next;
@@ -129,7 +132,10 @@ export function createSkills({ api, openChat }) {
     link.type = "button";
     link.dataset.skill = skill.id;
     link.setAttribute("aria-haspopup", "dialog");
-    link.addEventListener("click", () => perform(async () => open(await detail(skill.id), link), status));
+    link.addEventListener("click", () => perform(async () => {
+      const loaded = await detail(skill.id);
+      if (link.checkVisibility()) open(loaded, link);
+    }, status));
     heading.append(link);
     const stats = element("div", "skill-stats");
     const lastUsed = element("span", "", "Never used");
@@ -158,13 +164,40 @@ export function createSkills({ api, openChat }) {
     }
   }
 
+  function clearLink() {
+    linkedRequest = undefined;
+    if (editor.open) editor.close();
+  }
+
+  async function loadLinked(id) {
+    clearLink();
+    const request = id ? { id } : undefined;
+    linkedRequest = request;
+    await load();
+    if (!request || linkedRequest !== request) return;
+    try {
+      const skill = await detail(id);
+      if (linkedRequest === request) {
+        request.opened = true;
+        open(skill, cardButton(id));
+      }
+    } catch (error) {
+      if (linkedRequest === request) status.textContent = error.message;
+    }
+  }
+
   get("skill-new").addEventListener("click", (event) => { if (!pending) open(null, event.currentTarget); });
   close.addEventListener("click", () => { if (!pending) editor.close(); });
   editor.addEventListener("cancel", (event) => { if (pending) event.preventDefault(); });
   editor.addEventListener("close", () => {
-    const replacement = opener?.dataset.skill && [...library.querySelectorAll("[data-skill]")]
-      .find((button) => button.dataset.skill === opener.dataset.skill);
-    (opener?.isConnected ? opener : replacement || get("skill-new")).focus();
+    if (editor.open) return;
+    if (linkedRequest?.opened) {
+      onLinkedClose(linkedRequest.id);
+      linkedRequest = undefined;
+    }
+    const replacement = opener?.dataset.skill && cardButton(opener.dataset.skill);
+    const control = opener?.isConnected ? opener : replacement || get("skill-new");
+    if (control.checkVisibility()) control.focus();
   });
   get("skill-source-mode").addEventListener("click", () => toggle("source"));
   get("skill-preview-mode").addEventListener("click", () => toggle("preview"));
@@ -225,5 +258,5 @@ export function createSkills({ api, openChat }) {
     editor.close();
     await openChat(thread);
   }));
-  return { load };
+  return { loadLinked, clearLink };
 }

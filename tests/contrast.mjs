@@ -13,7 +13,7 @@ const failures = new Map();
 const minima = new Map();
 let measurements = 0;
 
-function contrastPairs(dark) {
+function contrastPairs({ dark, changedControls }) {
   const modal = [...document.querySelectorAll("dialog:modal")].at(-1);
   const scope = modal || document.body;
   const pairs = [];
@@ -112,8 +112,9 @@ function contrastPairs(dark) {
       text(el, el.placeholder, style, Number(style.opacity));
     } else if (el.type === "datetime-local") text(el, "Date/time fields");
   }
-  if (dark) {
+  if (dark || changedControls) {
     for (const el of scope.querySelectorAll("svg path, svg circle, svg rect, .dot, .thread-dot, .voice-dot, .artifact-kind-icon, .timeline-chevron, .typing-dots i")) {
+      if (!dark && !el.closest("#settings-view svg, #skill-editor svg, #workspace-drawer nav svg, .skill-chip svg")) continue;
       if ((el instanceof SVGElement ? !visible(el.ownerSVGElement) : !visible(el))
           || el.closest(".mascot, [hidden]") || read(el).display === "none") continue;
       const style = read(el);
@@ -131,7 +132,11 @@ function contrastPairs(dark) {
       const style = read(el);
       const sides = ["Top", "Right", "Bottom", "Left"].filter((side) =>
         parseFloat(style[`border${side}Width`]) > 0 && color(style[`border${side}Color`])[3] > 0);
-      if (sides.length) measure(el, style[`border${sides[0]}Color`], 3, "control border", true);
+      const essentialEdge = el.matches(".settings-disclosure, .settings-nav [aria-current], .connection-tabs [aria-selected=true], "
+        + ".connection-filters :is(input, select), .connector-controls input, .rescan, .skill-primary, #skill-versions, #skill-markdown");
+      if (sides.length && (dark || (essentialEdge && !el.closest(":disabled, [aria-disabled=true]")))) {
+        measure(el, style[`border${sides[0]}Color`], 3, "control border", true);
+      }
       if (el.matches(":focus-visible") && parseFloat(style.outlineWidth) && style.outlineStyle !== "none") {
         measure(el, style.outlineColor, 3, "focus indicator", parseFloat(style.outlineOffset) >= 0);
       }
@@ -148,7 +153,8 @@ function contrastPairs(dark) {
 }
 
 async function audit(page, state, scheme, width) {
-  const pairs = await page.evaluate(contrastPairs, scheme === "dark");
+  const changedControls = /^Settings (Connections|Skills)|^workspace drawer$|^Chat$/.test(state);
+  const pairs = await page.evaluate(contrastPairs, { dark: scheme === "dark", changedControls });
   assert.ok(pairs.length, `No visible elements in ${state}`);
   measurements += pairs.length;
   for (const pair of pairs) {
@@ -174,6 +180,39 @@ async function go(page, id) {
     await page.locator(`.sidebar [data-view=${id}]`).click();
   }
   await page.locator(`#${id}-view`).waitFor();
+}
+
+async function chooseSetting(page, id) {
+  const disclosure = page.locator(`.settings-disclosure[aria-controls=settings-${id}]`);
+  const panel = page.locator(`#settings-${id}`);
+  if (!await panel.isVisible()) {
+    const control = await disclosure.isVisible() ? disclosure : page.locator(`[data-settings=${id}]`);
+    await control.click();
+  }
+  await panel.waitFor();
+}
+
+async function checkMovedSettings(page, check, shot) {
+  await chooseSetting(page, "connections");
+  for (const name of ["Configured", "Not configured"]) {
+    const tab = page.getByRole("tab", { name: new RegExp(`^${name}`) });
+    await tab.click();
+    const panel = page.locator(`#${await tab.getAttribute("aria-controls")}`);
+    await panel.locator(".connection-card").first().waitFor();
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth));
+    await check(`Settings Connections ${name}`);
+    await shot(`settings-connections-${await panel.getAttribute("id")}`);
+  }
+  await chooseSetting(page, "skills");
+  await page.locator("#skill-list article").first().waitFor();
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth));
+  await check("Settings Skills library");
+  await shot("settings-skills");
+  await page.locator("#skill-new").click();
+  await page.locator("#skill-editor:modal").waitFor();
+  await check("Settings Skills editor");
+  await shot("settings-skills-editor");
+  await page.locator("#skill-close").click();
 }
 
 async function drawerChecks(page) {
@@ -311,22 +350,12 @@ async function screens(scheme, width, height) {
   if (await source.isVisible()) await source.click();
   await check("Inbox and source");
   await shot("inbox");
-  await go(page, "connections");
-  for (const id of ["configured", "not-configured"]) {
-    await page.getByRole("tab", { name: id === "configured" ? /^Configured/ : /^Not configured/ }).click();
-    await page.locator(`#${id}-panel .connection-card`).first().waitFor();
-    await check(`Connections ${id}`);
-    await shot(`connections-${id}`);
-  }
   await go(page, "settings");
   await check("Settings");
   await shot("settings");
+  await checkMovedSettings(page, check, (name) => save(page, `${name}-${width}-${scheme}`));
   for (const id of ["brain", "memory", "artifacts", "search", "appearance", "voice", "reminders"]) {
-    const panel = page.locator(`#settings-${id}`);
-    if (mobile) {
-      if (!await panel.isVisible()) await page.locator(`.settings-disclosure[aria-controls=settings-${id}]`).click();
-    } else await page.locator(`[data-settings=${id}]`).click();
-    await panel.waitFor();
+    await chooseSetting(page, id);
     await check(`Settings ${id}`);
     await shot(`settings-${id}`);
   }
@@ -365,6 +394,11 @@ try {
       await page.locator("#open-menu").click();
       await page.locator("#workspace-drawer [data-view=timeline]").click();
       await page.locator(".timeline-entry").first().waitFor();
+      if (width === 375) {
+        await go(page, "settings");
+        await checkMovedSettings(page, (state) => audit(page, state, scheme, width),
+          (name) => save(page, `${name}-${width}-${scheme}`));
+      }
       await page.close();
     }
   }

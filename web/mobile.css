@@ -251,7 +251,7 @@
     border: 1px solid transparent;
     border-radius: 7px;
   }
-  .connection-tabs button[aria-selected="true"] { background: var(--paper); border-color: var(--border); }
+  .connection-tabs button[aria-selected="true"] { background: var(--paper); border-color: var(--focus); }
   .connection-grid, .connection-filters { grid-template-columns: minmax(0, 1fr); }
   .connection-summary { margin-bottom: 16px; }
 
@@ -338,7 +338,7 @@
     justify-content: space-between;
     width: 100%;
     padding: 11px 13px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--focus);
     border-radius: 10px;
     background: var(--paper);
     color: inherit;
@@ -358,7 +358,7 @@
   .settings-disclosure[aria-expanded="true"]::after { transform: rotate(225deg); }
   .settings-heading:has([aria-expanded="false"]) + div { display: none; }
   .settings-sections > div { min-width: 0; padding-block: 6px 14px; }
-  .settings-sections > div > .section-intro h2 { display: none; }
+  .settings-sections > div > .section-intro > h2 { display: none; }
   .settings-layout, .field-pair { grid-template-columns: minmax(0, 1fr); }
   .settings-layout > *, .preference-fields > * { min-width: 0; }
   .reminder-action-page {

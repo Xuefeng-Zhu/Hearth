@@ -45,7 +45,7 @@ def clean_transcript(text):
 
 def transcribe(gateway, connection, data, content_type, language):
     if not connection:
-        raise VoiceError("Connect Hugging Face in Connections or choose Browser in Settings → Voice.", 409)
+        raise VoiceError("Connect Hugging Face in Settings → Connections or choose Browser in Settings → Voice.", 409)
     if not ATTACHMENT_AUDIO_TYPES[content_type](data):
         raise VoiceError("The recording does not match its audio format.", 415)
     if language != "auto" and not re.fullmatch(r"[a-z]{2,3}", language):

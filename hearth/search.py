@@ -161,7 +161,7 @@ def search(gateway, config, selection, query, failure, *, preferred=None):
     if not entries:
         if selection["provider"] == "off":
             raise HearthError("Web search is off in Settings.")
-        raise HearthError("No selected search provider is connected. Connect in Connections.")
+        raise HearthError("No selected search provider is connected. Connect in Settings → Connections.")
     recency = selection["recency"]
     cutoff = (datetime.now(timezone.utc).date() - timedelta(days=DAYS[recency])) if recency in DAYS else None
     warnings = []

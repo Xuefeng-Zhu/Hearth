@@ -184,7 +184,7 @@ export function createVoiceInput({ update, meter, deliver }) {
       ? recordTypes.find((type) => MediaRecorder.isTypeSupported(type)) : "";
     let unsupported;
     if (!window.isSecureContext) unsupported = "Voice input requires HTTPS or localhost.";
-    else if (engine === "whisper" && !connected) unsupported = "Connect Hugging Face in Connections to use Whisper.";
+    else if (engine === "whisper" && !connected) unsupported = "Connect Hugging Face in Settings → Connections to use Whisper.";
     else if (engine === "whisper" && !mime) unsupported = "This browser cannot record audio for Whisper. Try Browser in Settings → Voice.";
     else if (engine === "browser" && !Recognition) unsupported = "This browser does not support speech recognition. Connect Hugging Face to use Whisper.";
     else if (!navigator.mediaDevices?.getUserMedia) unsupported = "Microphone capture is unavailable in this browser.";

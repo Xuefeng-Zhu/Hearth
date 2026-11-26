@@ -121,7 +121,7 @@ class SearchTest(unittest.TestCase):
                 self.assertEqual("web_search" in definitions, active)
                 self.assertEqual(http.requests, [])
                 if not active:
-                    with self.assertRaisesRegex(HearthError, "off|Connect in Connections"):
+                    with self.assertRaisesRegex(HearthError, "off|Connect in Settings → Connections"):
                         agent.web_search("where is the manual")
 
     def test_invalid_options_are_rejected(self):

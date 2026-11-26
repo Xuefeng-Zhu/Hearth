@@ -1601,7 +1601,7 @@ class Agent:
         if name == "gateway_request":
             provider = arguments.get("provider")
             if provider not in self.gateway_connections:
-                raise HearthError("This provider is not connected. Open Connections to set it up.")
+                raise HearthError("This provider is not connected. Open Settings → Connections to set it up.")
             method, path = validate_request(provider, arguments.get("method"), arguments.get("path"), arguments.get("body"))
             if method == "GET":
                 return self.gateway_request(**arguments)
@@ -1647,7 +1647,7 @@ class Agent:
             provider = args["provider"]
             config = self.gateway_connections.get(provider)
             if not config:
-                raise HearthError("This provider is not connected. Open Connections to set it up.")
+                raise HearthError("This provider is not connected. Open Settings → Connections to set it up.")
             method, path = validate_request(provider, args["method"], args["path"], args.get("body"))
             request = {"provider": provider, "method": method, "path": "/" + path, "body": args.get("body")}
             body = request["body"] if isinstance(request["body"], dict) else {}
@@ -2043,7 +2043,7 @@ class Agent:
 
     def gateway_request(self, provider, method, path, body=None):
         if not isinstance(provider, str) or provider not in self.gateway_connections:
-            raise HearthError("This provider is not connected. Open Connections to set it up.")
+            raise HearthError("This provider is not connected. Open Settings → Connections to set it up.")
         config = self.gateway_connections[provider]
         method, path = validate_request(provider, method, path, body)
         if method == "GET":

@@ -28,7 +28,7 @@ class MemorySync:
         config = self.app.agent.config
         if not self.app.memory_index.available(config)["pinecone"]:
             if mode in ("sync", "rebuild"):
-                raise HearthError("Connect Pinecone in Connections first.")
+                raise HearthError("Connect Pinecone in Settings → Connections first.")
             return
         with self.lock:
             manual = mode in ("sync", "rebuild")

@@ -9,7 +9,7 @@ const builtIns = {
   files: { title: "Recent files", icon: "files", page: "artifacts", link: "Open Artifacts" },
   memory: { title: "Memory", icon: "book", page: "memory", link: "Open Memory" },
   activity: { title: "Activity", icon: "activity", page: "timeline", link: "Open Timeline" },
-  connections: { title: "Connections health", icon: "plug", page: "connections", link: "Open Connections" },
+  connections: { title: "Connections health", icon: "plug" },
 };
 const kindIcons = { stat: "activity", list: "list", checklist: "check", countdown: "clock", note: "file-text",
   "web-summary": "monitor" };
@@ -89,7 +89,7 @@ function updatedLabel(value) {
   return `Updated ${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
-export function createHome({ api, openView, openWeatherSettings, openFile, openPanelChat, openDemo, onData }) {
+export function createHome({ api, openView, openWeatherSettings, openConnections, openFile, openPanelChat, openDemo, onData }) {
   const section = get("home-view");
   const grid = get("home-grid");
   const edit = get("home-edit");
@@ -311,12 +311,12 @@ export function createHome({ api, openView, openWeatherSettings, openFile, openP
       footer.append(node("p", "home-error", row.value === null ? row.error : `Showing last value. ${row.error}`));
     }
     const links = node("div", "home-card-links");
-    if (kind) {
+    if (id === "connections" || (!kind && row.source.type === "connector")) {
+      links.append(control("Open Connections", openConnections));
+    } else if (kind) {
       links.append(control(kind.link, () => kind.page === "weather" ? openWeatherSettings() : openView(kind.page)));
     } else if (row.source.type === "url" && /^https?:\/\//.test(row.source.url)) {
       links.append(detailLink("Open source", row.source.url));
-    } else if (row.source.type === "connector") {
-      links.append(control("Open Connections", () => openView("connections")));
     }
     const ask = control("Ask about this", async () => {
       ask.disabled = true;

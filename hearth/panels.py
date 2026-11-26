@@ -343,7 +343,7 @@ def read_source(agent, row):
         provider = source["provider"]
         current = agent.gateway_connections.get(provider)
         if not current:
-            raise HearthError("The saved connector is disconnected. Check Connections.")
+            raise HearthError("The saved connector is disconnected. Check Settings → Connections.")
         _, path = validate_request(provider, "GET", source["path"], None)
         try:
             result = gateway_read(agent.tools.gateway, current, path)

@@ -54,6 +54,8 @@
   overflow-wrap: anywhere;
 }
 .skill-chip svg { flex: none; }
+a.skill-chip { text-underline-offset: 2px; }
+a.skill-chip:hover { background: var(--nav-active); color: var(--selection-text); }
 .message-body > .skill-chip { margin-bottom: 6px; }
 .skill-button {
   display: inline-flex;
@@ -72,6 +74,9 @@
 .skill-button:hover, .skill-mode [aria-pressed="true"] { background: var(--accent-light); }
 .skill-button.skill-primary { background: var(--accent-fill); color: var(--on-solid); border-color: var(--accent-fill); }
 .skill-button.skill-primary:hover { background: var(--accent-fill-hover); }
+@media (prefers-color-scheme: dark) {
+  .skill-button.skill-primary { border-color: var(--control-border); }
+}
 .skill-danger { color: var(--artifact-error-text); }
 .skill-editor {
   max-width: none;

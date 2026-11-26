@@ -16,7 +16,7 @@ from hearth.storage import ROOT, Storage
 from test_uploads import image_bytes, pdf_bytes
 
 STAMP = "2026-11-25T01:16:00+00:00"
-ORDER = ["Home", "Chat", "Timeline", "Artifacts", "Reminders", "Inbox", "Connections", "Memory", "Skills", "Settings"]
+ORDER = ["Home", "Chat", "Timeline", "Artifacts", "Reminders", "Inbox", "Memory", "Settings"]
 BOOK = {"title": "Seattle travel budget", "sheets": [
     {"name": "Budget", "headers": ["TripExpenseCategory", "ProjectedCostInUSD",
                                   "DetailsForTravelPlanning", "ResponsiblePersonForPayment"],
@@ -68,11 +68,12 @@ def test_navigation(page, mobile, output, label):
         expect(sidebar).to_be_visible()
         settings = sidebar.get_by_role("button", name="Settings")
         edges = settings.bounding_box()
-        assert edges["y"] > 760, edges
-        scrolled = sidebar.locator(".threads").evaluate("(e) => { e.scrollTop = 200; return e.scrollTop; }")
+        assert edges["y"] > page.viewport_size["height"] - 80, edges
+        drawer_body = sidebar.locator(".workspace-drawer-body")
+        scrolled = drawer_body.evaluate("(e) => { e.scrollTop = 200; return e.scrollTop; }")
         assert scrolled > 0
         assert settings.bounding_box()["y"] == edges["y"]
-        sidebar.locator(".threads").evaluate("(e) => e.scrollTop = 0")
+        drawer_body.evaluate("(e) => e.scrollTop = 0")
     else:
         sidebar = page.locator(".sidebar")
         assert sidebar.get_by_role("button", name="Settings").bounding_box()["y"] > 780
@@ -202,11 +203,11 @@ def run(options, directory):
         base = f"http://127.0.0.1:{server.server_port}"
         browser = playwright.chromium.launch(executable_path=options.chromium)
         try:
-            for width, mobile in [(1440, False), (390, True)]:
+            for width, height, mobile in [(1440, 900, False), (390, 844, True), (375, 812, True)]:
                 for theme in ["light", "dark"]:
                     label = f"{width}-{theme}"
                     context = browser.new_context(
-                        viewport={"width": width, "height": 900 if not mobile else 844},
+                        viewport={"width": width, "height": height},
                         color_scheme=theme, locale="en-US", timezone_id="UTC", reduced_motion="reduce",
                         is_mobile=mobile, has_touch=mobile, permissions=["clipboard-read", "clipboard-write"],
                     )

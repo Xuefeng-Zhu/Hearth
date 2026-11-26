@@ -1,4 +1,4 @@
-"""Exercise the Skills workflow in Chromium and capture the four viewport/theme combinations."""
+"""Exercise Settings → Skills in Chromium across desktop and mobile themes."""
 
 import argparse
 import re
@@ -16,7 +16,7 @@ from hearth.server import Application, HTTPServer
 from hearth.storage import ROOT, Storage
 from test_skills import Disconnected, playbook
 
-NAV = ["home", "chat", "timeline", "artifacts", "reminders", "inbox", "connections", "memory", "skills", "settings"]
+NAV = ["home", "chat", "timeline", "artifacts", "reminders", "inbox", "memory", "settings"]
 DINNER = "Plan a dinner party"
 CHAT_SKILL = "Water the seedlings"
 CONTRAST = """(root) => {
@@ -67,8 +67,15 @@ def choose(page, label, mobile):
     expect(page.get_by_role("heading", name=label, exact=True, level=1)).to_be_visible()
 
 
+def open_skills(page, mobile):
+    choose(page, "Settings", mobile)
+    section = page.locator('.settings-disclosure[aria-controls="settings-skills"]' if mobile else '[data-settings="skills"]')
+    expect(section.locator("svg")).to_have_count(1)
+    section.click()
+
+
 def verify(page, origin, width, theme, output, app):
-    mobile = width == 390
+    mobile = width < 760
     page.add_init_script('localStorage.setItem("hearth-avatar-view", "beside")')
     errors = []
     captures = []
@@ -89,13 +96,15 @@ def verify(page, origin, width, theme, output, app):
         assert page.evaluate("document.documentElement.scrollWidth === innerWidth")
         page.screenshot(path=output / f"{name}-{width}-{theme}.png", animations="disabled")
 
-    choose(page, "Skills", mobile)
+    page.goto(origin + "/#skills")
+    expect(page).to_have_url(origin + "/#settings/skills")
+    expect(page.get_by_role("heading", name="Settings", level=1)).to_be_visible()
     expect(page.get_by_role("heading", name="Playbook library")).to_be_visible()
     dinner = page.get_by_role("button", name=DINNER, exact=True)
     expect(dinner).to_be_visible()
     expect(page.locator(".skill-badge")).to_have_count(4)
     expect(page.get_by_text("Never used", exact=True)).to_have_count(4)
-    capture("skills-library", "#skills-view")
+    capture("skills-library", "#settings-skills")
 
     dinner.focus()
     page.keyboard.press("Enter")
@@ -146,7 +155,7 @@ def verify(page, origin, width, theme, output, app):
     change.get_by_role("button", name="Undo change").click()
     expect(change.get_by_text("Undone", exact=True)).to_be_visible()
 
-    choose(page, "Skills", mobile)
+    open_skills(page, mobile)
     expect(page.get_by_role("button", name="Pack for camp")).to_be_visible()
     dinner.click()
     editor.get_by_role("button", name="Duplicate to edit").click()
@@ -159,9 +168,10 @@ def verify(page, origin, width, theme, output, app):
     message = page.locator("#message")
     message.fill("Make a menu for four this Saturday.")
     page.get_by_role("button", name="Send message").click()
-    chip = page.locator("#transcript .skill-chip").get_by_text(f"Using skill: {DINNER}", exact=True)
+    chip = page.locator("#transcript").get_by_role("link", name=f"Using skill: {DINNER}", exact=True)
     expect(chip).to_be_visible()
-    expect(chip.locator("..").locator("svg")).to_have_count(1)
+    expect(chip.locator("svg")).to_have_count(1)
+    expect(chip).to_have_attribute("href", "#settings/skills/plan-dinner-party")
     expect(page.get_by_text("Confirm allergies and quantities before shopping.", exact=False)).to_be_visible()
     expect(page.get_by_role("heading", name="Shopping list", exact=True)).to_be_visible()
     expect(page.get_by_text(re.compile(r"^XLSX · "))).to_be_visible()
@@ -169,7 +179,19 @@ def verify(page, origin, width, theme, output, app):
     page.reload(wait_until="domcontentloaded")
     choose(page, "Chat", mobile)
     expect(chip).to_be_visible()
-    choose(page, "Skills", mobile)
+    chip.press("Enter")
+    expect(page).to_have_url(origin + "/#settings/skills/plan-dinner-party")
+    expect(editor).to_be_visible()
+    page.go_back()
+    expect(chip).to_be_visible()
+    expect(editor).to_be_hidden()
+    page.go_forward()
+    expect(editor).to_be_visible()
+    page.reload()
+    expect(editor).to_be_visible()
+    editor.get_by_role("button", name="Close skill editor").click()
+    expect(page).to_have_url(origin + "/#settings/skills")
+    expect(dinner).to_be_focused()
     dinner_card = dinner.locator("xpath=ancestor::article")
     expect(dinner_card.get_by_text("1 use", exact=True)).to_be_visible()
     expect(dinner_card.locator("time")).to_have_attribute("datetime", re.compile(r"^\d{4}-\d{2}-\d{2}T"))
@@ -222,7 +244,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=args.chromium)
-        for width, height in ((390, 844), (1440, 1000)):
+        for width, height in ((375, 812), (390, 844), (1440, 1000)):
             for theme in ("light", "dark"):
                 with TemporaryDirectory() as directory:
                     storage = Storage(directory)
@@ -233,7 +255,7 @@ def main():
                         worker = threading.Thread(target=server.serve_forever, daemon=True)
                         worker.start()
                         context = browser.new_context(viewport={"width": width, "height": height}, color_scheme=theme,
-                                                      is_mobile=width == 390, has_touch=width == 390)
+                                                      is_mobile=width < 760, has_touch=width < 760)
                         try:
                             verify(context.new_page(), f"http://127.0.0.1:{server.server_port}", width, theme, args.output, app)
                         finally:

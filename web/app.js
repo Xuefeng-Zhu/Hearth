@@ -29,6 +29,7 @@ const chatScroll = byId("chat-scroll");
 const mobile = setupMobile({ nearBottom, scrollDown });
 const settingsTabs = [...document.querySelectorAll("[data-settings]")];
 const settingsDisclosures = new Map();
+const connectionsLabel = "Settings → Connections";
 const dateFormat = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
 const messageTime = timeFormatter({ hour: "numeric", minute: "2-digit" });
 const modelNames = {
@@ -104,7 +105,6 @@ const timeline = createTimeline({
 });
 const artifactLibrary = createArtifacts({
   api, showNotice, openThread: openArtifactThread,
-  openConnections: () => openView("connections"),
   refreshChat: async () => { if (view === "chat") await refreshView(); },
   onFilter: selectArtifactFilter,
 });
@@ -114,7 +114,14 @@ const automation = createAutomation({
     await openView("chat");
   },
 });
-const skills = createSkills({ api, openChat: openSkillChat });
+const skills = createSkills({
+  api, openChat: openSkillChat,
+  onLinkedClose(id) {
+    if (location.hash === settingsHash("skills", id)) {
+      history.replaceState(history.state, "", settingsHash("skills"));
+    }
+  },
+});
 const faceWorkers = createWorkersCard({ stop: stopWorkers });
 const homeWorkers = createWorkersCard({
   heading: "Running now", stop: stopWorkers,
@@ -127,7 +134,7 @@ const proactivity = createProactivity({ api,
   runSuggestion: (id) => chat("", { keepDraft: true, suggestion: id }),
 });
 const homePage = createHome({
-  api, openView, openWeatherSettings, openPanelChat, openDemo,
+  api, openView, openWeatherSettings, openConnections, openPanelChat, openDemo,
   openFile: (file, trigger) => artifactLibrary.open(file.id, trigger, file),
   onData(data) {
     setTimeZone(data.timezone);
@@ -144,7 +151,7 @@ const homePage = createHome({
   },
 });
 const delivery = createReminders({
-  api, openView, openSettings, onInbox: automation.inbox, currentView: () => view, currentSettings: () => settingsSection,
+  api, openView, openSettings: openSettingsSection, onInbox: automation.inbox, currentView: () => view, currentSettings: () => settingsSection,
   startSending: () => avatarSignal(currentThread, { type: "tool_started", title: "Sending reminder" }),
   stopSending: () => avatarSignal(currentThread, { type: "tool_finished" }),
 });
@@ -373,7 +380,7 @@ function showVoiceEngine() {
   const connected = whisperConnected();
   const browser = window.SpeechRecognition || window.webkitSpeechRecognition;
   const status = engine === "whisper"
-    ? (connected ? "Hugging Face is connected." : "Connect Hugging Face in Connections to use Whisper.")
+    ? (connected ? "Hugging Face is connected." : "Connect Hugging Face in Settings → Connections to use Whisper.")
     : engine === "auto" && connected ? "Auto will use Hugging Face Whisper."
       : browser ? "Browser uses its default speech language when Language is set to Auto."
         : "This browser does not support speech recognition. Connect Hugging Face to use Whisper.";
@@ -449,7 +456,18 @@ function button(label, action) {
 function showNotice(message = "") {
   const target = byId("workspace-drawer").open ? byId("drawer-notice") : notice;
   target.hidden = !message;
-  target.textContent = message;
+  showConnectionGuidance(target, String(message ?? ""));
+}
+
+function showConnectionGuidance(target, message) {
+  const start = message.indexOf(connectionsLabel);
+  if (start === -1) {
+    target.textContent = message;
+    return;
+  }
+  const link = node("a", "connection-guidance", connectionsLabel);
+  link.href = connectionHash();
+  target.replaceChildren(message.slice(0, start), link, message.slice(start + connectionsLabel.length));
 }
 
 async function api(path, data, signal) {
@@ -1082,7 +1100,9 @@ function renderChat(force = false) {
     }
     if (turn.browse) turn.bubble.cards.append(browseCard(turn.browse));
     if (turn.error) {
-      if (turn.text) turn.bubble.notices.append(node("p", "model-warning", turn.error));
+      const target = turn.text ? node("p", "model-warning") : turn.bubble.text;
+      showConnectionGuidance(target, turn.error);
+      if (turn.text) turn.bubble.notices.append(target);
       const retry = iconButton("retry", "Edit and retry", () =>
         restorePrompt({ text: turn.user?.content || turn.prompt, attachments: turn.attachments }));
       turn.bubble.cards.append(retry);
@@ -1161,7 +1181,7 @@ function renderWorkspaceStatus() {
 }
 
 function connectorHasError(entry) {
-  return entry.uses.length > 0 && (entry.status === "unauthorized" || ["failed", "denied"].includes(entry.test_status)
+  return entry?.uses.length > 0 && (entry.status === "unauthorized" || ["failed", "denied"].includes(entry.test_status)
     || entry.index_state === "Unavailable");
 }
 
@@ -1178,7 +1198,7 @@ async function refreshPineconeHealth() {
   if (connectionRequest || entry?.status !== "connected" ||
       (entry.index_state === "Ready" && !connectorHasError(entry))) return;
   const data = await api("/api/connections");
-  if (view === "connections" && !connectionRequest && connectionState === previous &&
+  if (isSetting("connections") && !connectionRequest && connectionState === previous &&
       JSON.stringify(data.providers.pinecone) !== JSON.stringify(entry)) {
     applyConnections(data);
   }
@@ -1192,10 +1212,7 @@ function memoryLabel(hit) {
 const memoryPage = createMemory({
   api,
   forget: (hit) => forgetMemory(hit),
-  approvals: async () => {
-    await openView("settings");
-    await openSettings("approvals");
-  },
+  approvals: () => openSettingsSection("approvals"),
 });
 
 async function renderMemory() {
@@ -1362,7 +1379,7 @@ function connectionCard(provider, entry) {
   if (entry.can_test) {
     const test = button("Test", async () => {
       await updateConnections("test", { provider });
-      if (view === "connections" && document.activeElement === document.body) byId(test.id)?.focus();
+      if (isSetting("connections") && document.activeElement === document.body) byId(test.id)?.focus();
     });
     test.id = `test-connection-${provider}`;
     test.setAttribute("aria-label", `Test ${entry.name}`);
@@ -1373,16 +1390,35 @@ function connectionCard(provider, entry) {
   return card;
 }
 
-function connectionHash(tab = "") {
-  return tab ? `#connections/${tab}` : "#connections";
+function settingsHash(section, target) {
+  return "#settings" + (section ? `/${section}` : "") + (target ? `/${encodeURIComponent(target)}` : "");
 }
 
-function tabFromHash() {
-  return configTabs.find((tab) => location.hash === connectionHash(tab));
+function connectionHash(tab) {
+  return settingsHash("connections", tab);
 }
 
-function isConnectionsRoute() {
-  return location.hash === connectionHash() || Boolean(tabFromHash());
+function isSetting(section) {
+  return view === "settings" && settingsSection === section;
+}
+
+function workspaceRoute() {
+  const hash = location.hash;
+  if (hash === "#settings") return { view: "settings", hash };
+  const [root, ...path] = hash.slice(1).split("/");
+  const [section, item, extra] = root === "settings" ? path
+    : ["connections", "skills"].includes(root) ? [root, ...path] : [];
+  if (extra === undefined && settingsDisclosures.has(section)) {
+    let target;
+    if (section === "connections" && configTabs.includes(item)) target = item;
+    if (section === "skills" && item) {
+      try { target = decodeURIComponent(item); } catch { /* Open the library for a malformed skill link. */ }
+    }
+    return { view: "settings", section, target, hash: settingsHash(section, target) };
+  }
+  const filter = artifactFilterFromHash(hash);
+  if (filter) return { view: "artifacts", hash: artifactHash(filter) };
+  if (hash === timelineErrorRoute) return { view: "timeline", hash };
 }
 
 function rememberConnectionTab(tab) {
@@ -1407,21 +1443,28 @@ function selectArtifactFilter(filter) {
 }
 
 function syncWorkspaceRoute() {
-  if (isConnectionsRoute()) {
-    const tab = tabFromHash();
-    if (tab) rememberConnectionTab(tab);
-    if (view === "connections") renderConnections();
-    else openView("connections", false);
-  } else if (artifactFilterFromHash(location.hash)) {
-    const filter = artifactFilterFromHash(location.hash);
-    if (location.hash === "#pages") history.replaceState(history.state, "", artifactHash(filter));
-    if (view === "artifacts") artifactLibrary.selectFormat(filter);
-    else openView("artifacts", false);
-  } else if (location.hash === timelineErrorRoute) {
-    openView("timeline", false);
-  } else if (view === "connections" || view === "artifacts" || view === "timeline") {
-    openView(history.state?.hearthView || "home", false);
+  const route = workspaceRoute();
+  if (!route) {
+    const previous = history.state?.hearthView;
+    openView(nav.some((item) => item.dataset.view === previous) ? previous : requestedThread ? "chat" : "home", false);
+    return;
   }
+  if (location.hash !== route.hash) history.replaceState(history.state, "", route.hash);
+  if (route.view === "artifacts" && view === "artifacts") {
+    artifactLibrary.selectFormat(artifactFilterFromHash(route.hash));
+    return;
+  }
+  if (route.section === "connections") {
+    if (route.target) rememberConnectionTab(route.target);
+    if (isSetting("connections")) {
+      expandSetting("connections");
+      renderConnections();
+      return;
+    }
+  }
+  const focusSection = route.section && !isSetting(route.section);
+  openView(route.view, false, route.section, route.target);
+  if (focusSection) focusSetting(route.section);
 }
 
 function renderConnections() {
@@ -1431,8 +1474,8 @@ function renderConnections() {
   const providersByTab = { configured, "not-configured": unconfigured };
   const defaultTab = configured.length ? "configured" : "not-configured";
   const activeConnectionTab = configTabs.includes(connectionTabPreference) ? connectionTabPreference : defaultTab;
-  if (view === "connections" && (connectionState || connectionTabPreference === activeConnectionTab)
-      && location.hash !== connectionHash(activeConnectionTab)) {
+  if (isSetting("connections") && location.hash === connectionHash()
+      && (connectionState || connectionTabPreference === activeConnectionTab)) {
     history.replaceState(history.state, "", connectionHash(activeConnectionTab));
   }
 
@@ -1502,7 +1545,7 @@ function connectionGroups(entries) {
 
 function setConnectionsBusy(value) {
   byId("rescan-connections").setAttribute("aria-disabled", String(value));
-  for (const control of byId("connections-view").querySelectorAll(".connection-grid button, .connection-grid input")) {
+  for (const control of byId("settings-connections").querySelectorAll(".connection-grid button, .connection-grid input")) {
     control.disabled = value;
   }
 }
@@ -1778,7 +1821,7 @@ async function loadBrainModels() {
   const selected = saved.provider === choice.provider ? saved.model : choice.default_model;
   brainModel.replaceChildren(new Option("Enter a model ID…", ""));
   customModel.value = selected;
-  modelDetail.textContent = choice.available ? "Loading chat models…" : "Re-scan in Connections after authorizing this provider.";
+  modelDetail.textContent = choice.available ? "Loading chat models…" : "Refresh Settings → Connections after authorizing this provider.";
   if (!choice.available || !choice.supported) {
     setBrainControls();
     return;
@@ -1945,7 +1988,7 @@ function renderSearchPreferences(info) {
   byId("search-connections").replaceChildren(...info.providers.map((entry) => {
     const row = node("li");
     row.append(node("span", "", entry.name), entry.connected ? node("span", "meta", "Connected")
-      : button("Connect in Connections", () => openView("connections")));
+      : button("Connect in Connections", openConnections));
     return row;
   }));
 }
@@ -1995,7 +2038,7 @@ function updatePreferenceControls(feature) {
     byId("search-safe-detail").hidden = !byId("search-safe").checked || !active || active.native_safe;
     byId("search-provider-detail").textContent = provider === "off" ? "Web search is off."
       : active ? provider === "auto" ? `Auto starts with ${active.name}.` : `${active.name} is connected.`
-        : "No selected provider is connected. Connect in Connections.";
+        : "No selected provider is connected. Open Settings → Connections.";
   }
 }
 
@@ -2037,8 +2080,9 @@ function updateMemoryJobs({ pinecone, sync, reindex }) {
   } else if (job) {
     status.textContent = `Local index · ${job.total} excerpts · ${job.embedded} embedded`;
   } else {
-    status.textContent = pinecone.connected ? "Ready to sync memories." : "Connect Pinecone in Connections.";
+    status.textContent = pinecone.connected ? "Ready to sync memories." : "Pinecone is disconnected.";
   }
+  byId("memory-connect").hidden = pinecone.connected && !connectorHasError(connectionState?.providers.pinecone);
 
   updatePreferenceControls("memory");
   if (running && view === "settings" && settingsSection === "memory") {
@@ -2078,9 +2122,14 @@ function expandSetting(section) {
   if (mobile.isMobile()) settingsDisclosures.get(section)?.scrollIntoView({ block: "nearest" });
 }
 
-async function openSettings(section, expand = true) {
+function focusSetting(section) {
+  const control = mobile.isMobile() ? settingsDisclosures.get(section)
+    : settingsTabs.find((tab) => tab.dataset.settings === section);
+  control.focus({ preventScroll: true });
+}
+
+async function openSettings(section, expanded, target) {
   settingsSection = section;
-  if (expand) expandSetting(section);
   clearTimeout(reindexPoll);
   for (const item of settingsTabs) {
     const active = item.dataset.settings === section;
@@ -2088,6 +2137,17 @@ async function openSettings(section, expand = true) {
     else item.removeAttribute("aria-current");
     byId(`settings-${item.dataset.settings}`).hidden = !active;
   }
+  expandSetting(expanded ? section : undefined);
+  if (section !== "skills") skills.clearLink();
+  if (section === "connections") {
+    renderConnections();
+    const mailCard = delivery.connections();
+    await updateConnections("rescan");
+    await mailCard;
+    if (isSetting("connections")) delivery.poll();
+    return;
+  }
+  if (section === "skills") return skills.loadLinked(target);
   if (section === "brain") return openBrainSettings();
   if (section === "appearance") return;
   if (section === "artifacts") return artifactLibrary.settings();
@@ -2176,7 +2236,6 @@ async function changePreferences(feature, operation) {
 }
 
 async function refreshView() {
-  if (view === "skills") return skills.load();
   if (view === "home") return homePage.load();
   if (view === "timeline") return timeline.show();
   if (view === "artifacts") return artifactLibrary.show();
@@ -2187,22 +2246,20 @@ async function refreshView() {
   else if (view === "memory") await renderMemory();
 }
 
-async function openView(nextView, updateHistory = true) {
+async function openView(nextView, updateHistory = true, section, target) {
   const previousView = view;
   mobile.closeDrawer();
   if (nextView !== "chat") voice.cancel();
   if (updateHistory) {
-    const routedView = isConnectionsRoute() ? "connections" : artifactFilterFromHash(location.hash) ? "artifacts"
-      : location.hash === timelineErrorRoute ? "timeline" : null;
-    const hash = nextView === "connections" ? connectionHash() : nextView === "artifacts" ? artifactHash() : null;
-    if (hash && nextView !== routedView) {
-      if (!routedView) history.replaceState({ ...history.state, hearthView: view }, "");
-      history.pushState(null, "", hash);
-    } else if (!hash && routedView) {
-      history.pushState({ hearthView: nextView }, "", location.pathname + location.search);
+    const hash = nextView === "settings" ? settingsHash(section) : nextView === "artifacts" ? artifactHash() : "";
+    const sameArtifactsView = nextView === "artifacts" && workspaceRoute()?.view === "artifacts";
+    if (hash !== location.hash && !sameArtifactsView) {
+      history.pushState({ hearthView: nextView }, "", hash || location.pathname + location.search);
     }
   }
+  history.replaceState({ ...history.state, hearthView: nextView }, "");
   if (view === "timeline" && nextView !== view) timeline.hide();
+  if (nextView !== "settings") skills.clearLink();
   view = nextView;
   byId("start-call").hidden = view !== "chat";
   byId("view-title").textContent = view[0].toUpperCase() + view.slice(1);
@@ -2219,22 +2276,14 @@ async function openView(nextView, updateHistory = true) {
   paintAvatars();
   renderWorkspaceStatus();
   if (view === "timeline") timeline.setTodayErrors(location.hash === timelineErrorRoute);
-  if (view === "connections") {
-    renderConnections();
-    const mailCard = delivery.connections();
-    await updateConnections("rescan");
-    await mailCard;
-    delivery.poll();
-  } else if (view === "settings") {
-    await openSettings(settingsSection, false);
+  if (view === "settings") {
+    await openSettings(section || "brain", Boolean(section), target);
   } else if (view === "home") {
     if (previousView !== "home") byId("home-view").scrollTop = 0;
     await homePage.load();
   } else if (view === "artifacts") {
     artifactLibrary.selectFormat(artifactFilterFromHash(location.hash) || "all");
     await artifactLibrary.show();
-  } else if (view === "skills") {
-    await skills.load();
   } else if (view === "reminders" || view === "inbox") {
     await refreshView();
     if (view === "inbox") delivery.poll();
@@ -2276,10 +2325,18 @@ async function selectThread(threadId, focus = false) {
   }
 }
 
-async function openWeatherSettings() {
-  settingsSection = "home";
-  await openView("settings");
-  expandSetting("home");
+function openSettingsSection(section) {
+  return openView("settings", true, section);
+}
+
+function openWeatherSettings() {
+  return openSettingsSection("home");
+}
+
+function openConnections() {
+  const opening = openSettingsSection("connections");
+  focusSetting("connections");
+  return opening;
 }
 
 async function openPanelChat(id) {
@@ -2688,7 +2745,7 @@ byId("avatar-color-reset").addEventListener("click", () => {
   applyAppearance();
 });
 mic.addEventListener("click", () => voice.active ? voice.stop() : startVoice());
-byId("call-connections").addEventListener("click", () => openView("connections"));
+byId("call-connections").addEventListener("click", openConnections);
 byId("voice-engine").addEventListener("change", showVoiceEngine);
 byId("voice-settings-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -2850,11 +2907,15 @@ byId("memory-query").addEventListener("input", (event) => {
 for (const tab of settingsTabs) {
   const section = tab.dataset.settings;
   const panel = byId(`settings-${section}`);
-  tab.addEventListener("click", () => openSettings(section));
-  const disclosure = button(tab.textContent, () => {
+  tab.setAttribute("aria-controls", panel.id);
+  tab.addEventListener("click", () => openSettingsSection(section));
+  const disclosure = button("", () => {
     if (expandedSetting === section) expandSetting();
-    else openSettings(section);
+    else openSettingsSection(section);
   });
+  const label = node("span", "settings-label");
+  label.append(...[...tab.childNodes].map((child) => child.cloneNode(true)));
+  disclosure.append(label);
   disclosure.className = "settings-disclosure";
   disclosure.setAttribute("aria-controls", panel.id);
   disclosure.setAttribute("aria-expanded", "false");
@@ -2915,10 +2976,11 @@ let polling = false;
 window.addEventListener("offline", renderWorkspaceStatus);
 window.addEventListener("online", renderWorkspaceStatus);
 setInterval(async () => {
-  if (!["chat", "reminders", "connections", "home", "inbox"].includes(view) || busy || threadBusy || document.hidden || polling) return;
+  if ((!isSetting("connections") && !["chat", "reminders", "home", "inbox"].includes(view))
+      || busy || threadBusy || document.hidden || polling) return;
   polling = true;
   try {
-    if (view === "connections") await refreshPineconeHealth();
+    if (isSetting("connections")) await refreshPineconeHealth();
     else await refreshView();
   } catch {
     // Leave the current view intact during a transient connection failure.
@@ -2929,7 +2991,6 @@ setInterval(async () => {
 setInterval(() => { if (!document.hidden) delivery.poll(); }, 60_000);
 applyAppearance();
 renderWorkspaceStatus();
-if (isConnectionsRoute() || artifactFilterFromHash(location.hash) || location.hash === timelineErrorRoute) syncWorkspaceRoute();
-else openView(requestedThread ? "chat" : "home", false);
+syncWorkspaceRoute();
 if (!document.hidden) delivery.poll();
-if (!isConnectionsRoute()) updateConnections("rescan");
+if (!isSetting("connections")) updateConnections("rescan");

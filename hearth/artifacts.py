@@ -326,7 +326,7 @@ class Artifacts:
                             warnings.append(box.error_message(error, "loading Box versions"))
             if row.get("box_id") and not client:
                 if "content" not in row:
-                    warnings.append("Connect the original Box account in Connections to preview this file.")
+                    warnings.append("Connect the original Box account in Settings → Connections to preview this file.")
             if versions and row.get("box_id") and history_source is None:
                 history_source = "hearth"
                 with self.storage.lock():
