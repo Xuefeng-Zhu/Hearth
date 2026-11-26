@@ -19,6 +19,8 @@ import { createSkills, skillChip } from "./skills.js";
 import { createWorkersCard } from "./workers.js";
 import { createMemory } from "./memory.js";
 import { createMemoryReview } from "./memory-review.js";
+import { conversationView, newConversation, reconcile } from "./chat-state.js";
+import { createSSEParser } from "./sse.js";
 
 mountIcons();
 
@@ -28,6 +30,7 @@ const transcript = byId("transcript");
 const input = byId("message");
 const send = byId("send");
 const stopReply = byId("stop-reply");
+const replyStatus = byId("reply-status");
 const notice = byId("notice");
 const chatScroll = byId("chat-scroll");
 const mobile = setupMobile({ nearBottom, scrollDown, refreshThreads: refreshDrawerThreads });
@@ -74,11 +77,15 @@ const connectionPanels = new Map();
 const connectionDrafts = new Map();
 const gatewayResults = new Map();
 const threadDrafts = new Map();
-const turns = new Set();
 const mainThread = { id: "main", title: "Main", busy: false };
 let threadList = [mainThread];
 const requestedThread = new URLSearchParams(location.search).get("thread");
 let currentThread = requestedThread || sessionStorage.getItem("hearth-thread") || mainThread.id;
+let conversation = newConversation(currentThread);
+const localTurns = () => [...conversation.turns.values()];
+const turnBubbles = new Map();
+const stopping = new Set();
+let chatNoticeTurn;
 let selectionVersion = 0;
 let stateRequest = 0;
 let threadSignature;
@@ -96,7 +103,6 @@ let threadBusy = false;
 let state;
 let stateTag;
 let stateVariant;
-let olderPages = [];
 let olderRequest;
 let historyRefresh;
 let sidebarRequest;
@@ -320,7 +326,7 @@ function threadPose(thread, now) {
   if (callPose) return callPose;
   if (isSendingReminder(thread.id)) return { pose: "working", detail: "Sending reminder" };
   const pose = avatarPose(avatarState(thread.id, now), now, isWorking(thread));
-  const local = [...turns].some((turn) => turn.threadId === thread.id && turn.user && !turn.finished);
+  const local = localTurns().some((turn) => turn.threadId === thread.id && turn.user && !turn.finished);
   if (pose.pose === "thinking" && !local && thread.activity) return thread.activity;
   return pose;
 }
@@ -339,9 +345,10 @@ function paintAvatars() {
   byId("avatar-caption").hidden = current.pose === "idle";
   updateText(byId("face-status"), poseLabel(current));
   updateText(byId("avatar-status"), announcePose(current));
-  for (const turn of turns) {
-    if (turn.threadId === currentThread && turn.bubble?.avatar && !turn.finished) {
-      setPose(turn.bubble.avatar, current);
+  for (const turn of conversation.turns.values()) {
+    const bubble = turnBubbles.get(turn.key);
+    if (turn.threadId === currentThread && bubble?.avatar && !turn.finished) {
+      setPose(bubble.avatar, current);
     }
   }
 }
@@ -537,6 +544,7 @@ function button(label, action) {
 }
 
 function showNotice(message = "") {
+  chatNoticeTurn = undefined;
   const target = byId("workspace-drawer").open ? byId("drawer-notice") : notice;
   target.hidden = !message;
   showConnectionGuidance(target, String(message ?? ""));
@@ -862,7 +870,7 @@ function messageBubble(role, content, { message, status, prompt, working, attach
     sources.setAttribute("aria-label", "Attachment sources");
     sources.append(node("span", "", "Sources"));
     for (const id of message.attachment_citations) {
-      const file = uploadMetadata?.[id] || [...turns].flatMap((turn) => turn.attachments || [])
+      const file = uploadMetadata?.[id] || localTurns().flatMap((turn) => turn.attachments || [])
         .find((item) => item.id === id);
       if (!file) continue;
       const source = button("", (event) => artifactLibrary.openAttachment(file, event.currentTarget));
@@ -980,7 +988,7 @@ function actionCard(action) {
     if (action.mock) card.append(node("p", "meta", "Mock browser action"));
     if (action.status === "pending") {
       const approveBrowse = button("Approve browser action", () => chat("", { approval: action, keepDraft: true }));
-      approveBrowse.disabled = [...turns].some((turn) => turn.approval?.id === action.id && !turn.finished);
+      approveBrowse.disabled = localTurns().some((turn) => turn.approval?.id === action.id && !turn.finished);
       card.append(approveBrowse);
     } else if (action.status === "complete") {
       card.append(node("p", "meta", "Completed"));
@@ -1011,7 +1019,7 @@ function actionCard(action) {
 }
 
 function isWorking(thread) {
-  return thread?.busy || [...turns].some((turn) => turn.threadId === thread?.id && !turn.finished);
+  return thread?.busy || localTurns().some((turn) => turn.threadId === thread?.id && !turn.finished);
 }
 
 const threadMenu = byId("thread-menu");
@@ -1159,54 +1167,62 @@ function workersCard(workers) {
   return widget.card;
 }
 
-const activeReply = () => [...turns].find((turn) =>
+const activeReply = () => localTurns().find((turn) =>
   turn.threadId === currentThread && turn.id && !turn.finished && !turn.reply && !turn.stopped);
+
+function updateStopReply() {
+  const turn = activeReply();
+  if (!turn && document.activeElement === stopReply) input.focus({ preventScroll: true });
+  stopReply.hidden = !turn;
+  stopReply.setAttribute("aria-disabled", String(stopping.has(turn?.key)));
+}
 
 stopReply.addEventListener("click", async () => {
   const turn = activeReply();
-  if (!turn || turn.stopping) return;
-  turn.stopping = true;
-  stopReply.disabled = true;
+  if (!turn || stopping.has(turn.key)) return;
+  stopping.add(turn.key);
+  updateStopReply();
   try {
     const result = await api("/api/chat/stop", { thread_id: turn.threadId, reply_id: turn.id });
-    if (!result.stopped && !turn.finished) showNotice("This reply has already finished.");
+    if (!result.stopped && activeReply()?.key === turn.key) showNotice("This reply has already finished.");
   } catch (error) {
     showNotice(error.message);
   } finally {
-    turn.stopping = false;
-    stopReply.disabled = !!activeReply()?.stopping;
+    stopping.delete(turn.key);
+    updateStopReply();
   }
 });
 
-function transcriptData() {
-  if (state?.thread_id !== currentThread) return {};
-  if (!olderPages.length) return state;
-  const messages = new Map(), actions = new Map(), workers = new Map();
-  const message_artifacts = {}, message_uploads = {};
-  for (const page of [...olderPages, state]) {
-    for (const message of page.messages) {
-      messages.set(message.id, message);
-      delete message_artifacts[message.id];
+function updateConversation(update) {
+  const result = reconcile(conversation, update);
+  const changed = conversation !== result.state;
+  conversation = result.state;
+  const announcements = [];
+  for (const { turn, reply } of result.completed) {
+    if (update.type !== "stream") {
+      artifactLibrary.endBrowse(turn.browse?.id);
+      avatarSignal(turn.threadId, { type: "done", remembered: !!reply.remembered?.length });
     }
-    for (const action of page.actions) actions.set(action.id, action);
-    for (const worker of page.workers) workers.set(worker.id, worker);
-    Object.assign(message_artifacts, page.message_artifacts);
-    Object.assign(message_uploads, page.message_uploads);
+    if (chatNoticeTurn === turn.key) {
+      showNotice();
+    }
+    if (turn.threadId === currentThread && view === "chat" && !byId("workspace-drawer").open) {
+      const excerpt = [...reply.content.replace(/\s+/g, " ").trim()];
+      const clipped = excerpt.slice(0, 99).join("");
+      const snippet = excerpt.length > 100 ? `${clipped.replace(/\s+\S*$/, "")}…` : excerpt.join("");
+      announcements.push(node("span", "", snippet ? `Hearth replied. ${snippet}` : "Hearth replied."));
+    }
   }
-  return { messages: [...messages.values()], actions: [...actions.values()], workers: [...workers.values()],
-    message_artifacts, message_uploads, previous_prompt: olderPages[0].previous_prompt };
+  if (announcements.length) replyStatus.replaceChildren(...announcements);
+  return { changed, turn: result.turn };
 }
 
 function renderChat(force = false, preserveScroll = false) {
   renderThreads();
-  const history = transcriptData();
+  const { transcript: history, local } = conversationView(conversation);
   const actions = new Map((history.actions || []).map((action) => [action.id, action]));
   const messages = history.messages || [];
-  const local = [...turns].filter((turn) => turn.threadId === currentThread);
-  const replyToStop = activeReply();
-  if (!replyToStop && document.activeElement === stopReply) input.focus({ preventScroll: true });
-  stopReply.hidden = !replyToStop;
-  stopReply.disabled = !!replyToStop?.stopping;
+  updateStopReply();
   const workers = new Map();
   for (const worker of history.workers || []) {
     if (!workers.has(worker.turn_id)) workers.set(worker.turn_id, []);
@@ -1220,12 +1236,12 @@ function renderChat(force = false, preserveScroll = false) {
   const signature = JSON.stringify([currentThread, messages, threadList.map((thread) => thread.title),
     avatarLook, avatarColor, busy,
     history.message_artifacts, history.message_uploads, state?.timezone, history.workers, remoteBrowse, remoteSkill, thread?.skill,
-    local.map(({ approval, finished }) => [approval?.id, finished]),
+    local.map(({ user, reply, approval, finished }) => [user?.id, reply?.id, approval?.id, finished]),
     messages.flatMap((message) => (message.action_ids || []).map((id) => actions.get(id)))]);
   if (!force && signature === chatSignature) return;
   chatSignature = signature;
   const follow = !preserveScroll && nearBottom();
-  const saved = new Set(messages.map((message) => message.id));
+  turnBubbles.clear();
   const rows = [];
   const nextRows = new Map();
   byId("welcome").hidden = currentThread !== mainThread.id || !!(messages.length || local.length);
@@ -1277,38 +1293,38 @@ function renderChat(force = false, preserveScroll = false) {
     if (message.role === "user") previousPrompt = { text: message.content, attachments };
   }
   for (const turn of local) {
-    turn.bubble = undefined;
-    if (!turn.approval && !saved.has(turn.user?.id)) {
+    if (turn.showPrompt) {
       rows.push(messageBubble("user", turn.user?.content || turn.prompt, {
         message: turn.user, status: turn.user ? undefined : "Queued", attachments: turn.attachments,
       }).item);
     }
-    if (saved.has(turn.reply?.id) || (!turn.user && !turn.approval && !turn.error && !turn.stopped)) continue;
+    if (!turn.showReply) continue;
     const content = turn.reply ? turn.reply.content
       : turn.text || turn.error || (turn.stopped ? "Reply stopped." : turn.browse ? "" : turnProgress(turn));
-    turn.bubble = messageBubble("assistant", content, {
+    const bubble = messageBubble("assistant", content, {
       message: turn.reply, skill: turn.skill, prompt: { text: turn.prompt, attachments: turn.attachments },
       working: !turn.reply && !turn.error && !turn.text && !turn.browse && !turn.stopped,
     });
-    turn.bubble.text.hidden = !content && !!turn.browse;
-    rows.push(turn.bubble.item);
+    turnBubbles.set(turn.key, bubble);
+    bubble.text.hidden = !content && !!turn.browse;
+    rows.push(bubble.item);
     const workerRows = turn.workers?.size ? [...turn.workers.values()] : workers.get(turn.user?.id);
-    if (workerRows?.length) turn.bubble.cards.append(workersCard(workerRows));
-    for (const warning of turn.warnings) turn.bubble.notices.append(node("p", "model-warning", warning));
-    if (turn.stopped && turn.text) turn.bubble.notices.append(node("p", "model-warning", "Reply stopped."));
+    if (workerRows?.length) bubble.cards.append(workersCard(workerRows));
+    for (const warning of turn.warnings) bubble.notices.append(node("p", "model-warning", warning));
+    if (turn.stopped && turn.text) bubble.notices.append(node("p", "model-warning", "Reply stopped."));
     for (const action of turn.actions.values()) {
       const saved = actions.get(action.id);
       const current = action.worker_id && (action.status !== "pending" || saved?.status === "pending") ? action : saved;
-      turn.bubble.cards.append(actionCard(current || action));
+      bubble.cards.append(actionCard(current || action));
     }
-    if (turn.browse) turn.bubble.cards.append(browseCard(turn.browse));
+    if (turn.browse) bubble.cards.append(browseCard(turn.browse));
     if (turn.error) {
-      const target = turn.text ? node("p", "model-warning") : turn.bubble.text;
+      const target = turn.text ? node("p", "model-warning") : bubble.text;
       showConnectionGuidance(target, turn.error);
-      if (turn.text) turn.bubble.notices.append(target);
+      if (turn.text) bubble.notices.append(target);
       const retry = iconButton("retry", "Edit and retry", () =>
         restorePrompt({ text: turn.user?.content || turn.prompt, attachments: turn.attachments }));
-      turn.bubble.cards.append(retry);
+      bubble.cards.append(retry);
     }
   }
   if ((remoteBrowse || remoteSkill) && !local.length) {
@@ -1380,34 +1396,20 @@ async function extendSidebar() {
   }
 }
 
-function updateHistory(next) {
-  if (!olderPages.length) return;
-  const oldest = next.messages[0]?.id;
-  const overlap = state?.messages.findIndex((message) => message.id === oldest);
-  if (next.history_revision !== state?.history_revision || overlap < 0) {
-    olderPages = [];
-    olderRequest = undefined;
-  } else if (overlap > 0) {
-    olderPages.push({ ...state, messages: state.messages.slice(0, overlap), cursor: next.before, archived: true });
-  }
-}
-
 async function loadOlderMessages() {
-  if (olderRequest || state?.thread_id !== currentThread) return false;
-  const before = (olderPages[0] || state).before;
+  if (olderRequest || !conversation.snapshot) return false;
+  const before = (conversation.pages[0] || conversation.snapshot).before;
   if (!before) return false;
   const thread = currentThread, version = selectionVersion;
   const request = { before };
   olderRequest = request;
   try {
     const page = await transcriptPage(thread, before);
-    if (olderRequest !== request || version !== selectionVersion || page.history_revision !== state?.history_revision) {
-      return false;
-    }
+    if (olderRequest !== request || version !== selectionVersion) return false;
     const anchor = transcript.firstElementChild;
     const messageId = anchor?.dataset.messageId;
     const top = anchor?.getBoundingClientRect().top;
-    olderPages.unshift({ ...page, cursor: before });
+    if (!updateConversation({ type: "page", page, cursor: before }).changed) return false;
     renderChat(true, true);
     const retained = chatRows.get(messageId)?.item;
     if (retained && top !== undefined) chatScroll.scrollTop += retained.getBoundingClientRect().top - top;
@@ -1426,9 +1428,9 @@ function transcriptPage(thread, before) {
 }
 
 async function refreshVisibleHistory() {
-  if (historyRefresh || view !== "chat" || document.hidden || !olderPages.length) return;
+  if (historyRefresh || view !== "chat" || document.hidden || !conversation.pages.length) return;
   const viewport = chatScroll.getBoundingClientRect();
-  const page = olderPages.find(({ messages, cursor, record_revision: revision }) => {
+  const page = conversation.pages.find(({ messages, cursor, record_revision: revision }) => {
     if (!cursor || revision === state.record_revision) return false;
     const first = chatRows.get(messages[0]?.id)?.item;
     const last = chatRows.get(messages.at(-1)?.id)?.item;
@@ -1439,12 +1441,8 @@ async function refreshVisibleHistory() {
   historyRefresh = page;
   try {
     const latest = await transcriptPage(currentThread, page.cursor);
-    const index = olderPages.indexOf(page);
-    if (index < 0 || latest.history_revision !== state.history_revision) return;
-    olderPages[index] = { ...page, ...latest, ...(page.archived ? {
-      messages: page.messages, previous_prompt: page.previous_prompt,
-    } : {}) };
-    if (view === "chat") renderChat(true, true);
+    const { changed } = updateConversation({ type: "page", page: latest, previous: page });
+    if (changed && view === "chat") renderChat(true, true);
   } catch {
     // A changed or unavailable page can be retried on the next refresh.
   } finally {
@@ -1458,7 +1456,7 @@ async function refreshState(actionId, { background } = {}) {
   const params = new URLSearchParams({ thread });
   if (actionId) params.set("action", actionId);
   const variant = params.toString();
-  const headers = stateTag && stateVariant === variant ? { "If-None-Match": stateTag } : {};
+  const headers = conversation.snapshot && stateTag && stateVariant === variant ? { "If-None-Match": stateTag } : {};
   const load = async () => {
     const response = await fetch(`/api/state?${variant}`, {
       headers, signal: AbortSignal.timeout(6000),
@@ -1481,18 +1479,17 @@ async function refreshState(actionId, { background } = {}) {
     threadDrafts.delete(deleted);
     attachmentDraft.discard(deleted);
     avatarStates.delete(deleted);
-    for (const turn of turns) if (turn.threadId === deleted) turns.delete(turn);
+    updateConversation({ type: "delete-thread", threadId: deleted });
   }
-  updateHistory(next);
+  if (conversation.snapshot?.history_revision !== next.history_revision) olderRequest = undefined;
   state = next;
+  updateConversation({ type: "snapshot", snapshot: next });
   setTimeZone(state.timezone);
   stateTag = response.headers.get("ETag");
   stateVariant = variant;
   byId("start-call").disabled = typeof state.voice_call_available !== "boolean";
   installSidebar(state.next_thread_offset == null || sidebarRequest?.revision === state.thread_revision);
   void extendSidebar();
-  const saved = new Set(state.messages.map((message) => message.id));
-  for (const turn of turns) if (saved.has(turn.reply?.id)) turns.delete(turn);
   renderBrain(state);
   paintAvatars();
   schedulePoll();
@@ -2673,7 +2670,8 @@ function activateThread(threadId) {
   currentThread = threadId;
   selectionVersion++;
   stateRequest++;
-  olderPages = [];
+  updateConversation({ type: "select", threadId });
+  replyStatus.replaceChildren();
   olderRequest = undefined;
   historyRefresh = undefined;
   sessionStorage.setItem("hearth-thread", threadId);
@@ -2779,7 +2777,7 @@ async function changeThread(operation, body = {}) {
       threadDrafts.delete(body.thread_id);
       attachmentDraft.discard(body.thread_id);
       avatarStates.delete(body.thread_id);
-      for (const turn of turns) if (turn.threadId === body.thread_id) turns.delete(turn);
+      updateConversation({ type: "delete-thread", threadId: body.thread_id });
       await refreshView();
       showNotice("Side chat deleted. Its checkpoint is in Timeline.");
     } else {
@@ -2798,12 +2796,19 @@ function turnProgress(turn) {
   return turn.activity ? `${turn.activity}…` : "Thinking…";
 }
 
-function readChatEvent(turn, name, payload) {
+function readChatEvent(key, { event: name, data, id: eventId }) {
+  const payload = JSON.parse(data);
+  if (name === "error") {
+    const turn = conversation.turns.get(key);
+    if (turn && !turn.reply && !turn.stopped) throw new Error(payload.message);
+    return;
+  }
+  const { turn } = updateConversation({ type: "stream", key, name, payload, eventId });
+  if (!turn) return;
+  const visible = turn.threadId === currentThread;
+  const bubble = visible && turnBubbles.get(key);
+
   if (name === "queued") {
-    turn.threadId = payload.thread.id;
-    turn.id = payload.reply_id;
-    turn.prompt = payload.prompt;
-    if (payload.attachments) turn.attachments = payload.attachments;
     avatarSignal(turn.threadId, { type: "queued" });
     rememberThread(payload.thread);
     if (turn.suggestion && turn.selection === selectionVersion) {
@@ -2814,63 +2819,45 @@ function readChatEvent(turn, name, payload) {
       if (view === "chat") input.focus();
     }
   } else if (name === "started") {
-    turn.user = payload.message;
     rememberThread(payload.thread);
-    avatarSignal(turn.threadId, { type: "started" });
+    if (conversation.turns.has(key)) avatarSignal(turn.threadId, { type: "started" });
   } else if (name === "token" || name === "reset") {
-    const follow = turn.threadId === currentThread && nearBottom();
-    turn.text = name === "reset" ? "" : turn.text + payload.text;
+    const follow = visible && nearBottom();
     avatarSignal(turn.threadId, { type: name, text: payload.text });
-    if (turn.bubble) {
-      turn.bubble.text.textContent = turn.text || turnProgress(turn);
-      turn.bubble.text.parentElement.classList.toggle("message-working", !turn.text);
+    if (bubble) {
+      bubble.text.textContent = turn.text || turnProgress(turn);
+      bubble.text.parentElement.classList.toggle("message-working", !turn.text);
     }
-    if (avatarMode === "face" && turn.threadId === currentThread) updateFaceCaption(turn.text);
+    if (avatarMode === "face" && visible) updateFaceCaption(turn.text);
     if (follow) scrollDown();
     return;
   } else if (name === "action") {
-    turn.actions.set(payload.id, payload);
     if (payload.kind === "reminder") {
       avatarSignal(turn.threadId, { type: "reminder", until: Date.parse(payload.job.next_at) });
     } else if (payload.status === "complete" && ["memory", "remember"].includes(payload.kind)) {
       avatarSignal(turn.threadId, { type: "celebrate" });
     }
   } else if (name === "model_warning") {
-    turn.warnings.push(payload.message);
     avatarSignal(turn.threadId, { type: "warning" });
   } else if (name === "done") {
-    turn.reply = payload.message;
     avatarSignal(turn.threadId, { type: "done", remembered: !!turn.reply.remembered?.length });
   } else if (name === "stopped") {
-    turn.stopped = true;
     avatarSignal(turn.threadId, { type: "done" });
-  } else if (name === "skill_loaded") {
-    turn.skill = payload;
-  } else if (name === "worker") {
-    turn.workers ??= new Map();
-    turn.workers.set(payload.id, payload);
-    if (turn.bubble && turn.threadId === currentThread) {
-      const follow = nearBottom();
-      const card = workersCard([...turn.workers.values()]);
-      if (card.parentElement !== turn.bubble.cards) turn.bubble.cards.prepend(card);
-      if (avatarMode === "face") updateFaceWorkers([...turn.workers.values()]);
-      if (follow) scrollDown();
-      return;
-    }
-  } else if (name === "error") {
-    throw new Error(payload.message);
+  } else if (name === "worker" && bubble) {
+    const follow = nearBottom();
+    const workers = [...turn.workers.values()];
+    const card = workersCard(workers);
+    if (card.parentElement !== bubble.cards) bubble.cards.prepend(card);
+    if (avatarMode === "face") updateFaceWorkers(workers);
+    if (follow) scrollDown();
+    return;
   } else if (name === "browse_active") {
-    turn.browse = payload;
     avatarSignal(turn.threadId, { type: "tool_started", title: `Browsing ${payload.domain}` });
   } else if (name === "browse_finished") {
-    turn.browse = undefined;
     artifactLibrary.endBrowse(payload.id);
     avatarSignal(turn.threadId, { type: "tool_finished" });
-  } else if (name === "browse_approved") {
-    turn.activity = "Starting approved browser action";
   } else if (name === "tool_started" || name === "tool_finished" || name === "demo_listening") {
-    turn.activity = payload.title;
-    if (turn.bubble && !turn.text) updateText(turn.bubble.text, turnProgress(turn));
+    if (bubble && !turn.text) updateText(bubble.text, turnProgress(turn));
     avatarSignal(turn.threadId, { type: name, title: payload.title });
     return;
   } else if (name === "remembered") {
@@ -2886,16 +2873,17 @@ function readChatEvent(turn, name, payload) {
 
 async function chat(prompt, { keepDraft = false, approval, suggestion } = {}) {
   prompt = prompt.trim();
-  if (busy || (approval && [...turns].some((turn) => turn.approval?.id === approval.id && !turn.finished))) return;
+  if (busy || (approval && localTurns().some((turn) => turn.approval?.id === approval.id && !turn.finished))) return;
   const attachments = keepDraft || approval ? [] : attachmentDraft.selected();
   if (!attachments || (!prompt && !approval && !suggestion && !attachments.length)) return;
   voice.cancel();
   const source = approval?.thread_id || currentThread;
   const command = !attachments.length && source === mainThread.id && /^\/(side|btw)(?:\s|$)/i.test(prompt);
-  const turn = { threadId: command || suggestion ? undefined : source, selection: selectionVersion, command,
-    prompt, approval, suggestion, attachments, text: "", warnings: [], actions: new Map() };
-  for (const previous of turns) if (previous.threadId === source && previous.error) turns.delete(previous);
-  turns.add(turn);
+  const key = Symbol();
+  updateConversation({ type: "begin", key, source, turn: {
+    threadId: command || suggestion ? undefined : source, selection: selectionVersion, command,
+    prompt, approval, suggestion, attachments,
+  } });
   schedulePoll();
   showNotice();
   if (!keepDraft) {
@@ -2905,6 +2893,8 @@ async function chat(prompt, { keepDraft = false, approval, suggestion } = {}) {
   resizeInput();
   renderChat(true);
   scrollDown();
+
+  let failure;
   try {
     await connectionRequest;
     const endpoint = suggestion ? "/api/proactivity/do" : approval ? "/api/browse/approve" : "/api/chat";
@@ -2918,46 +2908,41 @@ async function chat(prompt, { keepDraft = false, approval, suggestion } = {}) {
       throw new Error(body.error || "Hearth could not start this turn.");
     }
     if (suggestion && response.headers.get("Content-Type")?.startsWith("application/json")) {
-      turns.delete(turn);
+      updateConversation({ type: "discard", key });
       await openSkillChat(await response.json());
       return;
     }
-    let buffered = "";
-    for await (const chunk of response.body.pipeThrough(new TextDecoderStream())) {
-      buffered += chunk;
-      let split;
-      while ((split = buffered.indexOf("\n\n")) >= 0) {
-        const packet = buffered.slice(0, split);
-        buffered = buffered.slice(split + 2);
-        const [event, data] = packet.split("\n");
-        if (event.startsWith("event: ") && data?.startsWith("data: ")) {
-          readChatEvent(turn, event.slice(7), JSON.parse(data.slice(6)));
+    const parser = createSSEParser();
+    for await (const chunk of response.body) {
+      for (const event of parser.push(chunk)) readChatEvent(key, event);
+    }
+    const pending = conversation.turns.get(key);
+    if (pending && !pending.reply && !pending.stopped) {
+      throw new Error("The reply was interrupted. Check Timeline for any saved actions.");
+    }
+  } catch (error) {
+    const pending = conversation.turns.get(key);
+    if (pending && !pending.reply && !pending.stopped) {
+      failure = error.message;
+      avatarSignal(pending.threadId || source, { type: "error" });
+      if (!pending.user) {
+        if (!keepDraft) attachmentDraft.restore(source, attachments);
+        if (source === currentThread && !input.value) {
+          input.value = prompt;
+          resizeInput();
         }
       }
-    }
-    if (!turn.reply && !turn.stopped) throw new Error("The reply was interrupted. Check Timeline for any saved actions.");
-  } catch (error) {
-    turn.error = error.message;
-    avatarSignal(turn.threadId || source, { type: "error" });
-    if (!turn.user) {
-      turns.delete(turn);
-      if (!keepDraft) attachmentDraft.restore(source, attachments);
-      if (source === currentThread && !input.value) {
-        input.value = prompt;
-        resizeInput();
+      if ((pending.threadId || source) === currentThread) {
+        showNotice(failure);
+        chatNoticeTurn = key;
       }
     }
-    if ((turn.threadId || source) === currentThread) showNotice(error.message);
   } finally {
-    artifactLibrary.endBrowse(turn.browse?.id);
-    turn.browse = undefined;
-    turn.finished = true;
-    if (turn.threadId === currentThread || !turn.threadId) renderChat(true);
-    else {
-      // The server saves completed replies before emitting done.
-      if (turn.reply) turns.delete(turn);
-      renderThreads();
-    }
+    const pending = conversation.turns.get(key);
+    artifactLibrary.endBrowse(pending?.browse?.id);
+    updateConversation({ type: "finish", key, error: failure });
+    if (!pending?.threadId || pending.threadId === currentThread) renderChat(true);
+    else renderThreads();
     await refreshView().catch(() => {});
   }
 }
@@ -3174,6 +3159,7 @@ setInterval(() => {
 
 byId("composer").addEventListener("submit", (event) => {
   event.preventDefault();
+  if (document.activeElement === send) input.focus({ preventScroll: true });
   chat(input.value);
 });
 byId("voice-cancel").addEventListener("click", () => {
@@ -3439,7 +3425,7 @@ function schedulePoll(immediate = false) {
     resumePoll ||= immediate;
     return;
   }
-  const active = busy || threadBusy || [...turns].some((turn) => !turn.finished) ||
+  const active = busy || threadBusy || localTurns().some((turn) => !turn.finished) ||
     (view === "home" ? homeActive : view === "chat" ? state?.active_work : true);
   const delay = immediate ? 0 : active ? 3000 : 12000;
   if (pollTimer !== undefined && pollDelay <= delay) return;

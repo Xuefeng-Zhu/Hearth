@@ -856,6 +856,8 @@ class Agent:
         browse_results = list(turn.get("browse_results", {}).values()) if turn else []
         browse_notices = [value[key] for value in browse_results for key in ("fallback", "warning") if value.get(key)]
         fields = {"action_ids": action_ids, "notices": list(dict.fromkeys([*notices, *browse_notices])), "routing": routing, **(extra or {})}
+        if turn and turn.get("message_id"):
+            fields["reply_to"] = turn["message_id"]
         if turn and turn.get("delegated"):
             fields["worker_turn_id"] = turn["message_id"]
         if turn and turn.get("browse_images"):

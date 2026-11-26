@@ -490,7 +490,8 @@
   .card button.primary-setting, .settings-button.primary-setting, .brain-controls #brain-save,
   .timeline-undo, .timeline-confirm .timeline-restore { border: 1px solid var(--control-border); }
   :is(button, input, select, textarea):disabled, .settings-button[aria-disabled="true"] { opacity: 1; }
-  button:disabled, .settings-button[aria-disabled="true"] { cursor: default; border-style: dashed; }
+  button:disabled, .settings-button[aria-disabled="true"],
+  #stop-reply[aria-disabled="true"] { cursor: default; border-style: dashed; }
   :is(button, textarea, input, select, a, summary):focus-visible { outline-color: var(--focus); }
   .timeline-card-head:focus-visible { outline-color: var(--focus); }
   .timeline-filters button[aria-pressed="true"] { border-color: var(--control-border); }
