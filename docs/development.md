@@ -55,6 +55,12 @@ The Run 43 WebKit fixture exercises Memory review at 390×844 and 375×667 in da
 PYTHONPATH=. python tests/run43-browser.py --output /tmp/hearth-browser-43
 ```
 
+The Run 47 WebKit fixture checks Ideas, approvals, goal editing, panel layout, and Timeline Undo in dark mode at 390×844 and 375×667. It uses a fake brain and fictional workspace data.
+
+```sh
+PYTHONPATH=. python tests/run47-browser.py --output /tmp/hearth-browser-47
+```
+
 The contrast sweep uses Node Playwright. The following commands install it in a temporary directory and start an isolated fixture server.
 
 ```sh

@@ -17,4 +17,4 @@ Each HTTP 403 carried the gateway error `endpoint is not supported by the Apify 
 
 The successful list call confirmed access to that route. The rejected account reads left the connected account's Free plan and usage unverified. Fly documents that starting an Actor can use credits or incur charges. The run stopped before sending an Actor-start request. No Actor run was created, and reading its dataset remains unverified. [Fly's Apify connector setup](https://fly.io/sprites/ecosystem/), [Apify's account endpoint](https://docs.apify.com/api/v2/users-me-get), [Apify's Free plan](https://docs.apify.com/account/subscriptions#try-apify-for-free)
 
-Run 45 ended at this probe. Watcher implementation, deployment, and end-to-end verification remain pending.
+Run 45 ended at this probe. Run 47 added approved page and price watchers through Hearth’s public-page reader. [Watcher usage](ideas-and-goals.md#ideas-in-home-feed), [Run 47 verification](run-47.md)
