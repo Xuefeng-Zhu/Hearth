@@ -14,12 +14,13 @@ from statistics import median
 from tempfile import TemporaryDirectory
 from threading import Thread, local
 from time import perf_counter
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hearth import scheduler
 from hearth.checkpoints import LocalCheckpoints
-from hearth.connectors import read_config
+from hearth.connectors import ConnectorError, read_config
 from hearth.server import Application, Handler
 from hearth.storage import ROOT, Storage, atomic_write, iso
 
@@ -37,9 +38,18 @@ class MeasuredStorage(Storage):
                 self.timing.held = getattr(self.timing, "held", 0) + perf_counter() - started
 
 
+class OfflineGateway:
+    def request(self, *args, **kwargs):
+        raise ConnectorError("No provider in the benchmark.", missing_connection=True)
+
+    json = request
+
+
 def seed(app):
     storage, threads = app.storage, app.threads
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    # Keep the mix of today's and older activity consistent at any run time.
+    zone = ZoneInfo("America/Los_Angeles")
+    now = datetime.now(zone).replace(hour=1, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     with storage.lock():
         index = threads.load_index()
         for number in range(1, 200):
@@ -112,7 +122,7 @@ def main():
         storage = MeasuredStorage(directory)
         config = read_config(ROOT / "config/connectors.json")
         config["brain"] = {"provider": "mock", "model": ""}
-        app = Application(storage, LocalCheckpoints(storage), config)
+        app = Application(storage, LocalCheckpoints(storage), config, gateway=OfflineGateway())
         seed(app)
         with BenchServer(app) as server:
             thread = Thread(target=server.serve_forever, daemon=True)
