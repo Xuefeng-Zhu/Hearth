@@ -116,7 +116,9 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
     const update = async (control, operation) => {
       await perform(control, async () => {
         const next = await api("/api/feed/feedback", { id: row.id, operation });
-        if (["dismiss", "less"].includes(operation) && !saved || operation === "save" && saved && !next.saved) {
+        const hiddenFromFeed = !saved && ["dismiss", "less"].includes(operation);
+        const removedBookmark = saved && operation === "save" && !next.saved;
+        if (hiddenFromFeed || removedBookmark) {
           rows = rows.filter((item) => item.id !== row.id);
           const adjacent = article.nextElementSibling || article.previousElementSibling;
           article.remove();
@@ -130,8 +132,12 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
           if (operation === "save") row.saved = next.saved;
           like.setAttribute("aria-pressed", String(row.liked));
           save.setAttribute("aria-pressed", String(row.saved));
-          status.textContent = operation === "save" ? (row.saved ? "Saved to your Feed." : "Removed from Saved.")
-            : row.liked ? "You’ll see more on this topic." : "Like removed.";
+          status.textContent = {
+            save: row.saved ? "Saved to your Feed." : "Removed from Saved.",
+            like: row.liked ? "You’ll see more on this topic." : "Like removed.",
+            less: "You’ll see less on this topic.",
+            dismiss: "Card dismissed from your Feed.",
+          }[operation];
         }
       });
     };
@@ -159,6 +165,12 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
     if (row.action_label) {
       const options = element("details", "feed-options");
       const menu = element("summary", "", "Suggestion options");
+      options.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || !options.open) return;
+        event.preventDefault();
+        options.open = false;
+        menu.focus();
+      });
       const controls = element("div", "feed-actions");
       for (const [caption, operation, extra] of [
         ["Snooze 1 day", "snooze", { days: 1 }], ["Snooze 1 week", "snooze", { days: 7 }],

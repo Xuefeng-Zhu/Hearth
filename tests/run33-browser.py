@@ -1,4 +1,4 @@
-"""Exercise For you and Proactivity settings in Chromium with synthetic data."""
+"""Exercise Action cards and suggestion settings in Chromium with synthetic data."""
 
 import argparse
 import json
@@ -64,25 +64,22 @@ def verify(page, origin, width, theme, output, app):
         page.screenshot(path=output / f"{name}-{width}-{theme}.png", animations="disabled")
         return min(row["ratio"] for row in ratios)
 
-    section = page.get_by_role("region", name="For you")
-    expect(section.get_by_role("heading", name="For you")).to_be_visible()
+    section = page.get_by_role("article", name="Feed", exact=True)
+    expect(section.get_by_role("heading", name="Feed", exact=True)).to_be_visible()
     expect(section.get_by_role("article")).to_have_count(3)
     home_contrast = capture("for-you", section)
     dinner = section.get_by_role("article", name=DINNER)
-    dinner.get_by_role("button", name="Snooze").click()
-    expect(dinner.get_by_role("button", name="1 day")).to_be_focused()
-    page.keyboard.press("Escape")
-    expect(dinner.get_by_role("button", name="Snooze")).to_be_focused()
-    dinner.get_by_role("button", name="Snooze").click()
-    expect(dinner.get_by_role("button", name="1 week")).to_be_visible()
-    dinner.get_by_role("button", name="1 day").click()
-    expect(section.get_by_role("status")).to_have_text("Snoozed for one day.")
+    dinner.get_by_text("Suggestion options", exact=True).click()
+    expect(dinner.get_by_role("button", name="Snooze 1 week")).to_be_visible()
+    dinner.get_by_role("button", name="Snooze 1 day").click()
+    expect(section.get_by_role("status")).to_have_text("Suggestion snoozed.")
     expect(dinner).to_have_count(0)
 
     travel = section.get_by_role("article", name=BOOKING)
-    travel.get_by_role("button", name="Not interested in this kind").click()
+    travel.get_by_text("Suggestion options", exact=True).click()
+    travel.get_by_role("button", name="Mute category").click()
     expect(travel).to_have_count(0)
-    expect(section.get_by_role("status")).to_have_text("Muted travel & bookings.")
+    expect(section.get_by_role("status")).to_have_text("Suggestion category muted.")
 
     page.reload(wait_until="domcontentloaded")
     expect(section.get_by_role("article")).to_have_count(1)
@@ -99,18 +96,18 @@ def verify(page, origin, width, theme, output, app):
     expect(entries.filter(has_text="Suggestion acted on")).to_be_visible()
 
     choose(page, "Settings", mobile)
-    page.get_by_role("button", name="Proactivity", exact=True).click()
+    page.get_by_role("button", name="Action suggestions", exact=True).click()
     form = page.locator("#proactivity-settings-form")
     expect(form.get_by_label("Check every (minutes)")).to_have_value("120")
     expect(form.get_by_label("Email a daily digest")).not_to_be_checked()
     expect(form.get_by_text("Muted categories", exact=False)).to_contain_text("Travel & bookings")
     settings_contrast = capture("settings", form)
     form.get_by_label("Check every (minutes)").fill("90")
-    form.get_by_label("Show suggestions on Home").uncheck()
+    form.get_by_label("Generate Action suggestions").uncheck()
     form.get_by_role("button", name="Save settings").click()
     expect(form.get_by_role("status")).to_have_text("Proactivity settings saved.")
     choose(page, "Home", mobile)
-    expect(section).to_be_hidden()
+    expect(section.get_by_role("article")).to_have_count(0)
     assert not errors, errors
     print(f"{width} {theme} passed. Minimum sampled text contrast {min(home_contrast, settings_contrast):.2f}:1.")
 

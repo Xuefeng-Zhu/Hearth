@@ -156,14 +156,14 @@ def recall_records(agent, context, records, config):
     return result["backend"]
 
 
-def model_answer(agent, order, prompt, payload, field):
+def model_answer(agent, order, prompt, payload, field, *, max_tokens=2400):
     messages = [{"role": "system", "content": prompt},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
     for entry in order[:3]:
         try:
             gateway = agent.tools.gateway
             reply = gateway.completion(with_model(gateway, entry), messages, [],
-                                       lambda _: None, timeout=25, max_tokens=2400)
+                                       lambda _: None, timeout=25, max_tokens=max_tokens)
             if not reply.get("tool_calls"):
                 result = proactivity.parse_answer(reply["content"]).get(field)
                 if isinstance(result, list):
@@ -394,7 +394,8 @@ class Feed:
                     web, failed = search_results(agent, [row for row in interest
                                                  if topic_key(row["topic"]) not in recent_keys], context, config)
                     payload.update(interests=interest, web=web, recent_topics=recent)
-                    items = model_answer(agent, order, CARD_PROMPT, payload, "cards")
+                    # Reasoning models spend part of this limit before streaming the JSON.
+                    items = model_answer(agent, order, CARD_PROMPT, payload, "cards", max_tokens=6000)
                     generated = candidates(items, records, web, config, context.rules, previous, now)
                     if failed:
                         failure = "Some Exa searches were unavailable. Try again."
@@ -438,12 +439,12 @@ class Feed:
         topic = proactivity.KINDS[row["kind"]]
         if muted(topic, config):
             return None
-        origin = next(iter(row["sources"])).partition(":")[0]
+        origin = next(iter(row["sources"]), "").partition(":")[0]
         reason = {
             "memory": "saved a related note in Memory", "reminder": "scheduled a related reminder",
             "chat": "discussed this in Chat", "inbox": "have a related message in your Inbox",
             "task": "scheduled a related task", "page": "have a related Page", "artifact": "have a related file",
-        }[origin]
+        }.get(origin, "have a related reference in Hearth")
         return {"id": row["id"], "kind": "action", "topic": topic, "title": row["title"],
                 "body": row["why"], "why": f"Because you {reason}.",
                 "links": [source(ref) for ref in row["sources"]], "at": row["created_at"],
@@ -520,6 +521,10 @@ class Feed:
             state = self.storage.load()
             data, row = self.select(state, identity)
             votes = apply_feedback(data, row, operation)
+            if row["kind"] == "action" and operation == "dismiss":
+                suggestion = state.get("proactivity", {}).get("cards", {}).get(identity)
+                if suggestion and suggestion["status"] in {"available", "snoozed"}:
+                    suggestion["status"] = "dismissed"
             if row["kind"] == "action" and operation == "save":
                 saved = data.setdefault("saved_actions", {})
                 if votes["save"]:

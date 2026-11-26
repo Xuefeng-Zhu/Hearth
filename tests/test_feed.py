@@ -47,7 +47,12 @@ class FeedGateway:
         assert not tools
         data = json.loads(messages[-1]["content"])
         self.messages.append(data)
-        result = {"topics": TOPICS} if "public_subjects" in data else {"cards": self.cards}
+        if "public_subjects" in data:
+            result = {"topics": TOPICS}
+        elif kwargs["max_tokens"] < 6000:
+            return {"content": '{"cards": ['}
+        else:
+            result = {"cards": self.cards}
         return {"content": json.dumps(result)}
 
     def json(self, config, path, body, **kwargs):
@@ -103,7 +108,7 @@ class FeedTest(unittest.TestCase):
         self.assertEqual(next(row for row in later if row["kind"] == "read")["links"][0]["url"],
                          "https://example.org/gardening/2")
 
-    def test_quiet_settings_and_private_action(self):
+    def test_quiet_hours_and_settings(self):
         self.assertEqual(self.engine.tick(NOW.replace(hour=11), force=True)["status"], "quiet")
         self.assertEqual(self.gateway.searches, [])
         self.assertEqual(self.gateway.messages, [])
@@ -139,6 +144,24 @@ class FeedTest(unittest.TestCase):
         self.assertEqual(self.app.threads.messages(draft["thread"]["id"]), [])
         self.engine.save_settings({"mute": ["gardening"]})
         self.assertEqual(self.engine.list(saved=True, clock=NOW)["cards"], [])
+
+    def test_existing_action_is_saved_and_dismissed_through_feed(self):
+        offer = {"title": "Plan for rain", "why": "A covered space could help.", "kind": "planning",
+                 "urgency": "upcoming", "expiry_hours": 48, "dedupe_key": "workshop-rain-plan",
+                 "sources": [PERSON], "action": {"type": "chat", "label": "Make a rain plan",
+                                                "prompt": "Draft a rain plan for a community workshop."}}
+        with patch.object(self.gateway, "completion", return_value={"content": json.dumps({"suggestions": [offer]})}):
+            self.app.proactivity.tick(NOW)
+        action, = self.engine.list(clock=NOW)["cards"]
+        self.assertEqual(action["kind"], "action")
+        self.assertEqual(action["action_label"], "Make a rain plan")
+        self.assertEqual(action["links"][0]["ref"], "people/maya.md")
+        self.engine.feedback({"id": action["id"], "operation": "save"})
+        self.engine.feedback({"id": action["id"], "operation": "dismiss"})
+        self.assertEqual(self.app.proactivity.list(NOW), [])
+        saved, = self.engine.list(saved=True, clock=NOW)["cards"]
+        self.assertEqual(saved["id"], action["id"])
+        self.assertNotIn("action_label", saved)
 
     def test_feed_pagination_and_settings_api(self):
         self.engine.tick(NOW)
