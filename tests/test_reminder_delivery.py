@@ -405,10 +405,18 @@ class DeliveryTest(unittest.TestCase):
 
     def test_tick_auth_and_cross_origin_action(self):
         self.schedule("app", now=datetime.now(timezone.utc) - timedelta(hours=1))
-        with HTTPServer(("127.0.0.1", 0), self.app) as server:
+        threads = []
+        start = threading.Thread.start
+
+        def track(thread):
+            if threading.current_thread() in threads:
+                threads.append(thread)
+            start(thread)
+
+        with patch.object(threading.Thread, "start", track), HTTPServer(("127.0.0.1", 0), self.app) as server:
             task = threading.Thread(target=server.serve_forever, daemon=True)
+            threads.append(task)
             task.start()
-            self.addCleanup(task.join, 2)
             try:
                 base = f"http://127.0.0.1:{server.server_port}"
                 route = base + "/api/scheduler/tick"
@@ -432,6 +440,9 @@ class DeliveryTest(unittest.TestCase):
                 self.assertIn("Send this request from Hearth", error.exception.read().decode())
             finally:
                 server.shutdown()
+                # Join parents before their children so any workers started during teardown are included.
+                for thread in threads:
+                    thread.join()
 
     def test_prompt_channels_and_saved_default(self):
         self.assertEqual(channel_from_prompt("Remind me by email to call in 5 minutes"), "email")
