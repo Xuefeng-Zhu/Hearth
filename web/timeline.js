@@ -17,7 +17,7 @@ const kinds = {
   skill: ["Skill", "skill"],
   worker: ["Worker", "workers"],
   undo: ["Undo", "retry"], inbox: ["Inbox", "inbox"], email: ["Email", "mail"],
-  approval: ["Approval", "shield"], task: ["Recurring task", "clock"],
+  approval: ["Approval", "shield"], task: ["Recurring task", "clock"], proactivity: ["Proactivity", "sparkle"],
   panel: ["Home panel", "home"], checkpoint: ["Checkpoint", "history"], thread: ["Side chat", "message"], tool: ["Tool", "wrench"],
 };
 kinds.remember = kinds.memory;
@@ -83,7 +83,7 @@ function flags(row) {
     all: true,
     chat: row.kind === "chat",
     memory: ["memory", "remember", "recall"].includes(row.kind),
-    action: ["approval", "task", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill", "worker"]
+    action: ["approval", "task", "proactivity", "artifact", "browse", "checkpoint", "email", "gateway", "inbox", "memory", "remember", "reminder", "search", "thread", "tool", "undo", "upload", "voice", "page", "page_share", "skill", "worker"]
       .includes(row.kind),
     connector: !!row.connector,
     error: !!row.error,
@@ -112,6 +112,7 @@ function detailFields(row, gatewayResponse) {
     ["Page URL", data.url],
     ["Version", data.page_version && `v${data.page_version}`],
     ["Change", row.kind === "page" && data.note],
+    ["Category", row.kind === "proactivity" && data.category],
     ["Session ID", data.session_id],
     ["Browse time", Number.isInteger(data.duration_ms) ? `${(data.duration_ms / 1000).toFixed(2)} s` : ""],
     ["Mode", row.kind === "browse" && data.mock && "Mock"],

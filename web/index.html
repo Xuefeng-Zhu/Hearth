@@ -64,6 +64,12 @@
           </div>
           <p class="home-feedback" id="home-feedback" role="status"></p>
           <p class="home-meta" id="home-loading">Loading panels…</p>
+          <section id="for-you" class="for-you" aria-labelledby="for-you-title" hidden>
+            <h2 id="for-you-title" tabindex="-1"><span data-icon="sparkle" data-icon-size="19"></span>For you</h2>
+            <div id="for-you-cards" class="suggestion-grid"></div>
+            <p id="for-you-empty" class="home-meta">You’re caught up.</p>
+            <p id="for-you-feedback" class="meta" role="status"></p>
+          </section>
           <section id="home-approvals" class="automation-section" aria-label="Pending approvals" hidden></section>
           <div id="home-workers" hidden></div>
           <div class="home-grid" id="home-grid"></div>
@@ -355,6 +361,7 @@
           <button type="button" data-settings="voice">Voice</button>
           <button type="button" data-settings="reminders">Reminders</button>
           <button type="button" data-settings="home">Home</button>
+          <button type="button" data-settings="proactivity">Proactivity</button>
           <button type="button" data-settings="approvals">Approvals</button>
         </nav>
         <div class="settings-sections" id="settings-sections">
@@ -377,6 +384,25 @@
               <button type="submit" id="weather-location-save">Save location</button>
             </div>
             <p class="meta" id="weather-settings-status" role="status"></p>
+          </form>
+        </div>
+        <div id="settings-proactivity" hidden>
+          <div class="section-intro"><h2>Proactivity</h2><p>Choose when Hearth looks for timely ways to help.</p></div>
+          <form id="proactivity-settings-form" class="card brain-form">
+            <fieldset class="preference-fields delivery-form">
+              <legend>For you on Home</legend>
+              <label class="check-label delivery-full"><input name="enabled" type="checkbox"> Show suggestions on Home</label>
+              <label>Check every (minutes)<input name="frequency" type="number" min="30" max="720" required></label>
+              <label>Maximum suggestions per day<input name="max_per_day" type="number" min="1" max="12" required></label>
+              <label>Quiet hours start<input name="quiet_start" type="time" required></label>
+              <label>Quiet hours end<input name="quiet_end" type="time" required></label>
+              <p class="meta delivery-full">Quiet hours use Pacific time. Identical start and end times turn quiet hours off.</p>
+              <label class="check-label delivery-full"><input name="email_digest" type="checkbox"> Email a daily digest</label>
+              <p class="meta delivery-full">The digest uses the email recipient set in Reminders.</p>
+            </fieldset>
+            <p class="meta" id="proactivity-muted"></p>
+            <button type="submit" class="primary-setting">Save settings</button>
+            <p class="meta" id="proactivity-settings-status" role="status"></p>
           </form>
         </div>
         <div id="settings-reminders" hidden>

@@ -11,6 +11,7 @@ import { createAttachments } from "./attachments.js";
 import { icon, iconButton, mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
 import { createHome } from "./home.js";
+import { createProactivity } from "./proactivity.js";
 import { createAutomation } from "./automation.js";
 import { createSkills, skillChip } from "./skills.js";
 import { createWorkersCard } from "./workers.js";
@@ -122,11 +123,15 @@ const homeWorkers = createWorkersCard({
     await openView("chat");
   },
 });
+const proactivity = createProactivity({ api,
+  runSuggestion: (id) => chat("", { keepDraft: true, suggestion: id }),
+});
 const homePage = createHome({
   api, openView, openWeatherSettings, openPanelChat, openDemo,
   openFile: (file, trigger) => artifactLibrary.open(file.id, trigger, file),
   onData(data) {
     setTimeZone(data.timezone);
+    proactivity.render(data.suggestions || [], data.proactivity_enabled);
     automation.home(data.approvals || []);
     const workers = data.workers || [];
     const target = byId("home-workers");
@@ -2052,6 +2057,7 @@ async function openSettings(section, expand = true) {
   if (section === "appearance") return;
   if (section === "artifacts") return artifactLibrary.settings();
   if (section === "home") return homePage.settings();
+  if (section === "proactivity") return proactivity.settings();
   if (section === "approvals") return automation.settings();
   if (section === "reminders") return delivery.settings();
   if (section === "voice") {
@@ -2328,7 +2334,10 @@ function readChatEvent(turn, name, payload) {
     if (payload.attachments) turn.attachments = payload.attachments;
     avatarSignal(turn.threadId, { type: "queued" });
     rememberThread(payload.thread);
-    if (turn.command && turn.selection === selectionVersion) {
+    if (turn.suggestion && turn.selection === selectionVersion) {
+      activateThread(turn.threadId);
+      void openView("chat");
+    } else if (turn.command && turn.selection === selectionVersion) {
       activateThread(turn.threadId);
       if (view === "chat") input.focus();
     }
@@ -2400,16 +2409,16 @@ function readChatEvent(turn, name, payload) {
   else renderThreads();
 }
 
-async function chat(prompt, { keepDraft = false, approval } = {}) {
+async function chat(prompt, { keepDraft = false, approval, suggestion } = {}) {
   prompt = prompt.trim();
   if (busy || (approval && [...turns].some((turn) => turn.approval?.id === approval.id && !turn.finished))) return;
   const attachments = keepDraft || approval ? [] : attachmentDraft.selected();
-  if (!attachments || (!prompt && !approval && !attachments.length)) return;
+  if (!attachments || (!prompt && !approval && !suggestion && !attachments.length)) return;
   voice.cancel();
   const source = approval?.thread_id || currentThread;
   const command = !attachments.length && source === mainThread.id && /^\/(side|btw)(?:\s|$)/i.test(prompt);
-  const turn = { threadId: command ? undefined : source, selection: selectionVersion, command,
-    prompt, approval, attachments, text: "", warnings: [], actions: new Map() };
+  const turn = { threadId: command || suggestion ? undefined : source, selection: selectionVersion, command,
+    prompt, approval, suggestion, attachments, text: "", warnings: [], actions: new Map() };
   for (const previous of turns) if (previous.threadId === source && previous.error) turns.delete(previous);
   turns.add(turn);
   showNotice();
@@ -2422,13 +2431,20 @@ async function chat(prompt, { keepDraft = false, approval } = {}) {
   scrollDown();
   try {
     await connectionRequest;
-    const response = await fetch(approval ? "/api/browse/approve" : "/api/chat", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(approval ? { id: approval.id, thread_id: source } : { message: prompt, thread_id: source, attachment_ids: attachments.map((item) => item.id) }),
+    const endpoint = suggestion ? "/api/proactivity/do" : approval ? "/api/browse/approve" : "/api/chat";
+    const body = suggestion ? { id: suggestion } : approval ? { id: approval.id, thread_id: source }
+      : { message: prompt, thread_id: source, attachment_ids: attachments.map((item) => item.id) };
+    const response = await fetch(endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw new Error(body.error || "Hearth could not start this turn.");
+    }
+    if (suggestion && response.headers.get("Content-Type")?.startsWith("application/json")) {
+      turns.delete(turn);
+      await openSkillChat(await response.json());
+      return;
     }
     let buffered = "";
     for await (const chunk of response.body.pipeThrough(new TextDecoderStream())) {
