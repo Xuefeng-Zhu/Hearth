@@ -79,7 +79,6 @@ const listSearches = Object.fromEntries(["reminders", "inbox", "skills"].map((na
     void refreshView();
   })]));
 let memoryFindRequest = 0;
-let busy = false;
 let connectionState;
 let workspaceModel;
 let workspaceConnectorError = false;
@@ -117,7 +116,7 @@ const { activateThread, openArtifactThread, openDemo, openMainChat, openPanelCha
   showVoiceEngine, syncVoiceSettings } = chatWorkspace;
 const timelineErrorRoute = "#timeline/errors";
 const timeline = createTimeline({
-  api, refreshAPI, approve, undo, gatewayResults, isBusy: () => busy,
+  api, refreshAPI, approve, undo, gatewayResults, isBusy: () => chatWorkspace.busy,
   onFilter() {
     if (location.hash === timelineErrorRoute) {
       history.replaceState({ hearthView: "timeline" }, "", location.pathname + location.search);
@@ -220,7 +219,6 @@ const customModel = byId("brain-custom");
 const poolProvider = byId("pool-provider");
 const poolModel = byId("pool-model");
 
-
 function showNotice(message = "") {
   chatWorkspace.clearNoticeTurn();
   const target = byId("workspace-drawer").open ? byId("drawer-notice") : notice;
@@ -304,7 +302,6 @@ function date(value) {
 }
 
 function setBusy(value) {
-  busy = value;
   chatWorkspace.setBusy(value);
   for (const item of document.querySelectorAll(".cards button, [data-prompt]")) {
     item.disabled = value;
@@ -397,7 +394,7 @@ async function openMemorySource(hit) {
 async function forgetMemory(hit, excerpt = false) {
   const question = hit.message_id ? "Forget this message from recall?" : excerpt
     ? `Remove this excerpt from ${hit.path}?` : `Delete the note ${hit.path}?`;
-  if (busy || !window.confirm(`${question} Hearth will save a checkpoint first.`)) return;
+  if (chatWorkspace.busy || !window.confirm(`${question} Hearth will save a checkpoint first.`)) return;
   setBusy(true);
   try {
     const body = { path: hit.path };
@@ -795,7 +792,7 @@ function brainDraft() {
 
 function setBrainControls() {
   const choice = brainChoice();
-  const locked = !brainSettings || brainBusy || busy;
+  const locked = !brainSettings || brainBusy || chatWorkspace.busy;
   const usable = !choice || (choice.available && choice.supported);
   const custom = !!choice && !brainModel.value;
   const needsModel = !!choice && !brainDraft().model;
@@ -1064,7 +1061,7 @@ function clearBrainTest() {
 }
 
 async function updateBrain(operation) {
-  if (brainBusy || busy || modelRequest) return;
+  if (brainBusy || chatWorkspace.busy || modelRequest) return;
   const draft = brainDraft();
   if (operation === "settings") draft.parallel_workers = Number(byId("brain-workers").value);
   routingRequest?.abort();
@@ -1345,7 +1342,7 @@ async function openSettings(section, target) {
   if (preferences[section].pending) return;
   if (section === "memory") {
     memoryReview.settings();
-    if (!busy && !chatWorkspace.threadBusy) {
+    if (!chatWorkspace.busy && !chatWorkspace.threadBusy) {
       refreshState(undefined, { background: true }).catch(() => {
         // The recall form can still search across all threads.
       });
@@ -1383,7 +1380,7 @@ function renderSearchTest(container, result) {
 async function changePreferences(feature, operation) {
   const state = preferences[feature];
   const form = byId(`${feature}-settings-form`);
-  if (!state.info || state.pending || state.indexing || busy) return;
+  if (!state.info || state.pending || state.indexing || chatWorkspace.busy) return;
   const indexAction = operation === "reindex" || operation === "sync";
   if (!indexAction && !form.reportValidity()) return;
   const selection = readPreferences(feature);
@@ -1508,7 +1505,7 @@ async function openView(nextView, updateHistory = true, section, target) {
       await automation.openReminders();
     } else await refreshView();
     if (view === "inbox") delivery.poll();
-  } else if (!busy) {
+  } else if (!chatWorkspace.busy) {
     try {
       await refreshView();
     } catch (error) {
@@ -1532,7 +1529,7 @@ function openConnections() {
 }
 
 async function approve(action) {
-  if (busy) return;
+  if (chatWorkspace.busy) return;
   setBusy(true);
   showNotice();
   const threadId = action.thread_id || mainThread.id;
@@ -1561,7 +1558,7 @@ async function approve(action) {
 
 async function undo(action, { confirmed = false, timelineTitle, redo = false } = {}) {
   if (action.job || action.inbox_id || action.undo_task || action.undo_automation || action.automation_id) {
-    if (busy) return;
+    if (chatWorkspace.busy) return;
     setBusy(true);
     try {
       await api(action.inbox_id ? "/api/inbox/undo" : "/api/undo", { id: action.inbox_id || action.id });
@@ -1576,7 +1573,7 @@ async function undo(action, { confirmed = false, timelineTitle, redo = false } =
     return;
   }
   if (action.memory_change) {
-    if (busy || (!confirmed && !window.confirm("Undo this memory change?"))) return;
+    if (chatWorkspace.busy || (!confirmed && !window.confirm("Undo this memory change?"))) return;
     setBusy(true);
     try {
       await api(redo ? "/api/redo" : "/api/undo", { id: action.id });
@@ -1590,7 +1587,7 @@ async function undo(action, { confirmed = false, timelineTitle, redo = false } =
     return;
   }
   if (["page", "skill", "goal"].includes(action.kind)) {
-    if (busy || (["skill", "goal"].includes(action.kind) && !confirmed && !window.confirm(`Undo this ${action.kind} change?`))) return;
+    if (chatWorkspace.busy || (["skill", "goal"].includes(action.kind) && !confirmed && !window.confirm(`Undo this ${action.kind} change?`))) return;
     setBusy(true);
     try {
       await api("/api/undo", { id: action.id });
@@ -1604,7 +1601,7 @@ async function undo(action, { confirmed = false, timelineTitle, redo = false } =
     return;
   }
   if (action.artifact_id) {
-    if (busy) return;
+    if (chatWorkspace.busy) return;
     setBusy(true);
     try {
       await api("/api/artifacts/undo", { id: action.id });
@@ -1617,7 +1614,7 @@ async function undo(action, { confirmed = false, timelineTitle, redo = false } =
     }
     return;
   }
-  if (busy || (!confirmed && !window.confirm(`Restore checkpoint ${action.checkpoint.id}? This rolls back the workspace, including newer chat, memory, and reminders. Delivered email stays delivered.`))) return;
+  if (chatWorkspace.busy || (!confirmed && !window.confirm(`Restore checkpoint ${action.checkpoint.id}? This rolls back the workspace, including newer chat, memory, and reminders. Delivered email stays delivered.`))) return;
   setBusy(true);
   showNotice("Restoring checkpoint. Hearth may reconnect…");
   try {
@@ -1823,7 +1820,7 @@ function schedulePoll(immediate = false) {
     resumePoll ||= immediate;
     return;
   }
-  const active = busy || chatWorkspace.threadBusy || chatWorkspace.hasPendingTurns ||
+  const active = chatWorkspace.busy || chatWorkspace.threadBusy || chatWorkspace.hasPendingTurns ||
     (view === "home" ? homeActive : view === "chat" ? chatWorkspace.snapshot?.active_work : true);
   const delay = immediate ? 0 : active ? 3000 : 12000;
   if (pollTimer !== undefined && pollDelay <= delay) return;
@@ -1839,14 +1836,14 @@ async function pollForeground(immediate) {
   try {
     const drawer = byId("workspace-drawer").open;
     if (isSetting("connections")) {
-      if (!busy) await refreshPineconeHealth();
+      if (!chatWorkspace.busy) await refreshPineconeHealth();
     } else if (view === "chat" && !chatWorkspace.threadBusy) {
       const previous = chatWorkspace.snapshot;
       if (await refreshState(undefined, { background: true }) && view === "chat") {
         if (previous !== chatWorkspace.snapshot) renderChat();
         await refreshVisibleHistory();
       }
-    } else if (!chatWorkspace.threadBusy && (view === "home" || (!busy && (["reminders", "inbox"].includes(view) ||
+    } else if (!chatWorkspace.threadBusy && (view === "home" || (!chatWorkspace.busy && (["reminders", "inbox"].includes(view) ||
         isSetting("automations") || (immediate && view === "timeline"))))) {
       await refreshView({ background: true });
     }

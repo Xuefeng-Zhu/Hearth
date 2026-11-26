@@ -1,15 +1,14 @@
 import { avatarEvent, avatarPose, newAvatar } from "../avatar-state.js";
 import { announcePose, looks, mascot, poseLabel, setLook, setPose } from "../avatar.js";
 import { createVoiceInput } from "../voice.js";
-import { callDuration, captionLine, createVoiceCall } from "../voice-call.js";
-import { markdown } from "../artifacts.js";
+import { createVoiceCall } from "../voice-call.js";
 import { fileAnswerSources } from "../file-questions.js";
 import { channelChip } from "../reminders.js";
-import { button, node, reconcileChildren, updateText } from "../dom.js";
-import { arrive, confirmControl, prepareListMotion, showLoading } from "../motion.js";
+import { button, node, updateText } from "../dom.js";
+import { arrive, prepareListMotion, showLoading } from "../motion.js";
 import { setupMobile } from "../mobile.js";
 import { createThreadMenu } from "../thread-menu.js";
-import { createChatSearch } from "../chat-search.js";
+import { createChatSearch } from "./search.js";
 import { createAttachments } from "../attachments.js";
 import { icon, iconButton } from "../icons.js";
 import { setTimeZone, timeFormatter } from "../time.js";
@@ -19,6 +18,7 @@ import { conversationView, newConversation, reconcile } from "../chat-state.js";
 import { createSSEParser } from "../sse.js";
 import { updateCard } from "../self-update.js";
 import { createStore } from "../store.js";
+import { renderConversation } from "./conversation.js";
 import { mountComposer } from "./composer.js";
 import { mountThreads, renderThreadMenu } from "./threads.js";
 
@@ -73,6 +73,7 @@ export function createChatWorkspace({
   }
   let chatSignature;
   let chatRows = new Map();
+  let nextRowKey = 0;
   let chatMotion;
   const workerCards = new Map();
   let threadBusy = false;
@@ -119,17 +120,7 @@ export function createChatWorkspace({
   const portraitMascot = mascot(store.state.avatarLook, store.state.avatarColor);
   byId("avatar-header").append(headerMascot);
   byId("avatar-portrait").append(portraitMascot);
-  const voiceLanguages = [...byId("voice-language").options].map((option) => option.value);
-  let voicePreferences = { engine: "auto", language: "auto", autoSend: false, seconds: 60 };
-  try {
-    const saved = JSON.parse(localStorage.getItem("hearth-voice"));
-    if (["auto", "browser", "whisper"].includes(saved?.engine)) voicePreferences.engine = saved.engine;
-    if (voiceLanguages.includes(saved?.language)) voicePreferences.language = saved.language;
-    if (Number.isInteger(saved?.seconds) && saved.seconds >= 5 && saved.seconds <= 120) voicePreferences.seconds = saved.seconds;
-    voicePreferences.autoSend = saved?.autoSend === true;
-  } catch {
-    // Start from the default settings if the saved value is unreadable.
-  }
+  store.update({ voicePreferences: readVoicePreferences() });
   const voiceLevel = byId("voice-level");
   let spaceHeld = false;
   const voice = createVoiceInput({
@@ -301,7 +292,23 @@ export function createChatWorkspace({
     return connection === "connected" || (connection == null && serverState?.whisper_available === true);
   }
 
+  function readVoicePreferences() {
+    const languages = [...byId("voice-language").options].map((option) => option.value);
+    const preferences = { engine: "auto", language: "auto", autoSend: false, seconds: 60 };
+    try {
+      const saved = JSON.parse(localStorage.getItem("hearth-voice"));
+      if (["auto", "browser", "whisper"].includes(saved?.engine)) preferences.engine = saved.engine;
+      if (languages.includes(saved?.language)) preferences.language = saved.language;
+      if (Number.isInteger(saved?.seconds) && saved.seconds >= 5 && saved.seconds <= 120) preferences.seconds = saved.seconds;
+      preferences.autoSend = saved?.autoSend === true;
+    } catch {
+      // Start from the default settings if the saved value is unreadable.
+    }
+    return preferences;
+  }
+
   function syncVoiceSettings() {
+    const { voicePreferences } = store.state;
     byId("voice-engine").value = voicePreferences.engine;
     byId("voice-language").value = voicePreferences.language;
     byId("voice-length").value = voicePreferences.seconds;
@@ -357,7 +364,7 @@ export function createChatWorkspace({
   function startVoice() {
     if (currentView() !== "chat" || store.state.busy || voiceCall.inProgress) return;
     showNotice();
-    voice.start(store.state.currentThread, voicePreferences, whisperConnected());
+    voice.start(store.state.currentThread, store.state.voicePreferences, whisperConnected());
   }
 
   function scrollDown() {
@@ -401,37 +408,6 @@ export function createChatWorkspace({
     attachmentDraft.restore(store.state.currentThread, prompt.attachments);
     resizeInput();
     input.focus();
-  }
-
-  function messageToolbar(message, content, prompt) {
-    const toolbar = node("div", "message-toolbar");
-    const actions = node("div", "message-inline-actions");
-    if (content) actions.append(iconButton("copy", "Copy", () => copyMessage(content)));
-    if (prompt?.text || prompt?.attachments.length) {
-      actions.append(iconButton("retry", "Retry", () => restorePrompt(prompt)));
-    }
-    for (const [key, label] of [["up", "Helpful"], ["down", "Unhelpful"]]) {
-      const vote = iconButton(`thumbs-${key}`, label, () => {
-        if (messageVotes.get(message.id) === key) messageVotes.delete(message.id);
-        else messageVotes.set(message.id, key);
-        for (const choice of actions.querySelectorAll("[data-vote]")) {
-          choice.setAttribute("aria-pressed", String(messageVotes.get(message.id) === choice.dataset.vote));
-        }
-        confirmControl(vote);
-      });
-      vote.dataset.vote = key;
-      vote.setAttribute("aria-pressed", String(messageVotes.get(message.id) === key));
-      actions.append(vote);
-    }
-    const footer = node("div", "message-route");
-    if (message.at) {
-      const stamp = node("time", "", messageTime.format(new Date(message.at)));
-      stamp.dateTime = message.at;
-      stamp.title = date(message.at);
-      footer.append(stamp);
-    }
-    toolbar.append(actions, footer);
-    return toolbar;
   }
 
   byId("close-message-menu").addEventListener("click", () => menu.close());
@@ -524,57 +500,18 @@ export function createChatWorkspace({
   }
   window.addEventListener("resize", checkCollapsedReplies);
 
-  function messageBubble(role, content, { message, status, prompt, working, streaming = working, attachments = [], skill = message?.skill,
-    linkedArtifacts, uploadMetadata = serverState?.message_uploads } = {}) {
-    const item = node("article", `message ${role}`);
-    let avatar;
-    if (role === "assistant") {
-      avatar = mascot(store.state.avatarLook, store.state.avatarColor);
-      if (!working) avatar.dataset.still = "";
-      item.append(avatar);
-    }
-    const body = node("div", "message-body");
-    if (skill) body.append(skillChip(skill));
-    const text = message?.file_answer ? node("p", "file-answer-text", content)
-      : role === "assistant" && message?.id ? markdown(content, "chat-markdown") : node("p", "", content);
-    const cards = node("div", "cards");
-    const notices = node("div");
-    notices.setAttribute("role", "status");
-    if (status) notices.append(node("p", "queued-label", status));
-    text.hidden = !content;
-    body.append(notices, text);
-    if (streaming) {
-      const dots = node("span", "typing-dots");
-      dots.setAttribute("aria-hidden", "true");
-      dots.append(node("i"), node("i"), node("i"));
-      body.append(dots);
-    }
-    if (working) {
-      body.classList.add("message-working");
-      text.setAttribute("role", "status");
-    }
-    if (role === "assistant" && message?.id && content) {
-      const toggle = button("Show more", () => {
-        const expanded = toggle.getAttribute("aria-expanded") === "true";
-        toggle.setAttribute("aria-expanded", String(!expanded));
-        toggle.textContent = expanded ? "Show more" : "Show less";
-        text.classList.toggle("message-clamped", expanded);
-        if (expanded) {
-          toggle.scrollIntoView({ block: "nearest" });
-          checkCollapsedReplies();
-        } else {
-          for (const link of text.querySelectorAll("a")) link.removeAttribute("tabindex");
-        }
-      });
-      toggle.className = "message-expand";
-      toggle.hidden = true;
-      toggle.setAttribute("aria-expanded", "false");
-      text.classList.add("message-clamped");
-      body.append(toggle);
-    }
-    body.append(cards);
-    if (message?.file_answer) body.append(fileAnswerSources(message.file_answer));
-    if (message?.source === "voice-call" && role === "assistant") body.append(node("p", "meta", "Voice call"));
+  const messageActions = {
+    votes: messageVotes, copy: copyMessage, restore: restorePrompt, date, bindMenu: bindMessageMenu,
+    time: (value) => messageTime.format(new Date(value)),
+    showError: showConnectionGuidance, checkCollapsed: checkCollapsedReplies, scrollDown,
+    isVisible: () => currentView() === "chat",
+  };
+
+  function messageRow(role, content, { message, status, prompt, working, streaming = working, attachments = [],
+    skill = message?.skill, linkedArtifacts, uploadMetadata = serverState?.message_uploads, warnings = [], error, errorInNotice } = {}) {
+    const extras = [];
+    if (message?.file_answer) extras.push(fileAnswerSources(message.file_answer));
+    if (message?.source === "voice-call" && role === "assistant") extras.push(node("p", "meta", "Voice call"));
     if (message?.remembered?.length) {
       const sources = node("details", "remembered");
       const count = message.remembered.length;
@@ -584,9 +521,9 @@ export function createChatWorkspace({
       sources.append(summary);
       sources.append(...message.remembered.map((hit) =>
         button(memoryLabel(hit), () => openMemorySource(hit))));
-      body.append(sources);
+      extras.push(sources);
     }
-    if (attachments.length) body.append(getArtifacts().attachmentCards(attachments));
+    if (attachments.length) extras.push(getArtifacts().attachmentCards(attachments));
     if (message?.attachment_citations?.length) {
       const sources = node("div", "attachment-sources");
       sources.setAttribute("aria-label", "Attachment sources");
@@ -601,20 +538,21 @@ export function createChatWorkspace({
         source.append(icon("paperclip", 14), node("span", "", file.filename));
         sources.append(source);
       }
-      if (sources.childElementCount > 1) body.append(sources);
+      if (sources.childElementCount > 1) extras.push(sources);
     }
-    if (message?.id) item.dataset.messageId = message.id;
     if (role === "assistant" && message?.id) {
       const linked = replyArtifacts(message, linkedArtifacts);
-      if (linked.length) body.append(getArtifacts().chatActions(linked));
-      if (message.browse_images?.length) body.append(...message.browse_images.map(browseScreenshot));
+      if (linked.length) extras.push(getArtifacts().chatActions(linked));
+      if (message.browse_images?.length) extras.push(...message.browse_images.map(browseScreenshot));
     }
-    item.append(body);
-    if (message?.id) {
-      bindMessageMenu(item, message, content);
-      if (role === "assistant") item.append(messageToolbar(message, content, prompt));
-    }
-    return { item, avatar, cards, notices, text };
+    const row = {
+      key: nextRowKey++, role, content, message, status, prompt, streaming, working, extras, warnings, error, errorInNotice,
+      skill: skill && skillChip(skill), avatarLook: store.state.avatarLook, avatarColor: store.state.avatarColor,
+      cards: [],
+      bindItem(item) { row.item = item; },
+      bindCards(element) { row.cardsElement = element; },
+    };
+    return row;
   }
 
   function threadSource(item, fallback = "Main") {
@@ -839,24 +777,6 @@ export function createChatWorkspace({
     store.update({ threads: entries });
   }
 
-  function callCard(message) {
-    const card = node("article", "card call-card");
-    card.dataset.messageId = message.id;
-    const header = node("div", "card-header");
-    header.append(node("h4", "", message.content), node("time", "call-card-duration", callDuration(message.duration)));
-    card.append(header);
-    if (message.lines.length) {
-      const details = node("details");
-      const list = node("ol", "call-captions");
-      list.append(...message.lines.map(captionLine));
-      details.append(node("summary", "", "Call transcript"), list);
-      card.append(details);
-    } else {
-      card.append(node("p", "meta", "No transcript saved."));
-    }
-    return card;
-  }
-
   function workersCard(workers) {
     const turnId = workers[0].turn_id;
     if (!workerCards.has(turnId)) workerCards.set(turnId, createWorkersCard({ stop: stopWorkers }));
@@ -970,96 +890,81 @@ export function createChatWorkspace({
         message.role === "assistant" ? previousPrompt : null]);
       let row = chatRows.get(message.id);
       if (row?.signature !== rowSignature) {
-        let item, bubble;
-        if (message.role === "call") {
-          item = callCard(message);
-        } else {
-          bubble = messageBubble(message.role, message.content, {
-            message, prompt: previousPrompt, attachments, linkedArtifacts: history.message_artifacts?.[message.id],
-            uploadMetadata: history.message_uploads,
-          });
-          for (const notice of message.notices || []) bubble.notices.append(node("p", "model-warning", notice));
-          for (const action of cards) bubble.cards.append(actionCard(action));
-          item = bubble.item;
-        }
-        row = { item, bubble, signature: rowSignature };
+        row = messageRow(message.role, message.content, {
+          message, prompt: previousPrompt, attachments, linkedArtifacts: history.message_artifacts?.[message.id],
+          uploadMetadata: history.message_uploads, warnings: message.notices || [],
+        });
+        row.signature = rowSignature;
+        row.actionCards = message.role === "call" ? [] : cards.map(actionCard);
       }
-      if (row.bubble && workers.has(message.worker_turn_id)) {
-        const card = workersCard(workers.get(message.worker_turn_id));
-        if (row.bubble.cards.firstElementChild !== card) row.bubble.cards.prepend(card);
-      }
-      if (row.bubble && proposals.has(message.self_update_id)) {
+      if (message.role !== "call") {
+        const workerRows = workers.get(message.worker_turn_id);
         const proposal = proposals.get(message.self_update_id);
-        if (row.proposalCard) row.proposalCard.render(proposal);
-        else {
-          row.proposalCard = updateCard(proposal, { perform: changeSelfUpdate, announce: announceSelfUpdate });
-          row.bubble.cards.append(row.proposalCard.card);
+        if (proposal) {
+          if (row.proposalCard) row.proposalCard.render(proposal);
+          else row.proposalCard = updateCard(proposal, { perform: changeSelfUpdate, announce: announceSelfUpdate });
         }
+        row.cards = [
+          ...(workerRows ? [workersCard(workerRows)] : []),
+          ...row.actionCards,
+          ...(row.proposalCard ? [row.proposalCard.card] : []),
+        ];
       }
       nextRows.set(message.id, row);
-      if (searchHit === message.id) row.item.classList.add("chat-search-hit");
-      rows.push(row.item);
+      row.searchHit = searchHit === message.id;
+      rows.push(row);
       if (newHistory && index >= tail && !optimistic.has(message.id) && !optimistic.has(message.reply_to)) {
-        arrivals.push(row.item);
+        arrivals.push(row);
       }
       if (workers.has(message.id) && !localPrompts.has(message.id) && !savedBatches.has(message.id)) {
-        const activity = messageBubble("assistant", "");
-        activity.cards.append(workersCard(workers.get(message.id)));
+        const activity = messageRow("assistant", "");
+        activity.cards.push(workersCard(workers.get(message.id)));
         for (const action of actions.values()) {
-          if (action.worker_turn_id === message.id) activity.cards.append(actionCard(action));
+          if (action.worker_turn_id === message.id) activity.cards.push(actionCard(action));
         }
-        rows.push(activity.item);
+        rows.push(activity);
       }
       if (message.role === "user") previousPrompt = { text: message.content, attachments };
     }
     for (const turn of local) {
       const previousTurn = previousMotion?.turns.get(turn.key);
       if (turn.showPrompt) {
-        const item = messageBubble("user", turn.user?.content || turn.prompt, {
+        const row = messageRow("user", turn.user?.content || turn.prompt, {
           message: turn.user, status: turn.user ? undefined : "Queued", attachments: turn.attachments,
-        }).item;
-        rows.push(item);
-        if (live && !previousTurn?.showPrompt) arrivals.push(item);
+        });
+        rows.push(row);
+        if (live && !previousTurn?.showPrompt) arrivals.push(row);
       }
       if (!turn.showReply) continue;
       const content = turn.reply ? turn.reply.content
         : turn.text || turn.error || (turn.stopped ? "Reply stopped." : turn.browse ? "" : turnProgress(turn));
       const streaming = !turn.reply && !turn.error && !turn.browse && !turn.stopped;
-      const bubble = messageBubble("assistant", content, {
+      const row = messageRow("assistant", content, {
         message: turn.reply, skill: turn.skill, prompt: { text: turn.prompt, attachments: turn.attachments },
-        streaming, working: streaming && !turn.text,
+        streaming, working: streaming && !turn.text, error: turn.error, errorInNotice: !!turn.text,
+        warnings: turn.stopped && turn.text ? [...turn.warnings, "Reply stopped."] : turn.warnings,
       });
-      turnBubbles.set(turn.key, bubble);
-      bubble.text.hidden = !content && !!turn.browse;
-      rows.push(bubble.item);
-      if (live && !previousTurn?.showReply) arrivals.push(bubble.item);
+      turnBubbles.set(turn.key, row);
+      rows.push(row);
+      if (live && !previousTurn?.showReply) arrivals.push(row);
       const workerRows = turn.workers?.size ? [...turn.workers.values()] : workers.get(turn.user?.id);
-      if (workerRows?.length) bubble.cards.append(workersCard(workerRows));
-      for (const warning of turn.warnings) bubble.notices.append(node("p", "model-warning", warning));
-      if (turn.stopped && turn.text) bubble.notices.append(node("p", "model-warning", "Reply stopped."));
+      if (workerRows?.length) row.cards.push(workersCard(workerRows));
       for (const action of turn.actions.values()) {
         const saved = actions.get(action.id);
         const current = action.worker_id && (action.status !== "pending" || saved?.status === "pending") ? action : saved;
-        bubble.cards.append(actionCard(current || action));
+        row.cards.push(actionCard(current || action));
       }
-      if (turn.browse) bubble.cards.append(browseCard(turn.browse));
-      if (turn.error) {
-        const target = turn.text ? node("p", "model-warning") : bubble.text;
-        showConnectionGuidance(target, turn.error);
-        if (turn.text) bubble.notices.append(target);
-        const retry = iconButton("retry", "Edit and retry", () =>
-          restorePrompt({ text: turn.user?.content || turn.prompt, attachments: turn.attachments }));
-        bubble.cards.append(retry);
-      }
+      if (turn.browse) row.cards.push(browseCard(turn.browse));
+      if (turn.error) row.cards.push(iconButton("retry", "Edit and retry", () =>
+        restorePrompt({ text: turn.user?.content || turn.prompt, attachments: turn.attachments })));
     }
     if ((remoteBrowse || remoteSkill) && !local.length) {
-      const activity = messageBubble("assistant", "", { skill: remoteSkill });
-      activity.text.hidden = true;
-      if (remoteBrowse) activity.cards.append(browseCard(remoteBrowse));
-      rows.push(activity.item);
+      const activity = messageRow("assistant", "", { skill: remoteSkill });
+      if (remoteBrowse) activity.cards.push(browseCard(remoteBrowse));
+      rows.push(activity);
     }
-    reconcileChildren(transcript, rows);
-    arrive(arrivals.slice(-6));
+    renderConversation(transcript, rows, messageActions);
+    arrive(arrivals.slice(-6).map((row) => row.item));
     checkCollapsedReplies();
     chatRows = nextRows;
     for (const id of workerCards.keys()) {
@@ -1479,14 +1384,9 @@ export function createChatWorkspace({
     } else if (name === "token" || name === "reset") {
       const follow = visible && nearBottom();
       avatarSignal(turn.threadId, { type: name, text: payload.text });
-      if (bubble) {
-        const working = bubble.text.parentElement.classList.contains("message-working");
-        bubble.text.textContent = turn.text || turnProgress(turn);
-        bubble.text.parentElement.classList.toggle("message-working", !turn.text);
-        if (working && turn.text && currentView() === "chat") arrive([bubble.text]);
-      }
+      bubble?.setStream({ content: turn.text || turnProgress(turn), working: !turn.text, follow });
       if (store.state.avatarMode === "face" && visible) updateFaceCaption(turn.text);
-      if (follow) scrollDown();
+      if (!bubble && follow) scrollDown();
       return;
     } else if (name === "action") {
       if (payload.kind === "reminder") {
@@ -1504,7 +1404,7 @@ export function createChatWorkspace({
       const follow = nearBottom();
       const workers = [...turn.workers.values()];
       const card = workersCard(workers);
-      if (card.parentElement !== bubble.cards) bubble.cards.prepend(card);
+      if (card.parentElement !== bubble.cardsElement) bubble.cardsElement.prepend(card);
       if (store.state.avatarMode === "face") updateFaceWorkers(workers);
       if (follow) scrollDown();
       return;
@@ -1514,7 +1414,7 @@ export function createChatWorkspace({
       getArtifacts().endBrowse(payload.id);
       avatarSignal(turn.threadId, { type: "tool_finished" });
     } else if (name === "tool_started" || name === "tool_finished" || name === "demo_listening") {
-      if (bubble && !turn.text) updateText(bubble.text, turnProgress(turn));
+      if (bubble && !turn.text) bubble.setStream({ content: turnProgress(turn), working: true });
       avatarSignal(turn.threadId, { type: name, title: payload.title });
       return;
     } else if (name === "remembered") {
@@ -1663,12 +1563,13 @@ export function createChatWorkspace({
   byId("voice-engine").addEventListener("change", showVoiceEngine);
   byId("voice-settings-form").addEventListener("submit", (event) => {
     event.preventDefault();
-    voicePreferences = {
+    const voicePreferences = {
       engine: byId("voice-engine").value,
       language: byId("voice-language").value,
       seconds: byId("voice-length").valueAsNumber,
       autoSend: byId("voice-auto-send").checked,
     };
+    store.update({ voicePreferences });
     localStorage.setItem("hearth-voice", JSON.stringify(voicePreferences));
     updateText(byId("voice-settings-status"), "Voice settings saved.");
   });
@@ -1796,9 +1697,10 @@ export function createChatWorkspace({
   return {
     activateThread, applyAppearance, composerShortcut, openArtifactThread, openDemo, openMainChat,
     openPanelChat, openSkillChat, paintAvatars, refreshState, refreshVisibleHistory, renderChat,
-    send: chat, sendPanelPrompt, showVoiceEngine, syncVoiceSettings, threadSource, timelineSource,
+    send: chat, sendPanelPrompt, showVoiceEngine, syncVoiceSettings,
     mobile, voiceCall, signalAvatar: avatarSignal,
     get threads() { return store.state.threads; },
+    get busy() { return store.state.busy; },
     get snapshot() { return serverState; },
     get threadBusy() { return threadBusy; },
     get hasPendingTurns() { return localTurns().some((turn) => !turn.finished); },
@@ -1823,7 +1725,7 @@ export function createChatWorkspace({
     reminderSending(sending) {
       sendingTestReminder = sending;
       renderThreads();
-      avatarSignal(mainThread.id, { type: sending ? "tool_started" : "tool_finished", title: "Sending reminder" });
+      avatarSignal(mainThread.id, sending ? { type: "tool_started", title: "Sending reminder" } : { type: "tool_finished" });
     },
   };
 }

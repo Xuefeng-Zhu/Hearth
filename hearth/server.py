@@ -81,6 +81,7 @@ class ReplyControl:
         if self.stopped.is_set():
             raise ChatStopped
 
+
 # SHA-256 of the inline module import map in web/index.html.
 WORKSPACE_IMPORT_MAP_HASH = "sha256-u5dz4Tq+zI7mXqhmHihbTJa6O2tNQCiziXU+bWGx3Iw="
 
@@ -101,6 +102,8 @@ STATIC = {
     "/chat/view.js": ("chat/view.js", "text/javascript; charset=utf-8"),
     "/chat/threads.js": ("chat/threads.js", "text/javascript; charset=utf-8"),
     "/chat/composer.js": ("chat/composer.js", "text/javascript; charset=utf-8"),
+    "/chat/search.js": ("chat/search.js", "text/javascript; charset=utf-8"),
+    "/chat/conversation.js": ("chat/conversation.js", "text/javascript; charset=utf-8"),
     "/chat/workspace.js": ("chat/workspace.js", "text/javascript; charset=utf-8"),
     "/store.js": ("store.js", "text/javascript; charset=utf-8"),
     "/vendor/preact-10.29.8.mjs": ("vendor/preact-10.29.8.mjs", "text/javascript; charset=utf-8"),
