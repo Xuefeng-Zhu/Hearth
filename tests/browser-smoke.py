@@ -132,35 +132,102 @@ def await_partial_reply(page):
     return stop
 
 
+def tab_to(page, target, key="Tab"):
+    for _ in range(50):
+        if target.evaluate("(element) => element === document.activeElement"):
+            return
+        page.keyboard.press(key)
+    raise AssertionError(f"Could not reach {target} with {key}.")
+
+
+def keyboard_send(page, prompt):
+    composer = page.get_by_role("textbox", name="Message Hearth")
+    tab_to(page, composer)
+    page.keyboard.insert_text(prompt)
+    tab_to(page, page.get_by_role("button", name="Send message"))
+    page.keyboard.press("Enter")
+    expect(composer).to_be_focused()
+
+
+def track_reply_announcements(page):
+    live = page.locator("#reply-status")
+    expect(live).to_have_attribute("aria-live", "polite")
+    live.evaluate("""element => {
+      window.replyAnnouncements = [];
+      new MutationObserver(records => {
+        for (const {addedNodes} of records) {
+          for (const node of addedNodes) {
+            if (node.textContent) window.replyAnnouncements.push(node.textContent);
+          }
+        }
+      }).observe(element, {childList: true, characterData: true, subtree: true});
+    }""")
+
+
+def expect_announcements(page, expected_count):
+    announcements = page.evaluate("window.replyAnnouncements")
+    assert len(announcements) == expected_count, announcements
+    assert all(text.startswith("Hearth replied. I didn't find a matching note.")
+               and len(text) <= 116 for text in announcements), announcements
+
+
 def smoke(browser, origin):
     with browser_page(browser, origin) as page:
-        open_chat(page)
+        assert page.goto("/").ok
+        expect(page.get_by_role("heading", name="Home", exact=True)).to_be_visible()
+        expect(page.get_by_role("button", name="Edit layout")).to_be_enabled()
+        tab_to(page, page.get_by_role("button", name="Chat", exact=True))
+        page.keyboard.press("Enter")
+        expect(page.get_by_role("heading", name="Main", exact=True)).to_be_visible()
+        track_reply_announcements(page)
         transcript = page.locator("#transcript")
         answers = transcript.locator(".message.assistant[data-message-id]")
+        composer = page.get_by_role("textbox", name="Message Hearth")
         prompt = "Nebulaquill smoke fixture"
         with hold_after_first_token(prompt) as release:
-            send(page, prompt)
+            keyboard_send(page, prompt)
             await_partial_reply(page)
+            expect_announcements(page, 0)
             release.set()
         expect(answers.get_by_text(MOCK_REPLY, exact=True)).to_be_visible()
+        expect(composer).to_be_focused()
+        expect_announcements(page, 1)
+
+        side = page.get_by_role("button", name="Smoke side chat", exact=True)
+        main_thread = page.locator('.thread-link[data-thread="main"]')
+        prompt = "Nebulaquill switch fixture"
+        with hold_after_first_token(prompt) as release:
+            keyboard_send(page, prompt)
+            await_partial_reply(page)
+            tab_to(page, side, "Shift+Tab")
+            page.keyboard.press("Enter")
+            expect(page.get_by_role("heading", name="Smoke side chat", exact=True)).to_be_visible()
+            expect(side).to_be_focused()
+            expect(transcript.locator(".message")).to_have_count(0)
+            expect_announcements(page, 1)
+            tab_to(page, main_thread, "Shift+Tab")
+            page.keyboard.press("Enter")
+            expect(main_thread).to_be_focused()
+            await_partial_reply(page)
+            release.set()
+        expect(answers.get_by_text(MOCK_REPLY, exact=True)).to_have_count(2)
+        expect(main_thread).to_be_focused()
+        expect_announcements(page, 2)
 
         prompt = "Nebulaquill stop fixture"
         with hold_after_first_token(prompt) as release:
-            send(page, prompt)
+            keyboard_send(page, prompt)
             stop = await_partial_reply(page)
+            tab_to(page, stop)
             with page.expect_response(lambda response: response.url.endswith("/api/chat/stop")) as stopped:
-                stop.click()
+                page.keyboard.press("Enter")
             assert stopped.value.json() == {"stopped": True}
             release.set()
             expect(transcript.get_by_text("Reply stopped.", exact=True)).to_be_visible()
             expect(stop).to_be_hidden()
-        expect(answers).to_have_count(1)
-
-        page.get_by_role("button", name="Smoke side chat", exact=True).click()
-        expect(page.get_by_role("heading", name="Smoke side chat", exact=True)).to_be_visible()
-        expect(transcript.locator(".message")).to_have_count(0)
-        page.get_by_role("button", name="Main", exact=True).click()
-        expect(answers.get_by_text(MOCK_REPLY, exact=True)).to_be_visible()
+        expect(composer).to_be_focused()
+        expect(answers).to_have_count(2)
+        expect_announcements(page, 2)
         page.get_by_role("button", name="Settings", exact=True).click()
         expect(page.get_by_role("heading", name="Settings", exact=True)).to_be_visible()
         expect(page.get_by_role("button", name=re.compile(r"^Brain\b"))).to_be_visible()
@@ -176,6 +243,14 @@ def smoke(browser, origin):
         drawer.get_by_role("button", name="Chat", exact=True).click()
         expect(drawer).to_be_hidden()
         expect(page.get_by_role("heading", name="Main", exact=True)).to_be_visible()
+        tab_to(page, menu, "Shift+Tab")
+        page.keyboard.press("Enter")
+        side = drawer.get_by_role("button", name="Smoke side chat", exact=True)
+        tab_to(page, side)
+        page.keyboard.press("Enter")
+        expect(drawer).to_be_hidden()
+        heading = page.get_by_role("heading", name="Smoke side chat", exact=True)
+        expect(heading).to_be_focused()
 
 
 def stale_refresh(browser, origin):
@@ -256,10 +331,12 @@ def disconnect(browser, app, origin):
           };
         })()""")
         open_chat(page)
+        track_reply_announcements(page)
         prompt = "Nebulaquill disconnect fixture"
         with hold_after_first_token(prompt) as release:
             send(page, prompt)
             stop = await_partial_reply(page)
+            expect_announcements(page, 0)
             page.evaluate("window.disconnectChatStream()")
             expect(stop).to_be_hidden()
             release.set()
@@ -272,10 +349,16 @@ def disconnect(browser, app, origin):
         assert [(row["role"], row["content"]) for row in persisted] == [
             ("user", prompt), ("assistant", MOCK_REPLY),
         ]
+        assert persisted[-1]["reply_to"] == persisted[0]["id"]
         expect(final).to_have_attribute("data-message-id", persisted[-1]["id"])
         expect(transcript.locator(".message.user")).to_have_count(1)
         expect(transcript.locator(".message.assistant"),
                "The persisted reply should replace the interrupted partial reply").to_have_count(1)
+        expect(page.locator("#notice")).to_be_hidden()
+        expect_announcements(page, 1)
+        with page.expect_response(lambda response: "/api/state?" in response.url):
+            page.evaluate("window.dispatchEvent(new Event('focus'))")
+        expect_announcements(page, 1)
 
 
 def main():

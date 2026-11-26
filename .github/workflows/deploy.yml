@@ -57,6 +57,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: timeout 85s python tests/browser-smoke.py
+      - name: Chat stream disconnect recovery
+        env:
+          PYTHONPATH: .
+        run: timeout 85s python tests/browser-smoke.py --disconnect
 
   deploy:
     needs: [test, browser-smoke]

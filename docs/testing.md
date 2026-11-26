@@ -13,9 +13,9 @@ PYTHONPATH=. python tests/browser-smoke.py
 
 Add `--with-deps` to the install command if Chromium needs Linux system libraries. In the ARM workspace, set `LD_LIBRARY_PATH=/workspace/tools/chromelibs/usr/lib/aarch64-linux-gnu` when launching the test. Set `PLAYWRIGHT_BROWSERS_PATH` if Chromium was installed outside Playwright’s default cache.
 
-The smoke starts Hearth on a random loopback port with temporary data, the mock model, empty connector discovery, and browser requests restricted to the local server. It checks Home, streamed Chat, Stop, switching threads, Settings, and the 390×844 drawer. The deploy workflow caches Chromium and requires the smoke and the unit test job to pass before deploy. [Workflow](../.github/workflows/deploy.yml)
+The smoke starts Hearth on a random loopback port with temporary data, the mock model, empty connector discovery, and browser requests restricted to the local server. It checks Home, Settings, the 390×844 drawer, keyboard send and Stop, focus during a mid-stream thread switch, and one live-region update per completed reply.
 
-Run the stream disconnect regression separately with `PYTHONPATH=. python tests/browser-smoke.py --disconnect`. It aborts the Chat request after the first visible token, allows the server to persist the reply, and checks that the open transcript contains the saved reply exactly once. On the Run 61 baseline, polling displays the saved reply alongside a stale partial bubble, so this assertion fails. [Run 61](run-61.md)
+Run the stream disconnect regression with `PYTHONPATH=. python tests/browser-smoke.py --disconnect`. It aborts the Chat request after the first visible token and lets the server persist the reply. It checks that polling replaces the partial bubble, announces the saved reply once, and keeps the announcement count unchanged after another refresh. The deploy workflow caches Chromium and requires both browser checks and the unit test job to pass. [Workflow](../.github/workflows/deploy.yml)
 
 ## Signed-out edge authorization matrix
 
