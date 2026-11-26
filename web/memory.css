@@ -11,7 +11,7 @@
   background: var(--accent-fill-hover); border-color: var(--accent-fill-hover);
 }
 #memory-find input, .memory-field :is(input, textarea) { border-color: var(--muted); }
-#memory-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+#memory-tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 #memory-view .memory-tab, #memory-view .memory-list-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -70,9 +70,35 @@
 .memory-links { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 7px; }
 .memory-policy { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
 .memory-policy p { margin: 0; }
+.memory-review { overflow-wrap: anywhere; }
+.memory-review-list { display: grid; gap: 10px; }
+.memory-review-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.memory-review-list > p, .memory-review-source p, .memory-review-item .memory-review-result { margin: 0; }
+.memory-review-item {
+  min-width: 0; border: 1px solid var(--control-border); border-radius: 9px;
+  padding: 12px; background: var(--field-surface);
+}
+.memory-review-item h4 { display: flex; gap: 7px; align-items: center; margin: 0 0 10px; font-size: 16px; }
+.memory-review-source { border-inline-start: 2px solid var(--control-border); padding-inline-start: 10px; margin-bottom: 10px; }
+.memory-review-source strong { color: var(--secondary-text); font-size: 12px; }
+.memory-review-source blockquote { margin: 2px 0 3px; color: var(--text); white-space: pre-wrap; }
+.memory-review .memory-actions { margin-top: 10px; }
+#memory-view .memory-review button, .memory-review-picker select, #memory-review-settings button,
+#memory-review-time, #memory-review-settings .check-label { min-height: 44px; }
+.memory-review-picker { display: grid; gap: 4px; margin-bottom: 10px; color: var(--text); }
+.memory-review-picker select { width: 100%; color: var(--text); background: var(--field-surface); border: 1px solid var(--muted); }
+.memory-review-settings { margin-bottom: 14px; }
+.memory-review-settings fieldset { display: grid; gap: 6px; min-width: 0; padding: 0; margin: 0; border: 0; }
+.memory-review-settings .memory-actions { margin-top: 3px; align-items: stretch; }
+#memory-review-settings .memory-actions button { margin: 0; }
+.memory-review-settings .check-label { display: flex; gap: 8px; align-items: center; margin: 0; }
+.memory-review-settings .meta { margin: 0; }
+.memory-review-settings .meta:empty { display: none; }
+.memory-review-time { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.memory-review-time input { max-width: 100%; color: var(--text); }
 @media (max-width: 600px) {
   #memory-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-  #memory-view .memory-tab { gap: 1px 5px; padding: 8px; }
+  #memory-view .memory-tab { gap: 1px 5px; padding: 8px; min-height: 44px; }
   .memory-layout.has-list { grid-template-columns: minmax(0, 1fr); }
   .memory-layout .memory-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .memory-fields { gap: 9px; }

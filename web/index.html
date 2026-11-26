@@ -558,6 +558,23 @@
           </div>
         </div>
         <div class="settings-body" id="settings-memory" hidden>
+          <form class="card brain-form memory-review-settings" id="memory-review-settings" aria-labelledby="memory-review-title">
+            <h3 id="memory-review-title">Memory review</h3>
+            <p class="meta">Hearth collects suggestions for you to review and approve.</p>
+            <fieldset disabled>
+              <label class="check-label"><input type="checkbox" name="enabled"> Run nightly</label>
+              <div class="memory-review-time">
+                <label for="memory-review-time">Time (Pacific)</label>
+                <input id="memory-review-time" name="time" type="time" required>
+              </div>
+              <p class="meta" id="memory-review-next"></p>
+              <div class="memory-actions">
+                <button class="primary-setting" type="submit" name="save">Save schedule</button>
+                <button type="button" name="run"><span data-icon="play"></span> Run now</button>
+              </div>
+            </fieldset>
+            <p class="meta" id="memory-review-settings-status" role="status"></p>
+          </form>
           <div class="settings-layout">
             <form class="card brain-form preference-form" id="memory-settings-form">
               <fieldset class="preference-fields" id="memory-fields" disabled>

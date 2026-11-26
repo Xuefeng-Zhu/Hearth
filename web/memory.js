@@ -7,6 +7,7 @@ const areas = [
   { id: "places", label: "Places", icon: "pin", singular: "place", empty: "No places saved yet." },
   { id: "topics", label: "Topics", icon: "book", singular: "note", empty: "No topics saved yet." },
   { id: "daily", label: "Daily", icon: "clock", singular: "log", empty: "No daily logs saved yet." },
+  { id: "review", label: "Review", icon: "list" },
 ];
 const labels = {
   name: "Name", preferred_name: "Preferred name", pronouns: "Pronouns", phone: "Phone",
@@ -53,7 +54,7 @@ function field(container, name, value, { label = labels[name], multiline = false
   return control;
 }
 
-export function createMemory({ api, forget, approvals }) {
+export function createMemory({ api, forget, approvals, renderReview }) {
   const tabs = document.getElementById("memory-tabs");
   const area = document.getElementById("memory-area");
   const status = document.getElementById("memory-status");
@@ -61,6 +62,7 @@ export function createMemory({ api, forget, approvals }) {
   let section = "profile";
   let selected;
   let source;
+  let digest;
   let request = 0;
 
   const records = (category) => (data?.index || []).filter((row) => sectionFor(row.path) === category
@@ -71,6 +73,7 @@ export function createMemory({ api, forget, approvals }) {
     section = category;
     selected = path;
     source = hit;
+    digest = undefined;
     announce("");
     return render();
   }
@@ -83,7 +86,7 @@ export function createMemory({ api, forget, approvals }) {
           Array.isArray(value) ? value.length : Object.values(value).some(Boolean)).length
         : records(item.id).length;
       const control = button(item.label, () => choose(item.id), item.icon, "memory-tab");
-      control.append(node("small", "", `${count} ${item.singular}${count === 1 ? "" : "s"}`));
+      if (item.singular) control.append(node("small", "", `${count} ${item.singular}${count === 1 ? "" : "s"}`));
       control.role = "tab";
       control.id = `memory-tab-${item.id}`;
       control.setAttribute("aria-controls", area.id);
@@ -281,6 +284,12 @@ export function createMemory({ api, forget, approvals }) {
     if (!data) return;
     const version = ++request;
     renderTabs();
+    if (section === "review") {
+      area.replaceChildren();
+      const identity = digest;
+      digest = undefined;
+      return renderReview(area, identity);
+    }
     if (section === "profile" && !source && (!selected || selected === "USER.md")) {
       area.replaceChildren(profile());
       return;
@@ -323,6 +332,12 @@ export function createMemory({ api, forget, approvals }) {
 
   return {
     load,
+    selectReview(id) {
+      section = "review";
+      selected = undefined;
+      source = undefined;
+      digest = id;
+    },
     selectSource(hit) {
       section = sectionFor(hit.path);
       selected = hit.path;

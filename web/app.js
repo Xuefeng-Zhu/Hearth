@@ -17,6 +17,7 @@ import { createAutomation } from "./automation.js";
 import { createSkills, skillChip } from "./skills.js";
 import { createWorkersCard } from "./workers.js";
 import { createMemory } from "./memory.js";
+import { createMemoryReview } from "./memory-review.js";
 
 mountIcons();
 
@@ -161,6 +162,10 @@ const homeWorkers = createWorkersCard({
 const proactivity = createProactivity({ api });
 const feed = createFeed({
   api, runSuggestion: (id) => chat("", { keepDraft: true, suggestion: id }),
+  openReview: async (id) => {
+    memoryPage.selectReview(id);
+    await openView("memory");
+  },
   openSettings: () => openSettingsSection("feed"),
   async openChat(thread, draft) {
     await openSkillChat(thread);
@@ -1303,10 +1308,12 @@ function memoryLabel(hit) {
   return `${hit.message_id ? hit.heading : hit.path} · line ${hit.line}`;
 }
 
+const memoryReview = createMemoryReview({ api });
 const memoryPage = createMemory({
   api,
   forget: (hit) => forgetMemory(hit),
   approvals: () => openSettingsSection("approvals"),
+  renderReview: memoryReview.render,
 });
 
 async function renderMemory() {
@@ -2256,6 +2263,7 @@ async function openSettings(section, target) {
     return voiceCall.syncSettings();
   }
   if (preferences[section].pending) return;
+  if (section === "memory") memoryReview.settings();
   try {
     const info = await api(`/api/${section}/settings`);
     if (view !== "settings" || settingsSection !== section || preferences[section].pending) return;

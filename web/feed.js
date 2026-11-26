@@ -4,6 +4,7 @@ import { timeFormatter } from "./time.js";
 const kinds = {
   read: ["Read", "book"], idea: ["Idea", "sparkle"], digest: ["Digest", "list"],
   "reminder-context": ["Reminder", "bell"], action: ["Action", "check"],
+  "memory-review": ["Memory", "book"],
 };
 
 function element(tag, className, text) {
@@ -24,7 +25,7 @@ function button(label, callback, symbol, className = "") {
 
 const date = timeFormatter({ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-export function createFeed({ api, runSuggestion, openChat, openSource, openSettings }) {
+export function createFeed({ api, runSuggestion, openChat, openSource, openSettings, openReview }) {
   const root = element("div", "feed-widget");
   const toolbar = element("div", "feed-toolbar");
   const refreshButton = button("Refresh", refresh, "refresh");
@@ -109,6 +110,13 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
     const title = element("h3", "", row.title);
     title.id = `feed-card-${row.id}`;
     article.setAttribute("aria-labelledby", title.id);
+    if (row.kind === "memory-review") {
+      const actions = element("div", "feed-actions");
+      const review = button("Review proposals", () => perform(review, () => openReview(row.id)), "list", "feed-primary");
+      actions.append(review);
+      article.append(meta, title, element("p", "feed-copy", row.body), actions);
+      return article;
+    }
     const sources = element("div", "feed-sources");
     sources.append(...row.links.map(sourceLink));
     const actions = element("div", "feed-actions");
