@@ -208,7 +208,9 @@ class ToolLoopTest(unittest.TestCase):
             for index in range(9):
                 app.threads.append("main", "assistant", f"Prior reply {index}. " + "Evidence. " * 2_000)
         prompt = "Check the fixture."
-        events = collect(app.enqueue("main", prompt))
+        # A long chat can start an Ideas worker that outlives this temporary workspace.
+        with patch.object(app.ideas, "kick"):
+            events = collect(app.enqueue("main", prompt))
         self.assertEqual(events[-1][0], "done")
         self.assertLessEqual(max(gateway.payload_sizes), 128_000)
         _, messages, _ = gateway.requests[-1]
