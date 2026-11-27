@@ -1,6 +1,6 @@
 import { h } from "preact";
 import htm from "htm";
-import { iconAttributes, iconPath } from "../icons.js";
+import { iconAttributes, iconPath } from "./icons.js";
 
 export const html = htm.bind(h);
 

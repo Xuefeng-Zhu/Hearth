@@ -1,6 +1,6 @@
 import { render } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
-import { html, Icon } from "../chat/view.js";
+import { html, Icon } from "../ui.js";
 import { localDay, previousDay, timeFormatter } from "../time.js";
 import { mascot, setPose } from "../avatar.js";
 import { workerDuration, workerStatuses } from "../workers.js";

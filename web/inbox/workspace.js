@@ -1,8 +1,9 @@
 import { render } from "preact";
-import { html } from "../chat/view.js";
+import { html } from "../ui.js";
 import { listSearchPath } from "../list-search.js";
 import { prepareListMotion } from "../motion.js";
 import { setTimeZone } from "../time.js";
+import { emailCard } from "../reminders/delivery.js";
 import { InboxList, InboxView, inboxStatuses } from "./view.js";
 
 const get = (id) => document.getElementById(id);
@@ -11,11 +12,10 @@ export function mountInbox() {
   render(html`<${InboxView} />`, get("inbox-view"));
 }
 
-export function createInbox({ api, refreshAPI, search, currentView, currentSettings, delivery, onInbox }) {
+export function createInbox({ api, refreshAPI, search, currentView, onInbox, checkMail, pendingPoll }) {
   const target = get("inbox-content");
   const address = get("inbox-address");
   const feedback = get("inbox-feedback");
-  let backgroundPoll;
   let manualPending = false;
   let request = 0;
   let connection;
@@ -68,7 +68,7 @@ export function createInbox({ api, refreshAPI, search, currentView, currentSetti
       const signature = JSON.stringify([result.connected, result.inbox_address, result.inbox_error, result.connection_message]);
       if (signature !== connection) {
         connection = signature;
-        delivery.emailCard(address, result);
+        emailCard(address, result);
       }
       const next = new Map();
       review = [];
@@ -97,25 +97,6 @@ export function createInbox({ api, refreshAPI, search, currentView, currentSetti
     }
   }
 
-  async function checkMail(manual) {
-    try {
-      const result = await api("/api/inbox/poll", manual ? { force: true } : {});
-      if (currentView() === "inbox") {
-        await load({ background: !manual });
-        if (manual) feedback.textContent = result.processed ? `Processed ${result.processed} email(s).` : "Check complete.";
-      }
-      if (currentView() === "settings" && currentSettings() === "connections") await delivery.connections();
-      if (currentView() === "settings" && currentSettings() === "reminders") await delivery.refreshEmailStatus();
-    } catch (error) {
-      if (manual) showError(error.message);
-    }
-  }
-
-  function poll() {
-    if (manualPending || backgroundPoll) return;
-    backgroundPoll = checkMail(false).finally(() => { backgroundPoll = undefined; });
-  }
-
   const manualCheck = get("inbox-poll");
   manualCheck.addEventListener("click", async () => {
     if (manualPending) return;
@@ -123,13 +104,18 @@ export function createInbox({ api, refreshAPI, search, currentView, currentSetti
     manualCheck.setAttribute("aria-disabled", "true");
     feedback.textContent = "Checking for forwarded email…";
     try {
-      await backgroundPoll;
-      await checkMail(true);
+      await pendingPoll();
+      const result = await checkMail(true);
+      if (currentView() === "inbox") {
+        feedback.textContent = result.processed ? `Processed ${result.processed} email(s).` : "Check complete.";
+      }
+    } catch (error) {
+      showError(error.message);
     } finally {
       manualPending = false;
       manualCheck.removeAttribute("aria-disabled");
     }
   });
   paint("");
-  return { load, poll };
+  return { load, get manualPending() { return manualPending; } };
 }

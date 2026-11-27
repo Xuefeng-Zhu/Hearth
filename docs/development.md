@@ -103,7 +103,7 @@ The fixture listens on loopback port 39519. Set `CHROMIUM_PATH` to use an existi
 
 1. Add the view’s section to `web/index.html` with an ID of the form `<name>-view` and a matching `data-view="<name>"` button in the desktop sidebar and mobile drawer.
 2. Put the Preact components in `web/<name>/view.js` and the data loading and actions in a controller, following Reminders or Timeline. Render into a stable host with `render` from `preact` and the shared htm binding. Use stable keys for list items and keep any native dialog or input mount stable across refreshes.
-3. Import and mount the view in `web/app.js`, wire its loader into `refreshView` and its entry into `openView`, and add any bookmark handling to the workspace router. For a view that polls, add its refresh path to `viewRefreshPaths` and wire the refresh into `pollForeground`.
+3. Give the view a dynamic import and one-time mount in `web/app.js`. Wire its data refresh into `refreshView` and any bookmark handling into the workspace router. For a view that polls, add its refresh path to `viewRefreshPaths` and wire the refresh into `pollForeground`.
 4. Add the module URLs and any new stylesheets to the server’s `STATIC` allowlist. Verify navigation, focus, and refresh behavior with the offline browser fixture.
 
 [Shell and navigation](../web/index.html), [View wiring](../web/app.js), [Reminders mount](../web/reminders/view.js), [Reminders controller](../web/reminders/workspace.js), [Static allowlist](../hearth/server.py)

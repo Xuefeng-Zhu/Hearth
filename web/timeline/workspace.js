@@ -1,5 +1,5 @@
 import { render as paint } from "preact";
-import { html } from "../chat/view.js";
+import { html } from "../ui.js";
 import { setTimeZone } from "../time.js";
 import { selectPlacement } from "../combobox.js";
 import { categories, kinds, stamp, dayKey, Filters, TimelineFeed, Time, ThreadOptions } from "./view.js";

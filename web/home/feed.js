@@ -1,5 +1,5 @@
 import { render } from "preact";
-import { html, Icon } from "../chat/view.js";
+import { html, Icon } from "../ui.js";
 import { showLoading } from "../motion.js";
 import { timeFormatter } from "../time.js";
 
@@ -66,9 +66,6 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
   }, { root: scroll });
   observer.observe(more);
 
-  const form = document.getElementById("feed-settings-form");
-  const formStatus = document.getElementById("feed-settings-status");
-  const profile = document.getElementById("feed-interests");
   let rows = [];
   let saved = false;
   let enabled = true;
@@ -375,7 +372,32 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
     updateSteering(config.steering);
   }
 
+  let form, formStatus, profile;
   async function settings() {
+    if (!form) {
+      form = document.getElementById("feed-settings-form");
+      formStatus = document.getElementById("feed-settings-status");
+      profile = document.getElementById("feed-interests");
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const submit = form.querySelector("[type=submit]");
+        submit.disabled = true;
+        const values = form.elements;
+        const topics = (key) => values[key].value.split(/[,\n]/).map((value) => value.trim()).filter(Boolean);
+        try {
+          fill(await api("/api/feed/settings", {
+            enabled: values.enabled.checked, frequency: values.frequency.valueAsNumber,
+            steering: values.steering.value, follow: topics("follow"), mute: topics("mute"),
+          }));
+          formStatus.textContent = "Feed settings saved.";
+          initial = false;
+        } catch (error) {
+          formStatus.textContent = error.message;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+    }
     formStatus.textContent = "";
     try {
       fill(await api("/api/feed/settings"));
@@ -383,26 +405,6 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
       formStatus.textContent = error.message;
     }
   }
-
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const submit = form.querySelector("[type=submit]");
-    submit.disabled = true;
-    const values = form.elements;
-    const topics = (key) => values[key].value.split(/[,\n]/).map((value) => value.trim()).filter(Boolean);
-    try {
-      fill(await api("/api/feed/settings", {
-        enabled: values.enabled.checked, frequency: values.frequency.valueAsNumber,
-        steering: values.steering.value, follow: topics("follow"), mute: topics("mute"),
-      }));
-      formStatus.textContent = "Feed settings saved.";
-      initial = false;
-    } catch (error) {
-      formStatus.textContent = error.message;
-    } finally {
-      submit.disabled = false;
-    }
-  });
 
   return { root, settings, show(reload = false) {
     if (loading || refreshing) return;

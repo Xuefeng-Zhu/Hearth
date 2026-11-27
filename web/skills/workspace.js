@@ -1,7 +1,5 @@
 import { render } from "preact";
-import { html } from "../chat/view.js";
-import { node as element } from "../dom.js";
-import { icon } from "../icons.js";
+import { html } from "../ui.js";
 import { listSearchPath } from "../list-search.js";
 import { showLoading } from "../motion.js";
 import { SkillEditor, SkillList, SkillsView } from "./view.js";
@@ -16,13 +14,6 @@ tools: []
 
 1. Describe the first step.
 `;
-
-export function skillChip(skill, label = "Using skill") {
-  const chip = element(skill.id ? "a" : "span", "skill-chip");
-  if (skill.id) chip.href = `#skills/${encodeURIComponent(skill.id)}`;
-  chip.append(icon("skill", 15), element("span", "", `${label}: ${skill.name}`));
-  return chip;
-}
 
 export function mountSkills(get) {
   render(html`<${SkillsView} />`, get("skills-view"));

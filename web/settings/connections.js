@@ -1,7 +1,8 @@
 import { render } from "preact";
 import { useRef } from "preact/hooks";
-import { html, Icon } from "../chat/view.js";
-import { configTabs, connectionHash } from "./workspace.js";
+import { html, Icon } from "../ui.js";
+import { configTabs, connectionHash } from "./routes.js";
+import { connectorHasError } from "./status.js";
 
 const connectorFields = {
   pinecone: { field: "index", label: "Index name", placeholder: "hearth-memory", maxLength: 45 },
@@ -12,11 +13,6 @@ const labels = {
   ok: "OK", ready: "Ready", checking: "Checking", error: "Error", untested: "Untested", unauthorized: "Found but not authorized",
   not_set_up: "Not set up", unknown: "Not checked", not_used: "Not used by Hearth",
 };
-
-export function connectorHasError(entry) {
-  return entry?.uses.length > 0 && (entry.status === "unauthorized" || ["failed", "denied"].includes(entry.test_status)
-    || entry.index_state === "Unavailable");
-}
 
 function ConnectorForm({ provider, entry, info, drafts, update }) {
   const id = `connection-${provider}`;
@@ -150,10 +146,10 @@ function ConnectionFilters() {
   `;
 }
 
-export function createConnections({ byId, api, date, trackRefresh, refreshAPI, isActive, onData, onUpdate, loadMail, pollMail }) {
+export function createConnections({ byId, api, date, trackRefresh, refreshAPI, isActive, onData, onUpdate, loadMail, pollMail, initialState, initialRequest }) {
   const connectionPanels = new Map();
   const connectionDrafts = new Map();
-  let connectionState;
+  let connectionState = initialState;
   let connectionRequest;
   let connectionTabPreference = localStorage.getItem(tabStorage);
   let newlyConfigured = new Set();
@@ -364,6 +360,16 @@ export function createConnections({ byId, api, date, trackRefresh, refreshAPI, i
       other.search.value = controls.search.value;
       other.filter.value = controls.filter.value;
       selectConnectionTab(otherTab);
+    });
+  }
+
+  if (initialRequest) {
+    setConnectionsBusy(true);
+    connectionRequest = initialRequest.then((data) => {
+      if (data) applyConnections(data);
+    }).finally(() => {
+      connectionRequest = undefined;
+      setConnectionsBusy(false);
     });
   }
 

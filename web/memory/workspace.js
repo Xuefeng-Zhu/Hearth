@@ -1,5 +1,5 @@
 import { render as paint } from "preact";
-import { html, Icon } from "../chat/view.js";
+import { html, Icon } from "../ui.js";
 import { areas, Loading, MemoryNote, MemoryTabs, MemoryView, NoteLayout, Profile, RecallResults } from "./view.js";
 import { Review } from "./review.js";
 

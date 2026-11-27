@@ -50,3 +50,8 @@ export function localTimeToISO(value) {
   }
   throw new Error("Choose a time that exists in your workspace time zone.");
 }
+
+export function callDuration(seconds) {
+  const clock = [Math.floor(seconds / 60), seconds % 60];
+  return clock.map((value) => String(value).padStart(2, "0")).join(":");
+}

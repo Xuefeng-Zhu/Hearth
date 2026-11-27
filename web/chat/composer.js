@@ -1,6 +1,6 @@
 import { useLayoutEffect } from "preact/hooks";
 import { mountStore, useAppState } from "../store.js";
-import { html, Icon } from "./view.js";
+import { html, Icon } from "../ui.js";
 
 function Composer({ form, onSend, onStop, onAttach, onInput, onSelect, onMic, onCancelVoice }) {
   const { currentThread, busy, uploading, sendLabel, canStop, stoppingReply, callActive, dictation } = useAppState();

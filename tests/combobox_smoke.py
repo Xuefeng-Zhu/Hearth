@@ -228,8 +228,13 @@ def verify_runtime_lists(page, app):
     expect(page.locator(selector)).to_have_value("Data and storage")
     expect(page.locator("#not-configured-panel [data-provider=pinecone]")).to_be_visible()
     expect(page.locator("#not-configured-panel [data-provider=github]")).to_have_count(0)
+    page.locator('.sidebar [data-view="artifacts"]').click()
     assert_enhanced(page, "#artifact-sort", 2)
+    page.locator('.sidebar [data-view="settings"]').click()
+    page.locator('[data-settings="search"]').click()
     assert_enhanced(page, "#search-recency", 5)
+    page.locator('[data-settings="connections"]').click()
+    expect(trigger(page, selector)).to_be_visible()
 
 
 def verify_mutations(page):

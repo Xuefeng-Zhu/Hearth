@@ -1,13 +1,10 @@
 import { useLayoutEffect, useRef } from "preact/hooks";
-import { html } from "../chat/view.js";
+import { html } from "../ui.js";
 import { highlighted, ListSearchExcerpt } from "../list-search-view.js";
-import { formatDate } from "../reminders/view.js";
+import { formatDate } from "../reminders/delivery.js";
+import { inboxKinds as kinds } from "../reminders/delivery.js";
 import { localInputTime, localTimeToISO } from "../time.js";
 
-export const kinds = {
-  reminder: "Reminder", event: "Event or booking", receipt: "Receipt or order",
-  person: "Person or fact", list: "List or plan", other: "Note",
-};
 export const inboxStatuses = {
   review: "Needs review", accepted: "Accepted", dismissed: "Dismissed", undone: "Undone",
 };

@@ -1,5 +1,5 @@
 import { render } from "preact";
-import { html, Icon } from "../chat/view.js";
+import { html, Icon } from "../ui.js";
 
 export function mountTasks(byId) {
   render(html`

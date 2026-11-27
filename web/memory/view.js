@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
-import { html, Icon } from "../chat/view.js";
-import { Markdown } from "../artifacts/view.js";
+import { html, Icon } from "../ui.js";
+import { Markdown } from "../artifacts/markdown.js";
+import { memoryLabel } from "../chat/chips.js";
+import { memoryNames } from "./labels.js";
 
 export const areas = [
   { id: "profile", label: "Profile", icon: "user", singular: "field", empty: "Your personal details" },
@@ -10,7 +12,6 @@ export const areas = [
   { id: "daily", label: "Daily", icon: "clock", singular: "log", empty: "No daily logs saved yet." },
   { id: "review", label: "Review", icon: "list" },
 ];
-export const memoryNames = { auto: "Auto", pinecone: "Pinecone", local: "Local", keyword: "Local", huggingface: "Local · Hugging Face embeddings" };
 
 const labels = {
   name: "Name", preferred_name: "Preferred name", pronouns: "Pronouns", phone: "Phone",
@@ -210,11 +211,6 @@ export function MemoryNote({ path, row, hit, file, approvals, forget, choose, op
     </div>
     ${row && html`<${Related} ...${{ record: row, index, open }} />`}
   `;
-}
-
-export function memoryLabel(hit) {
-  if (hit.artifact_id) return hit.heading || "Artifact";
-  return `${hit.message_id ? hit.heading : hit.path} · line ${hit.line}`;
 }
 
 export function RecallResults({ result, open, forget }) {

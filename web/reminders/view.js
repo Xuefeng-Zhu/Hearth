@@ -1,13 +1,7 @@
 import { render } from "preact";
-import { html, Icon } from "../chat/view.js";
+import { html, Icon } from "../ui.js";
 import { highlighted, ListSearchExcerpt } from "../list-search-view.js";
-import { timeFormatter } from "../time.js";
-
-const channels = { app: "In app", email: "Email", both: "Both" };
-export const statuses = { queued: "Queued", sent: "Sent", failed: "Failed", canceled: "Canceled" };
-const icons = { app: ["bell"], email: ["mail"], both: ["bell", "mail"] };
-const fmt = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
-export const formatDate = (at) => at && Number.isFinite(Date.parse(at)) ? fmt.format(new Date(at)) : "—";
+import { formatDate, ChannelChip, channels } from "./delivery.js";
 
 export function mountReminders(byId) {
   render(html`
@@ -31,13 +25,6 @@ export function mountReminders(byId) {
     <div id="reminders-search-empty" class="list-search-empty" hidden></div>
     <div id="reminders-content" class="list-search-results"></div>
   `, byId("reminders-panel"));
-}
-
-export function ChannelChip({ channel = "app", status, matches }) {
-  return html`<span class=${`delivery-chip${status ? ` delivery-${status}` : ""}`}>
-    ${icons[channel].map((name) => html`<${Icon} name=${name} size=${14} />`)}
-    <span>${highlighted(matches, channels[channel])}${status ? ` · ${statuses[status]}` : ""}</span>
-  </span>`;
 }
 
 function Reminder({ row, name, cancelReminder }) {

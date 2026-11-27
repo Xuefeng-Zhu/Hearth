@@ -8,6 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event, Thread
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -1149,6 +1150,65 @@ def self_update_smoke(browser, app, origin):
                 expect(card.locator("pre")).to_be_visible()
 
 
+def lazy_views_smoke(browser, origin):
+    view_modules = {
+        "/chat/workspace.js", "/chat/composer.js", "/chat/conversation.js", "/attachments.js",
+        "/timeline/workspace.js", "/timeline/view.js", "/artifacts/library.js", "/artifacts/view.js",
+        "/reminders/workspace.js", "/reminders/view.js", "/inbox/workspace.js", "/inbox/view.js",
+        "/memory/workspace.js", "/memory/view.js", "/memory/review.js", "/skills/workspace.js", "/skills/view.js",
+        "/settings/workspace.js", "/settings/sections.js", "/settings/brain.js", "/settings/connections.js",
+        "/settings/preferences.js", "/settings/persona.js", "/automation/workspace.js", "/automation/view.js",
+        "/proactivity.js", "/voice.js", "/voice-call.js", "/vendor/vocalbridge.mjs",
+    }
+    defer_idle = """window.requestIdleCallback = callback => { window.runHearthIdle = callback; };"""
+    with browser_page(browser, origin) as page:
+        requests = []
+        page.on("request", lambda request: requests.append(urlsplit(request.url).path))
+        page.add_init_script(defer_idle + """
+            window.policyViolations = [];
+            document.addEventListener("securitypolicyviolation", event =>
+                window.policyViolations.push(event.violatedDirective));
+        """)
+        assert page.goto("/").ok
+        expect(page.locator("#home-grid > [data-panel]")).to_have_count(9)
+        page.wait_for_function("() => typeof window.runHearthIdle === 'function'")
+        assert view_modules.isdisjoint(requests), set(requests) & view_modules
+
+        with page.expect_response("**/chat/workspace.js"):
+            page.evaluate("window.runHearthIdle()")
+        page.wait_for_function("() => performance.getEntriesByName(location.origin + '/chat/conversation.js').length")
+        assert set(requests) & view_modules == {
+            "/chat/workspace.js", "/chat/composer.js", "/chat/conversation.js", "/attachments.js",
+        }
+
+        held = []
+        page.route("**/timeline/workspace.js", lambda route: held.append(route))
+        page.locator('.sidebar [data-view="timeline"]').click()
+        expect(page.locator("#view-loading .loading-skeleton")).to_be_visible()
+        page.locator('.sidebar [data-view="home"]').click()
+        expect(page.locator("#home-view")).to_be_visible()
+        held[0].continue_()
+        expect(page.locator("#timeline-view")).to_be_hidden()
+        page.locator('.sidebar [data-view="timeline"]').click()
+        expect(page.locator("#timeline-view")).to_be_visible()
+        expect(page.locator("#view-loading")).to_be_hidden()
+        assert requests.count("/timeline/workspace.js") == 1
+
+        page.locator('.sidebar [data-view="chat"]').click()
+        expect(page.locator("#composer textarea")).to_be_visible()
+        assert requests.count("/chat/workspace.js") == 1
+        assert page.evaluate("window.policyViolations") == []
+
+    with browser_page(browser, origin) as page:
+        requests = []
+        page.on("request", lambda request: requests.append(urlsplit(request.url).path))
+        assert page.goto("/chat").ok
+        expect(page.locator("#composer textarea")).to_be_visible()
+        expect(page.locator("#home-view")).to_be_hidden()
+        assert "/api/home" not in requests
+        assert "/chat/workspace.js" in requests
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--disconnect", action="store_true", help="Run the SSE disconnect regression.")
@@ -1172,6 +1232,7 @@ def main():
             elif args.feed_ideas:
                 feed_ideas_smoke(browser, app, origin, browser_page)
             else:
+                lazy_views_smoke(browser, origin)
                 with workspace() as (layout_app, layout_origin):
                     layout_smoke(browser, layout_app, layout_origin)
                 with workspace() as (home_app, home_origin):

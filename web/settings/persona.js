@@ -1,7 +1,7 @@
 import { render } from "preact";
 import { useLayoutEffect, useRef } from "preact/hooks";
 import { looks, mascot, setLook } from "../avatar.js";
-import { html } from "../chat/view.js";
+import { html } from "../ui.js";
 import { updateText } from "../dom.js";
 import { mountStore, useAppState } from "../store.js";
 

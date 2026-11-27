@@ -88,6 +88,7 @@ WORKSPACE_IMPORT_MAP_HASH = "sha256-u5dz4Tq+zI7mXqhmHihbTJa6O2tNQCiziXU+bWGx3Iw=
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/memory/workspace.js": ("memory/workspace.js", "text/javascript; charset=utf-8"),
+    "/memory/labels.js": ("memory/labels.js", "text/javascript; charset=utf-8"),
     "/memory/view.js": ("memory/view.js", "text/javascript; charset=utf-8"),
     "/memory/review.js": ("memory/review.js", "text/javascript; charset=utf-8"),
     "/memory.css": ("memory.css", "text/css; charset=utf-8"),
@@ -102,7 +103,12 @@ STATIC = {
     "/workers.css": ("workers.css", "text/css; charset=utf-8"),
     "/pages.js": ("pages.js", "text/javascript; charset=utf-8"),
     "/pages.css": ("pages.css", "text/css; charset=utf-8"),
-    "/chat/view.js": ("chat/view.js", "text/javascript; charset=utf-8"),
+    "/ui.js": ("ui.js", "text/javascript; charset=utf-8"),
+    "/approval-cards.js": ("approval-cards.js", "text/javascript; charset=utf-8"),
+    "/chat/chips.js": ("chat/chips.js", "text/javascript; charset=utf-8"),
+    "/settings/routes.js": ("settings/routes.js", "text/javascript; charset=utf-8"),
+    "/reminders/delivery.js": ("reminders/delivery.js", "text/javascript; charset=utf-8"),
+    "/artifacts/markdown.js": ("artifacts/markdown.js", "text/javascript; charset=utf-8"),
     "/chat/threads.js": ("chat/threads.js", "text/javascript; charset=utf-8"),
     "/chat/composer.js": ("chat/composer.js", "text/javascript; charset=utf-8"),
     "/chat/search.js": ("chat/search.js", "text/javascript; charset=utf-8"),
@@ -172,6 +178,10 @@ STATIC = {
     "/icons/apple-touch-icon.png": ("icons/apple-touch-icon.png", "image/png"),
     "/icons/icon-512.png": ("icons/icon-512.png", "image/png"),
 }
+STATIC.update(dict.fromkeys((
+    "/chat", "/timeline", "/artifacts", "/reminders", "/inbox", "/memory", "/skills", "/settings", "/automations", "/voice",
+), STATIC["/"]))
+
 SIDE_COMMAND = re.compile(r"/(?:side|btw)(?:\s+(.+))?", re.I | re.S)
 CLIENT_DISCONNECT = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
 

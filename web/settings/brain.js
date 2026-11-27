@@ -1,12 +1,7 @@
 import { render } from "preact";
 import { showLoading } from "../motion.js";
-import { html } from "../chat/view.js";
-
-export const modelNames = {
-  mock: "Mock", meta: "Muse Spark", openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Claude",
-  gemini: "Gemini", ollama: "Ollama Cloud", huggingface: "Hugging Face", digitalocean: "DigitalOcean Inference",
-  fireworks: "Fireworks", nscale: "Nscale", parasail: "Parasail", zerogpu: "ZeroGPU", echo: "Echo by Fulcrum",
-};
+import { html } from "../ui.js";
+import { modelNames } from "./status.js";
 
 const poolFields = [
   ["speed", "Speed", ["slow", "balanced", "fast"]],

@@ -1,5 +1,5 @@
 import { render } from "preact";
-import { html } from "../chat/view.js";
+import { html } from "../ui.js";
 
 function Automation() {
   return html`

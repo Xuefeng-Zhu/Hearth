@@ -1,5 +1,5 @@
-import { html, Icon } from "../chat/view.js";
-import { Markdown } from "../artifacts/view.js";
+import { html, Icon } from "../ui.js";
+import { Markdown } from "../artifacts/markdown.js";
 import { highlighted, ListSearchExcerpt } from "../list-search-view.js";
 import { timeFormatter } from "../time.js";
 

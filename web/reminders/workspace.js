@@ -1,56 +1,18 @@
 import { render } from "preact";
-import { html } from "../chat/view.js";
+import { html } from "../ui.js";
 import { node as el, button } from "../dom.js";
-import { formatDate, statuses, ReminderList } from "./view.js";
+import { ReminderList } from "./view.js";
+import { formatDate, statuses, inboxKinds as kinds, emailCard } from "./delivery.js";
 import { localInputTime, localTimeToISO, setTimeZone } from "../time.js";
 import { listSearchPath } from "../list-search.js";
-import { kinds } from "../inbox/view.js";
-import { confirmControl, prepareListMotion } from "../motion.js";
+import { prepareListMotion } from "../motion.js";
 
 const get = (id) => document.getElementById(id);
 
 export function createReminders({ api, refreshAPI, openView, openSettings, startSending, stopSending,
-  currentView, currentSettings, reminderSearch }) {
-  const form = get("reminder-settings-form");
-  const options = get("inbox-auto-kinds");
+  currentView, currentSettings }) {
+  let form, options, reminderSearch;
   let remindersUnfiltered = false;
-
-  for (const [value, label] of Object.entries(kinds)) {
-    const check = el("input");
-    check.type = "checkbox";
-    check.name = "auto_accept";
-    check.value = value;
-    const wrapper = el("label", "check-label");
-    wrapper.append(check, document.createTextNode(label));
-    options.append(wrapper);
-  }
-
-  function emailCard(target, info) {
-    async function copyAddress(event) {
-      const copy = event.currentTarget;
-      try {
-        await navigator.clipboard.writeText(info.inbox_address);
-        confirmControl(copy);
-        copy.textContent = "Copied";
-      } catch {
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(target.querySelector(".hearth-address"));
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
-    }
-    // The copy confirmation resets on the next refresh.
-    render(null, target);
-    render(html`<h3>Email Hearth</h3>${info.inbox_address ? html`
-      <div class="delivery-actions">
-        <code class="hearth-address">${info.inbox_address}</code><button type="button" onClick=${copyAddress}>Copy address</button>
-      </div>
-      <p class="meta">Forward emails here to turn them into proposals in Inbox.</p>` : html`
-      <p class="meta">${info.connection_message || info.inbox_error || "Hearth is preparing your AgentMail inbox."}</p>
-      ${!info.connected && target.id !== "email-hearth-connection" && html`<a href="#settings/connections">Open Connections</a>`}
-    `}`, target);
-  }
 
   function wakeStatus(info) {
     emailCard(get("reminder-email-connection"), info);
@@ -71,6 +33,61 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
   }
 
   async function settings() {
+    if (!form) {
+      form = get("reminder-settings-form");
+      options = get("inbox-auto-kinds");
+      for (const [value, label] of Object.entries(kinds)) {
+        const check = el("input");
+        check.type = "checkbox";
+        check.name = "auto_accept";
+        check.value = value;
+        const wrapper = el("label", "check-label");
+        wrapper.append(check, document.createTextNode(label));
+        options.append(wrapper);
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const feedback = get("reminder-settings-feedback");
+        const save = form.querySelector("button[type=submit]");
+        save.disabled = true;
+        feedback.textContent = "Saving settings…";
+        const body = Object.fromEntries(new FormData(form));
+        body.allowed_senders = body.allowed_senders.split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
+        body.auto_accept = [...options.querySelectorAll("input:checked")].map((entry) => entry.value);
+        body.acknowledge = form.elements.acknowledge.checked;
+        try {
+          loadForm(await api("/api/reminders/settings", body));
+          feedback.textContent = "Reminder settings saved.";
+        } catch (error) {
+          feedback.textContent = error.message;
+        } finally {
+          save.disabled = false;
+        }
+      });
+
+      for (const item of document.querySelectorAll("[data-reminder-test]")) {
+        item.addEventListener("click", async () => {
+          const channel = item.dataset.reminderTest;
+          const feedback = get("reminder-test-feedback");
+          feedback.textContent = channel === "email" ? "Sending reminder…" : "Creating in-app reminder…";
+          item.disabled = true;
+          if (channel === "email") startSending();
+          try {
+            const result = await api("/api/reminders/test", { channel });
+            const delivery = result.delivery[channel];
+            feedback.textContent = `${statuses[delivery.status]}${delivery.reason ? ` · ${delivery.reason}` : ""}`;
+            if (delivery.status === "failed") feedback.append(" ", button("View Reminders", () => openView("reminders")));
+            wakeStatus(await api("/api/reminders/settings"));
+          } catch (error) {
+            feedback.textContent = error.message;
+          } finally {
+            if (channel === "email") stopSending();
+            item.disabled = false;
+          }
+        });
+      }
+    }
     try {
       const info = await api("/api/reminders/settings");
       if (currentView() === "settings" && currentSettings() === "reminders") loadForm(info);
@@ -78,83 +95,6 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
       get("reminder-settings-feedback").textContent = error.message;
     }
   }
-
-  async function connections() {
-    const target = get("email-hearth-connection");
-    try {
-      emailCard(target, await api("/api/reminders/settings"));
-    } catch (error) {
-      render(error.message, target);
-    }
-  }
-
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const feedback = get("reminder-settings-feedback");
-    const save = form.querySelector("button[type=submit]");
-    save.disabled = true;
-    feedback.textContent = "Saving settings…";
-    const body = Object.fromEntries(new FormData(form));
-    body.allowed_senders = body.allowed_senders.split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
-    body.auto_accept = [...options.querySelectorAll("input:checked")].map((entry) => entry.value);
-    body.acknowledge = form.elements.acknowledge.checked;
-    try {
-      loadForm(await api("/api/reminders/settings", body));
-      feedback.textContent = "Reminder settings saved.";
-    } catch (error) {
-      feedback.textContent = error.message;
-    } finally {
-      save.disabled = false;
-    }
-  });
-
-  for (const item of document.querySelectorAll("[data-reminder-test]")) {
-    item.addEventListener("click", async () => {
-      const channel = item.dataset.reminderTest;
-      const feedback = get("reminder-test-feedback");
-      feedback.textContent = channel === "email" ? "Sending reminder…" : "Creating in-app reminder…";
-      item.disabled = true;
-      if (channel === "email") startSending();
-      try {
-        const result = await api("/api/reminders/test", { channel });
-        const delivery = result.delivery[channel];
-        feedback.textContent = `${statuses[delivery.status]}${delivery.reason ? ` · ${delivery.reason}` : ""}`;
-        if (delivery.status === "failed") feedback.append(" ", button("View Reminders", () => openView("reminders")));
-        wakeStatus(await api("/api/reminders/settings"));
-      } catch (error) {
-        feedback.textContent = error.message;
-      } finally {
-        if (channel === "email") stopSending();
-        item.disabled = false;
-      }
-    });
-  }
-
-  get("open-reminder-settings").addEventListener("click", () => openSettings("reminders"));
-
-  const reminderForm = get("reminder-create-form");
-  reminderForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const data = Object.fromEntries(new FormData(reminderForm));
-    const feedback = get("reminders-feedback");
-    if (!data.channel) delete data.channel;
-    data.urgent = reminderForm.elements.urgent.checked;
-    const submit = reminderForm.querySelector("button[type=submit]");
-    submit.disabled = true;
-    try {
-      data.at = localTimeToISO(data.at);
-      await api("/api/reminders/create", data);
-      reminderForm.reset();
-      get("reminder-create").open = false;
-      get("reminder-create").querySelector("summary").focus();
-      feedback.textContent = "Reminder scheduled.";
-      await reminders();
-    } catch (error) {
-      feedback.textContent = error.message;
-    } finally {
-      submit.disabled = false;
-    }
-  });
 
   async function cancelReminder(identity) {
     const feedback = get("reminders-feedback");
@@ -209,5 +149,35 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
   }
 
   const refreshEmailStatus = async () => wakeStatus(await api("/api/reminders/settings"));
-  return { settings, reminders, connections, emailCard, refreshEmailStatus };
+  function mountList(search) {
+    reminderSearch = search;
+    get("open-reminder-settings").addEventListener("click", () => openSettings("reminders"));
+
+    const reminderForm = get("reminder-create-form");
+    reminderForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(reminderForm));
+      const feedback = get("reminders-feedback");
+      if (!data.channel) delete data.channel;
+      data.urgent = reminderForm.elements.urgent.checked;
+      const submit = reminderForm.querySelector("button[type=submit]");
+      submit.disabled = true;
+      try {
+        data.at = localTimeToISO(data.at);
+        await api("/api/reminders/create", data);
+        reminderForm.reset();
+        get("reminder-create").open = false;
+        get("reminder-create").querySelector("summary").focus();
+        feedback.textContent = "Reminder scheduled.";
+        await reminders();
+      } catch (error) {
+        feedback.textContent = error.message;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+  }
+
+  return { settings, reminders, refreshEmailStatus, mountList };
 }

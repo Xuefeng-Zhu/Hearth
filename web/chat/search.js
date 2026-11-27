@@ -2,7 +2,7 @@ import { render } from "preact";
 import { chatSearchShortcut, groupChatResults, relativeChatTime } from "../chat-search.js";
 import { anchorOrigin } from "../motion.js";
 import { threadMenuIndex } from "../thread-menu.js";
-import { html, Icon } from "./view.js";
+import { html, Icon } from "../ui.js";
 
 function SearchResult({ row, index, active, onChoose }) {
   const time = relativeChatTime(row.at);

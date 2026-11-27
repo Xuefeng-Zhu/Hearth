@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
-import { html, Icon } from "../chat/view.js";
+import { html, Icon } from "../ui.js";
 import { MemoryButton } from "./view.js";
 
 const kinds = {

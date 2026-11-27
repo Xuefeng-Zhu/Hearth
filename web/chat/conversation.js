@@ -4,8 +4,8 @@ import { markdown } from "../artifacts/format.js";
 import { mascot } from "../avatar.js";
 import { reconcileChildren } from "../dom.js";
 import { arrive, confirmControl } from "../motion.js";
-import { callDuration } from "../voice-call.js";
-import { html, Icon } from "./view.js";
+import { callDuration } from "../time.js";
+import { html, Icon } from "../ui.js";
 
 function MessageAction({ icon, label, onClick, ...attributes }) {
   return html`

@@ -1,7 +1,7 @@
 import { render } from "preact";
 import { useLayoutEffect } from "preact/hooks";
 import { useAppState, mountStore } from "../store.js";
-import { html, Icon } from "./view.js";
+import { html, Icon } from "../ui.js";
 
 function ThreadRow({ thread, active, onSelect, openMenu, menuId }) {
   const { id, title, status } = thread;
@@ -64,8 +64,13 @@ function AvatarOptions({ select, onChange }) {
   `;
 }
 
-export function mountThreads({ store, list, select, avatarSelect, onSelect, openMenu, menuId, onAvatarChange }) {
+export const mainThread = { id: "main", title: "Main", busy: false };
+
+export function mountThreadList({ store, list, onSelect, openMenu, menuId }) {
   mountStore(list, store, ThreadList, { onSelect, openMenu, menuId }, ["threadEntries", "currentThread"]);
+}
+
+export function mountThreadControls({ store, select, avatarSelect, onAvatarChange }) {
   mountStore(select, store, ThreadOptions, { select }, ["threadEntries", "currentThread"]);
   mountStore(avatarSelect, store, AvatarOptions, { select: avatarSelect, onChange: onAvatarChange }, ["avatarMode"]);
 }

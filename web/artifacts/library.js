@@ -1,5 +1,5 @@
 import { render as paint } from "preact";
-import { html, Icon } from "../chat/view.js";
+import { html, Icon } from "../ui.js";
 import { node as element } from "../dom.js";
 import { csvRows, filterParts, formatFilters, isKindFilter, kinds, markdown } from "./format.js";
 import { fileGlyph, uploadURL } from "../attachments.js";
@@ -229,8 +229,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
   const search = get("artifact-search");
   const filters = [...get("artifact-filters").querySelectorAll("button")];
   const sort = get("artifact-sort");
-  const settingsForm = get("artifact-settings-form");
-  const settingsStatus = get("artifact-settings-status");
+  let settingsForm, settingsStatus;
   const pending = new Set();
   const pageDetail = createPageDetail({ api, onChange: () => {
     if (!get("artifacts-view").hidden) void show();
@@ -651,6 +650,25 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
   }
 
   async function settings() {
+    if (!settingsForm) {
+      settingsForm = get("artifact-settings-form");
+      settingsStatus = get("artifact-settings-status");
+      settingsForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const save = settingsForm.querySelector("[type=submit]");
+        save.disabled = true;
+        settingsStatus.textContent = "Saving settings…";
+        try {
+          renderSettings(await api("/api/artifacts/settings", { auto_save: get("artifact-auto-save").checked,
+            folder_name: get("artifact-folder").value }));
+          settingsStatus.textContent = "Artifact settings saved.";
+        } catch (error) {
+          settingsStatus.textContent = error.message;
+        } finally {
+          save.disabled = false;
+        }
+      });
+    }
     settingsStatus.textContent = "";
     try {
       renderSettings(await api("/api/artifacts/settings"));
@@ -658,22 +676,6 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
       settingsStatus.textContent = error.message;
     }
   }
-
-  settingsForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const save = settingsForm.querySelector("[type=submit]");
-    save.disabled = true;
-    settingsStatus.textContent = "Saving settings…";
-    try {
-      renderSettings(await api("/api/artifacts/settings", { auto_save: get("artifact-auto-save").checked,
-        folder_name: get("artifact-folder").value }));
-      settingsStatus.textContent = "Artifact settings saved.";
-    } catch (error) {
-      settingsStatus.textContent = error.message;
-    } finally {
-      save.disabled = false;
-    }
-  });
 
   get("artifact-close").addEventListener("click", () => drawer.close());
   drawer.addEventListener("click", (event) => { if (event.target === drawer) drawer.close(); });

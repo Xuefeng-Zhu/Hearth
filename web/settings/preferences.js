@@ -1,7 +1,7 @@
 import { render } from "preact";
-import { html, Icon } from "../chat/view.js";
+import { html, Icon } from "../ui.js";
 
-import { memoryNames } from "../memory/view.js";
+import { memoryNames } from "../memory/labels.js";
 
 const folderNames = { root: "Profile and approvals", people: "people/", locations: "locations/",
   topics: "Topic notes", projects: "projects/", daily: "daily/" };

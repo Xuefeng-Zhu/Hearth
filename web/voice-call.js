@@ -1,12 +1,8 @@
+import { callDuration } from "./time.js";
 import { setPose } from "./avatar.js";
 
 const byId = (id) => document.getElementById(id);
 const demoLabel = "Sample conversation";
-
-export function callDuration(seconds) {
-  const clock = [Math.floor(seconds / 60), seconds % 60];
-  return clock.map((value) => String(value).padStart(2, "0")).join(":");
-}
 
 export function captionLine({ role, text }) {
   const item = document.createElement("li");

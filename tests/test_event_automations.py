@@ -173,11 +173,20 @@ class EventAutomationTests(unittest.TestCase):
             CHAT_ORIGIN.reset(origin)
 
     def test_run_time_email_approval_and_always_allow(self):
+        decision_time = NOW + timedelta(seconds=3)
+
+        class FixtureDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return decision_time.astimezone(tz) if tz else decision_time.replace(tzinfo=None)
+
         client = Mock()
         client.send.return_value = {"message_id": "fixture"}
         self.app.reminders.save({"recipient": "mira@example.test"})
         rule = self.create({"type": "email"}, SUMMARY, REMINDER)
-        with (patch.object(self.app.reminders, "config", return_value={"connection_id": "fixture"}),
+        # The runner's automatic approval calls decide without a clock.
+        with (patch.object(approvals, "datetime", FixtureDatetime),
+              patch.object(self.app.reminders, "config", return_value={"connection_id": "fixture"}),
               patch.object(self.app.reminders, "client", return_value=client),
               patch.object(self.app.reminders, "mailbox", return_value=MAILBOX)):
             self.process({})
@@ -186,10 +195,10 @@ class EventAutomationTests(unittest.TestCase):
             self.assertEqual(run["status"], "approval_needed")
             client.send.assert_not_called()
             row = self.storage.load()["actions"][run["steps"][0]["approval_id"]]
-            decision = approvals.decide(self.app.agent, row["id"], "approve", clock=NOW + timedelta(seconds=3))
+            decision = approvals.decide(self.app.agent, row["id"], "approve", clock=decision_time)
             self.assertEqual(decision["status"], "sent")
-            approvals.decide(self.app.agent, row["id"], "approve", clock=NOW + timedelta(seconds=3))
-            self.drain(NOW + timedelta(seconds=3))
+            approvals.decide(self.app.agent, row["id"], "approve", clock=decision_time)
+            self.drain(decision_time)
             self.assertEqual(self.run_row(rule)["status"], "complete")
             client.send.assert_called_once()
             self.assertEqual(client.send.call_args.args[1]["to"], ["mira@example.test"])

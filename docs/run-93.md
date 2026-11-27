@@ -1,5 +1,7 @@
 # Run 93 · Preact modulepreload
 
+Run 94 reverted modulepreload because it slowed mobile Home readiness and made First Contentful Paint worse across both profiles.
+
 The startup document now preloads 61 same-origin ES modules, including the `/app.js` entry, Preact, hooks, and htm. The inline import map appears before the links and retains its existing CSP hash. The generated list follows static imports and re-exports. The VocalBridge SDK still loads on demand. Hearth still serves native ES modules directly. [Startup document](../web/index.html)
 
 After changing the module graph, run `python scripts/gen_modulepreload.py` with Node 22 available. The Python test suite checks that the block matches the graph. [Generator](../scripts/gen_modulepreload.py) · [Test](../tests/test_modulepreload.py)

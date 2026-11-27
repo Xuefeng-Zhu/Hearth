@@ -1,5 +1,5 @@
 import { render as paint } from "preact";
-import { html, Icon } from "../chat/view.js";
+import { html, Icon } from "../ui.js";
 import { Control, DetailLink, IconControl, Rows } from "./view.js";
 import { panelRequestPrompt, panelRequestFeedback } from "./panel-request.js";
 import { createGoals } from "../goals.js";
@@ -79,10 +79,6 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
   const addPopover = get("home-add-popover");
   const restoreItems = get("home-add-restore-items");
   const description = get("home-add-description");
-  const settingsForm = get("weather-settings-form");
-  const location = get("weather-location");
-  const settingsStatus = get("weather-settings-status");
-  const settingsSave = get("weather-location-save");
   const desktop = matchMedia("(min-width: 761px) and (pointer: fine)");
   const sheet = matchMedia("(max-width: 760px)");
   const viewport = window.visualViewport;
@@ -561,7 +557,31 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     }
   }
 
+  let settingsForm, location, settingsStatus, settingsSave;
   async function settings() {
+    if (!settingsForm) {
+      settingsForm = get("weather-settings-form");
+      location = get("weather-location");
+      settingsStatus = get("weather-settings-status");
+      settingsSave = get("weather-location-save");
+      settingsForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const sequence = ++settingsRequest;
+        settingsSave.disabled = true;
+        settingsStatus.textContent = "Saving…";
+        try {
+          const data = await api("/api/home/settings", { location: location.value });
+          if (sequence === settingsRequest) {
+            location.value = data.location;
+            settingsStatus.textContent = data.error || "Location saved. Home will refresh the forecast.";
+          }
+        } catch (error) {
+          if (sequence === settingsRequest) settingsStatus.textContent = error.message;
+        } finally {
+          settingsSave.disabled = false;
+        }
+      });
+    }
     const sequence = ++settingsRequest;
     settingsStatus.textContent = "";
     try {
@@ -573,24 +593,6 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
       if (sequence === settingsRequest) settingsStatus.textContent = error.message;
     }
   }
-
-  settingsForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const sequence = ++settingsRequest;
-    settingsSave.disabled = true;
-    settingsStatus.textContent = "Saving…";
-    try {
-      const data = await api("/api/home/settings", { location: location.value });
-      if (sequence === settingsRequest) {
-        location.value = data.location;
-        settingsStatus.textContent = data.error || "Location saved. Home will refresh the forecast.";
-      }
-    } catch (error) {
-      if (sequence === settingsRequest) settingsStatus.textContent = error.message;
-    } finally {
-      settingsSave.disabled = false;
-    }
-  });
 
   edit.addEventListener("click", () => {
     editing = !editing;

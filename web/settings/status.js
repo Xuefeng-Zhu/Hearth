@@ -1,9 +1,18 @@
 import { render } from "preact";
-import { html } from "../chat/view.js";
+import { html } from "../ui.js";
 import { node, updateText } from "../dom.js";
-import { modelNames } from "./brain.js";
-import { connectorHasError } from "./connections.js";
-import { connectionHash } from "./workspace.js";
+import { connectionHash } from "./routes.js";
+
+export const modelNames = {
+  mock: "Mock", meta: "Muse Spark", openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Claude",
+  gemini: "Gemini", ollama: "Ollama Cloud", huggingface: "Hugging Face", digitalocean: "DigitalOcean Inference",
+  fireworks: "Fireworks", nscale: "Nscale", parasail: "Parasail", zerogpu: "ZeroGPU", echo: "Echo by Fulcrum",
+};
+
+export function connectorHasError(entry) {
+  return entry?.uses.length > 0 && (entry.status === "unauthorized" || ["failed", "denied"].includes(entry.test_status)
+    || entry.index_state === "Unavailable");
+}
 
 const connectionsLabel = "Settings → Connections";
 
@@ -26,7 +35,11 @@ function Status({ text, warning, openConnections }) {
 
 export function createWorkspaceStatus({ byId, isHome, openConnections }) {
   const hosts = document.querySelectorAll(".workspace-status");
-  let model;
+  let model, modelLabel;
+  function paintModel() {
+    const active = byId("brain-active-model");
+    if (active && modelLabel) updateText(active, modelLabel);
+  }
   let providers;
   let connectorError = false;
   let homeError = false;
@@ -43,12 +56,13 @@ export function createWorkspaceStatus({ byId, isHome, openConnections }) {
   function updateModel({ model: provider, model_id: id }) {
     model = provider;
     const name = modelNames[provider] || providers?.[provider]?.name || provider || "Unavailable";
-    updateText(byId("brain-active-model"), id && provider !== "mock" ? `${name} · ${id}` : name);
+    modelLabel = id && provider !== "mock" ? `${name} · ${id}` : name;
+    paintModel();
     paint();
   }
 
   return {
-    paint, updateModel,
+    paint, paintModel, updateModel,
     updateConnections(data) {
       providers = data.providers;
       connectorError = !!data.scan_error || Object.values(providers).some(connectorHasError);
