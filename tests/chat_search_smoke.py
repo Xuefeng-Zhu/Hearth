@@ -69,7 +69,7 @@ def open_chat(page, *, mobile=False):
 
 
 def verify_contrast(page):
-    ratios = page.locator("#chat-search-dialog").evaluate("""dialog => {
+    ratios = page.locator("#chat-search-dialog").evaluate("""async dialog => {
       const luminance = color => color.match(/[0-9.]+/g).slice(0, 3)
         .map(v => v / 255)
         .map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
@@ -81,7 +81,9 @@ def verify_contrast(page):
       const paint = selector => getComputedStyle(dialog.querySelector(selector));
       const surface = getComputedStyle(dialog).backgroundColor;
       const input = dialog.querySelector("input");
-      const active = paint('[aria-selected="true"]');
+      const option = dialog.querySelector('[aria-selected="true"]');
+      await Promise.all(option.getAnimations().map(animation => animation.finished));
+      const active = getComputedStyle(option);
       return [
         ratio(paint('h2').color, surface),
         ratio(paint('.chat-search-status').color, surface),
