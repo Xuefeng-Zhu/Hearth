@@ -23,7 +23,7 @@ Settings covered Brain, Memory, Search, Voice, Connections, Artifacts, Reminders
 
 The guard intercepted automatic Inbox polls and Connections rescans. For Connections, it returned the result of the live read-only GET. Memory recall submission records a Timeline entry, so the live run stopped at the search field and used the local fixture for submission. No create, edit, send, deletion, merge, or execution request reached production. The final walkthrough logged zero console errors, page exceptions, or unhandled rejections. Timeline's event request was canceled on navigation in each configuration after HTTP 200.
 
-[1440 light log](/workspace/tmp/hearth-qa/run85/production-chromium-1440-light.log) · [1440 dark log](/workspace/tmp/hearth-qa/run85/production-chromium-1440-dark.log) · [390 light log](/workspace/tmp/hearth-qa/run85/production-chromium-390-light.log) · [390 dark log](/workspace/tmp/hearth-qa/run85/production-chromium-390-dark.log)
+1440 light log (`/workspace/tmp/hearth-qa/run85/production-chromium-1440-light.log`) · 1440 dark log (`/workspace/tmp/hearth-qa/run85/production-chromium-1440-dark.log`) · 390 light log (`/workspace/tmp/hearth-qa/run85/production-chromium-390-light.log`) · 390 dark log (`/workspace/tmp/hearth-qa/run85/production-chromium-390-dark.log`)
 
 ## Local · Browser flow matrix
 
@@ -52,15 +52,15 @@ Chromium 159.0.8154.6, WebKitGTK 27.2, and Firefox 159.0 ran on Linux ARM64 thro
 
 Settings saves covered Brain, Memory, Search, Voice, call preferences, Appearance, Artifacts, Reminders, Feed, Action suggestions, Approvals, and the Home weather location. The call check exercised connect, captions, mute, minimize, reopen, end, and saving the call card. **A real microphone and a real Vocal Bridge call were outside this run.** The fixture supplied a fake stream and audio track, a simulated speech recognizer, and a locally mocked call SDK. Real provider connections, email sends, and live browser speech services were outside the local tests.
 
-A saved one-off reminder offers Undo to cancel. The UI and API at both revisions have no edit action for a saved one-off reminder. The draft edit and saved recurring-task edit were exercised separately. [Saved reminder actions](/workspace/tmp/hearth-qa/run85/one-off-reminder-actions.png)
+A saved one-off reminder offers Undo to cancel. The UI and API at both revisions have no edit action for a saved one-off reminder. The draft edit and saved recurring-task edit were exercised separately. Saved reminder actions (`/workspace/tmp/hearth-qa/run85/one-off-reminder-actions.png`)
 
-The task update and settings persistence checks were repeated after refining the QA steps to preview the schedule before saving and assert reloaded field values. Firefox attachments and Home mutations passed in a targeted reduced-motion pass. Firefox's additional 390 px emulated-touch geometry check crashed after opening Home's Add panel sheet on both revisions. The focused Home test covered the requested data changes at desktop width. WebKit dictation and call passed with a fake media object and keyboard activation. [Firefox baseline touch check](/workspace/tmp/hearth-qa/run85/baseline-firefox-home.log)
+The task update and settings persistence checks were repeated after refining the QA steps to preview the schedule before saving and assert reloaded field values. Firefox attachments and Home mutations passed in a targeted reduced-motion pass. Firefox's additional 390 px emulated-touch geometry check crashed after opening Home's Add panel sheet on both revisions. The focused Home test covered the requested data changes at desktop width. WebKit dictation and call passed with a fake media object and keyboard activation. Firefox baseline touch check (`/workspace/tmp/hearth-qa/run85/baseline-firefox-home.log`)
 
-Playwright screenshot capture triggered WebKit's inline stylesheet CSP warning. A separate probe recorded no CSP events before capture and one `style-src-elem` event after it. The raw console log also includes the initial production relay setup errors. [Screenshot CSP probe](/workspace/tmp/hearth-qa/run85/webkit-csp-probe.log)
+Playwright screenshot capture triggered WebKit's inline stylesheet CSP warning. A separate probe recorded no CSP events before capture and one `style-src-elem` event after it. The raw console log also includes the initial production relay setup errors. Screenshot CSP probe (`/workspace/tmp/hearth-qa/run85/webkit-csp-probe.log`)
 
-[Chromium log](/workspace/tmp/hearth-qa/run85/local-chromium.log) · [WebKit log](/workspace/tmp/hearth-qa/run85/local-webkit.log) · [Firefox log](/workspace/tmp/hearth-qa/run85/local-firefox.log) · [Console errors and unhandled rejections](/workspace/tmp/hearth-qa/run85/console-error.log) · [WebKit motion isolation](/workspace/tmp/hearth-qa/run85/webkit-transition.log)
+Chromium log (`/workspace/tmp/hearth-qa/run85/local-chromium.log`) · WebKit log (`/workspace/tmp/hearth-qa/run85/local-webkit.log`) · Firefox log (`/workspace/tmp/hearth-qa/run85/local-firefox.log`) · Console errors and unhandled rejections (`/workspace/tmp/hearth-qa/run85/console-error.log`) · WebKit motion isolation (`/workspace/tmp/hearth-qa/run85/webkit-transition.log`)
 
-[Chromium task and settings rerun](/workspace/tmp/hearth-qa/run85/local-chromium-rechecked.log) · [WebKit task and settings rerun](/workspace/tmp/hearth-qa/run85/local-webkit-rechecked.log) · [Firefox targeted rerun](/workspace/tmp/hearth-qa/run85/local-firefox-focused.log) · [WebKit voice rerun](/workspace/tmp/hearth-qa/run85/local-webkit-media.log)
+Chromium task and settings rerun (`/workspace/tmp/hearth-qa/run85/local-chromium-rechecked.log`) · WebKit task and settings rerun (`/workspace/tmp/hearth-qa/run85/local-webkit-rechecked.log`) · Firefox targeted rerun (`/workspace/tmp/hearth-qa/run85/local-firefox-focused.log`) · WebKit voice rerun (`/workspace/tmp/hearth-qa/run85/local-webkit-media.log`)
 
 ## Defects
 
@@ -68,16 +68,16 @@ Playwright screenshot capture triggered WebKit's inline stylesheet CSP warning. 
 
 At a desktop width, open Chat, press Cmd+K, and search across all chats for a phrase with results. In the offline fixture, search for `orchid`. Click the first result. The search popover closes and the current thread stays open. The browser focuses the enclosing popover dialog on mouse-down, and the document's focus handler closes it before the result receives the click. The expected `/api/state` request with the matched message location never fires. Arrow Down followed by Enter opens the message in its thread.
 
-Chromium reproduced the same event sequence at `55e386f` and `f58a3fe`. This issue predates the Preact migration. [Before clicking](/workspace/tmp/hearth-qa/run85/local-chromium-chat-search-before-click.png) · [After clicking](/workspace/tmp/hearth-qa/run85/local-chromium-chat-search-pointer-1.png) · [Baseline repro](/workspace/tmp/hearth-qa/run85/chat-pointer-baseline.log) · [Migration repro](/workspace/tmp/hearth-qa/run85/chat-pointer-current.log)
+Chromium reproduced the same event sequence at `55e386f` and `f58a3fe`. This issue predates the Preact migration. Before clicking (`/workspace/tmp/hearth-qa/run85/local-chromium-chat-search-before-click.png`) · After clicking (`/workspace/tmp/hearth-qa/run85/local-chromium-chat-search-pointer-1.png`) · Baseline repro (`/workspace/tmp/hearth-qa/run85/chat-pointer-baseline.log`) · Migration repro (`/workspace/tmp/hearth-qa/run85/chat-pointer-current.log`)
 
 ## Suites and release
 
 | Suite | Result |
 | --- | --- |
-| Python unittest discovery | 342 passed on an exact checkout archive on local disk. The earlier runs hit three-second scheduler subprocess timeouts while browser checks were running. [Passing run](/workspace/tmp/hearth-qa/run85/python-isolated.log) · [Earlier run](/workspace/tmp/hearth-qa/run85/python-rerun.log) |
-| Node unit tests | 37 passed. [Log](/workspace/tmp/hearth-qa/run85/node.log) |
-| JavaScript syntax | 63 modules passed, including 59 first-party files. [Log](/workspace/tmp/hearth-qa/run85/syntax-all.log) |
-| Chromium offline smoke and stream disconnect | Pass. [Smoke](/workspace/tmp/hearth-qa/run85/suite-default.log) · [Disconnect](/workspace/tmp/hearth-qa/run85/suite-disconnect.log) |
-| Chromium Chat search, list search, and motion | Pass. The pre-existing Chat-search suite covers keyboard selection. [Chat search](/workspace/tmp/hearth-qa/run85/suite-chat-search.log) · [List search](/workspace/tmp/hearth-qa/run85/suite-list-search.log) · [Motion](/workspace/tmp/hearth-qa/run85/suite-motion.log) |
+| Python unittest discovery | 342 passed on an exact checkout archive on local disk. The earlier runs hit three-second scheduler subprocess timeouts while browser checks were running. Passing run (`/workspace/tmp/hearth-qa/run85/python-isolated.log`) · Earlier run (`/workspace/tmp/hearth-qa/run85/python-rerun.log`) |
+| Node unit tests | 37 passed. Log (`/workspace/tmp/hearth-qa/run85/node.log`) |
+| JavaScript syntax | 63 modules passed, including 59 first-party files. Log (`/workspace/tmp/hearth-qa/run85/syntax-all.log`) |
+| Chromium offline smoke and stream disconnect | Pass. Smoke (`/workspace/tmp/hearth-qa/run85/suite-default.log`) · Disconnect (`/workspace/tmp/hearth-qa/run85/suite-disconnect.log`) |
+| Chromium Chat search, list search, and motion | Pass. The pre-existing Chat-search suite covers keyboard selection. Chat search (`/workspace/tmp/hearth-qa/run85/suite-chat-search.log`) · List search (`/workspace/tmp/hearth-qa/run85/suite-list-search.log`) · Motion (`/workspace/tmp/hearth-qa/run85/suite-motion.log`) |
 
-No migration regression was confirmed. Production remains on `55e386f`. There was no deploy or push. [Final health check](/workspace/tmp/hearth-qa/run85/health-final.log)
+No migration regression was confirmed. Production remains on `55e386f`. There was no deploy or push. Final health check (`/workspace/tmp/hearth-qa/run85/health-final.log`)

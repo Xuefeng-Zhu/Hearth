@@ -8,14 +8,14 @@ Choose **This chat** to open the find bar above the transcript. The arrow button
 
 ## Verification
 
-- Python covered Unicode matching, thread filtering, pagination and limits, legacy data, index refresh, access boundaries, hidden content, and centered transcript windows. Node covered shortcuts, grouping, relative dates, and transcript state. [Python log](/workspace/tmp/hearth-qa/run78/python.log) · [Node log](/workspace/tmp/hearth-qa/run78/node.log) · [JavaScript syntax log](/workspace/tmp/hearth-qa/run78/js-syntax.log)
-- Chromium verified opening a result outside the loaded page, keyboard and pointer stepping, search states, request cancellation, literal HTML rendering, and reduced-motion behavior. Search used temporary fixture workspaces. The 390–1920 px sweep checked every integer width for horizontal overflow. Search text met 4.5:1 contrast in both schemes, and the keyboard selection outline met 3:1. Mobile controls met the 44 px target size. [Chat search smoke](/workspace/tmp/hearth-qa/run78/chromium-search.log) · [Workspace smoke](/workspace/tmp/hearth-qa/run78/chromium-smoke.log) · [Stream disconnect smoke](/workspace/tmp/hearth-qa/run78/chromium-disconnect.log)
-- The release smoke checks the deployed SHA in `GET /health`, validates the shape of a harmless `GET /api/chat/search` response without printing message text, and checks the anonymous Sprite edge. [Deploy log](/workspace/tmp/hearth-qa/run78/deploy.log) · [Release smoke](/workspace/tmp/hearth-qa/run78/live-smoke.log)
+- Python covered Unicode matching, thread filtering, pagination and limits, legacy data, index refresh, access boundaries, hidden content, and centered transcript windows. Node covered shortcuts, grouping, relative dates, and transcript state. Python log (`/workspace/tmp/hearth-qa/run78/python.log`) · Node log (`/workspace/tmp/hearth-qa/run78/node.log`) · JavaScript syntax log (`/workspace/tmp/hearth-qa/run78/js-syntax.log`)
+- Chromium verified opening a result outside the loaded page, keyboard and pointer stepping, search states, request cancellation, literal HTML rendering, and reduced-motion behavior. Search used temporary fixture workspaces. The 390–1920 px sweep checked every integer width for horizontal overflow. Search text met 4.5:1 contrast in both schemes, and the keyboard selection outline met 3:1. Mobile controls met the 44 px target size. Chat search smoke (`/workspace/tmp/hearth-qa/run78/chromium-search.log`) · Workspace smoke (`/workspace/tmp/hearth-qa/run78/chromium-smoke.log`) · Stream disconnect smoke (`/workspace/tmp/hearth-qa/run78/chromium-disconnect.log`)
+- The release smoke checks the deployed SHA in `GET /health`, validates the shape of a harmless `GET /api/chat/search` response without printing message text, and checks the anonymous Sprite edge. Deploy log (`/workspace/tmp/hearth-qa/run78/deploy.log`) · Release smoke (`/workspace/tmp/hearth-qa/run78/live-smoke.log`)
 
 ## Screenshots
 
-- [Search, 1440 px light](/workspace/tmp/hearth-qa/run78/chat-search-1440-light.png)
-- [Search, 1440 px dark](/workspace/tmp/hearth-qa/run78/chat-search-1440-dark.png)
-- [Jump to a search result, 1440 px light](/workspace/tmp/hearth-qa/run78/chat-search-jump-1440-light.png)
-- [Find in chat, 1440 px light](/workspace/tmp/hearth-qa/run78/chat-find-in-thread-1440-light.png)
-- [Search, 390 px light](/workspace/tmp/hearth-qa/run78/chat-search-390-light.png)
+- Search, 1440 px light (`/workspace/tmp/hearth-qa/run78/chat-search-1440-light.png`)
+- Search, 1440 px dark (`/workspace/tmp/hearth-qa/run78/chat-search-1440-dark.png`)
+- Jump to a search result, 1440 px light (`/workspace/tmp/hearth-qa/run78/chat-search-jump-1440-light.png`)
+- Find in chat, 1440 px light (`/workspace/tmp/hearth-qa/run78/chat-find-in-thread-1440-light.png`)
+- Search, 390 px light (`/workspace/tmp/hearth-qa/run78/chat-search-390-light.png`)

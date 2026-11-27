@@ -59,15 +59,15 @@ The audit produced 1,430 matched screenshot pairs in Chromium. The 952 desktop p
 | Chromium stream disconnect | Passed. |
 | Live smoke | `GET /health` returned HTTP 200 with the deployed version. The workspace HTML and 17 static assets matched the release. Navigation order and the served SVG were verified. |
 
-Chrome captures are in [before](/workspace/tmp/hearth-qa/run72/before) and [after](/workspace/tmp/hearth-qa/run72/after). The read-only baseline asset hashes are in [production parity](/workspace/tmp/hearth-qa/run72/before/production/parity.json).
+Chrome captures are in before (`/workspace/tmp/hearth-qa/run72/before`) and after (`/workspace/tmp/hearth-qa/run72/after`). The read-only baseline asset hashes are in production parity (`/workspace/tmp/hearth-qa/run72/before/production/parity.json`).
 
-- [Home](/workspace/tmp/hearth-qa/run72/compare-home.png)
-- [Chat table and composer](/workspace/tmp/hearth-qa/run72/compare-chat-table.png)
-- [Timeline filters](/workspace/tmp/hearth-qa/run72/compare-timeline.png)
-- [Artifacts toolbar and grid](/workspace/tmp/hearth-qa/run72/compare-artifacts.png)
-- [Reminder form](/workspace/tmp/hearth-qa/run72/compare-reminder-form.png)
-- [Inbox actions and long subject](/workspace/tmp/hearth-qa/run72/compare-inbox.png)
-- [Approval policy selects](/workspace/tmp/hearth-qa/run72/compare-settings-approvals.png)
-- [Self-update feedback and actions](/workspace/tmp/hearth-qa/run72/compare-self-update.png)
+- Home (`/workspace/tmp/hearth-qa/run72/compare-home.png`)
+- Chat table and composer (`/workspace/tmp/hearth-qa/run72/compare-chat-table.png`)
+- Timeline filters (`/workspace/tmp/hearth-qa/run72/compare-timeline.png`)
+- Artifacts toolbar and grid (`/workspace/tmp/hearth-qa/run72/compare-artifacts.png`)
+- Reminder form (`/workspace/tmp/hearth-qa/run72/compare-reminder-form.png`)
+- Inbox actions and long subject (`/workspace/tmp/hearth-qa/run72/compare-inbox.png`)
+- Approval policy selects (`/workspace/tmp/hearth-qa/run72/compare-settings-approvals.png`)
+- Self-update feedback and actions (`/workspace/tmp/hearth-qa/run72/compare-self-update.png`)
 
 `scripts/deploy.sh` deployed `4925a6d51a2a0f9c1972861d29a57173408785c5`. Production verification used GET requests. The commits remain local to `main`.

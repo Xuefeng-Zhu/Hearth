@@ -15,7 +15,7 @@ The live probe ran from the deployed Hearth Sprite on November 26, 2026, at 04:0
 
 Each HTTP 403 carried the gateway error `endpoint is not supported by the Apify connector`. Paths in the table are relative to the discovered Apify connection.
 
-The successful list call confirmed access to that route. The rejected account reads left the connected account's Free plan and usage unverified. Fly documents that starting an Actor can use credits or incur charges. The run stopped before sending an Actor-start request. No Actor run was created, and reading its dataset remains unverified. [Fly's Apify connector setup](https://fly.io/sprites/ecosystem/), [Apify's account endpoint](https://docs.apify.com/api/v2/users-me-get), [Apify's Free plan](https://docs.apify.com/account/subscriptions#try-apify-for-free)
+The successful list call confirmed access to that route. The rejected account reads left the connected account's Free plan and usage unverified. Fly documents that starting an Actor can use credits or incur charges. The run stopped before sending an Actor-start request. No Actor run was created, and reading its dataset remains unverified. [Fly's Apify connector setup](https://fly.io/sprites/ecosystem/), [Apify's account endpoint](https://docs.apify.com/api/v2/users-me-get), [Apify subscription plans](https://docs.apify.com/account/subscriptions)
 
 Run 45 ended at this probe. Run 47 added approved page and price watchers through Hearth’s public-page reader. [Watcher usage](ideas-and-goals.md#ideas-in-home-feed), [Run 47 verification](run-47.md)
 

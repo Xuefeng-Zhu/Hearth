@@ -19,8 +19,8 @@ The mocked gateway covers the strict and fallback guards, failed and missing job
 
 ## Live Sprite check
 
-On 2026-11-26, a temporary chat requested one additional line in `docs/self-update.md`. Hearth opened PR #2 with one addition in that file. GitHub reported that `main` was unprotected and the proposal head was zero commits behind. Both required jobs succeeded on head `aae27657592c9761d6249235ee0d9414e25999d3`. [Pull request](https://github.com/Xuefeng-Zhu/Hearth/pull/2) · [GitHub Actions run](https://github.com/Xuefeng-Zhu/Hearth/actions/runs/45863786238)
+On 2026-11-26, a temporary chat requested one additional line in `docs/self-update.md`. Hearth opened PR #2 with one addition in that file. GitHub reported that `main` was unprotected and the proposal head was zero commits behind. Both required jobs succeeded on head `aae27657592c9761d6249235ee0d9414e25999d3` in GitHub Actions run `45863786238`.
 
-The Sprites connector returned HTTP 400 for the GitHub REST compare route. Hearth now falls back to GitHub's read-only GraphQL comparison and verifies both returned commit SHAs before using the behind count. [GitHub comparison fields](https://docs.github.com/en/graphql/reference/commits#comparison)
+The Sprites connector returned HTTP 400 for the GitHub REST compare route. Hearth now falls back to GitHub's read-only GraphQL comparison and verifies both returned commit SHAs before using the behind count. [GitHub comparison fields](https://docs.github.com/en/graphql/reference/commits#object-comparison)
 
 Mobile Chromium displayed **Ready to merge**, **Tests passed**, the proposal head SHA, and **Hearth's own checks: tests passed on an up-to-date branch**. The browser used a temporary authenticated CLI relay. Clicking **Discard** closed the PR unmerged and deleted its branch. Connector reads verified both outcomes, the temporary chat was deleted, and remote `main` stayed at `6415794`.

@@ -54,8 +54,8 @@ The local Chromium fixture served all nine pages, all 15 Settings sections, both
 
 The audit produced 508 matching screenshot pairs at 390×844, 768×1024, and 1440×900 in light and dark. Screenshot geometry checks found zero horizontal overflows in the workspace containers. Chromium sampled 26,042 dark text and control contrast pairs with zero failures against the applicable WCAG AA thresholds.
 
-- Baseline in [before](/workspace/tmp/hearth-qa/run71/before) and release in [after](/workspace/tmp/hearth-qa/run71/after)
-- [Home](/workspace/tmp/hearth-qa/run71/compare-home.png), [Artifacts](/workspace/tmp/hearth-qa/run71/compare-artifacts.png), [Reminders](/workspace/tmp/hearth-qa/run71/compare-reminder-form.png), [Timeline](/workspace/tmp/hearth-qa/run71/compare-timeline.png), [Settings](/workspace/tmp/hearth-qa/run71/compare-settings-brain.png), and [Self-update](/workspace/tmp/hearth-qa/run71/compare-self-update.png) comparisons
+- Baseline in before (`/workspace/tmp/hearth-qa/run71/before`) and release in after (`/workspace/tmp/hearth-qa/run71/after`)
+- Home (`/workspace/tmp/hearth-qa/run71/compare-home.png`), Artifacts (`/workspace/tmp/hearth-qa/run71/compare-artifacts.png`), Reminders (`/workspace/tmp/hearth-qa/run71/compare-reminder-form.png`), Timeline (`/workspace/tmp/hearth-qa/run71/compare-timeline.png`), Settings (`/workspace/tmp/hearth-qa/run71/compare-settings-brain.png`), and Self-update (`/workspace/tmp/hearth-qa/run71/compare-self-update.png`) comparisons
 
 | Check | Result |
 | --- | --- |

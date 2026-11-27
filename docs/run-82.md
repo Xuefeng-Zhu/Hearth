@@ -32,28 +32,28 @@ The first-party frontend grew by 122 lines in Phase 2 and by 347 lines across bo
 
 ## Visual parity
 
-All 14 CSS files have the same Git blob IDs as `f58a3fe`. The capture matrix covers the overview, all 15 sections, an expanded populated model pool, the configured connector tab with a tested connector, and the workspace connection warning. The two revisions use the same loopback fixtures, times, viewport, locale, color scheme, and reduced-motion setting. Chromium hides transient scrollbars and fully repaints the settled settings pane before capture. The comparison checks every RGB pixel, with no masks or tolerance. Diff images would highlight changed pixels in magenta. [CSS manifest](/workspace/tmp/hearth-qa/run82/css-current.txt) · [Capture script](/workspace/tmp/hearth-qa/run82/screens.py) · [Full comparison log](/workspace/tmp/hearth-qa/run82/pixel-diffs.log)
+All 14 CSS files have the same Git blob IDs as `f58a3fe`. The capture matrix covers the overview, all 15 sections, an expanded populated model pool, the configured connector tab with a tested connector, and the workspace connection warning. The two revisions use the same loopback fixtures, times, viewport, locale, color scheme, and reduced-motion setting. Chromium hides transient scrollbars and fully repaints the settled settings pane before capture. The comparison checks every RGB pixel, with no masks or tolerance. Diff images would highlight changed pixels in magenta. CSS manifest (`/workspace/tmp/hearth-qa/run82/css-current.txt`) · Capture script (`/workspace/tmp/hearth-qa/run82/screens.py`) · Full comparison log (`/workspace/tmp/hearth-qa/run82/pixel-diffs.log`)
 
 | Viewport | Pairs | Changed pixels | Example |
 | --- | ---: | ---: | --- |
-| 1440 × 900, light | 19 | 0 / 24,624,000 | [Brain pool](/workspace/tmp/hearth-qa/run82/captures-current/brain-pool-1440-light.png) · [Diff](/workspace/tmp/hearth-qa/run82/diffs/brain-pool-1440-light.png) |
-| 1440 × 900, dark | 19 | 0 / 24,624,000 | [Memory](/workspace/tmp/hearth-qa/run82/captures-current/memory-1440-dark.png) · [Diff](/workspace/tmp/hearth-qa/run82/diffs/memory-1440-dark.png) |
-| 390 × 844, light | 19 | 0 / 6,254,040 | [Connections](/workspace/tmp/hearth-qa/run82/captures-current/connections-configured-390-light.png) · [Diff](/workspace/tmp/hearth-qa/run82/diffs/connections-configured-390-light.png) |
+| 1440 × 900, light | 19 | 0 / 24,624,000 | Brain pool (`/workspace/tmp/hearth-qa/run82/captures-current/brain-pool-1440-light.png`) · Diff (`/workspace/tmp/hearth-qa/run82/diffs/brain-pool-1440-light.png`) |
+| 1440 × 900, dark | 19 | 0 / 24,624,000 | Memory (`/workspace/tmp/hearth-qa/run82/captures-current/memory-1440-dark.png`) · Diff (`/workspace/tmp/hearth-qa/run82/diffs/memory-1440-dark.png`) |
+| 390 × 844, light | 19 | 0 / 6,254,040 | Connections (`/workspace/tmp/hearth-qa/run82/captures-current/connections-configured-390-light.png`) · Diff (`/workspace/tmp/hearth-qa/run82/diffs/connections-configured-390-light.png`) |
 
-All 57 captures match the ordered Settings tag, ID, class, and role signatures. The comparison omits the avatar drawing’s generated SVG gradient IDs, whose numbering already differed after Phase 1. [Baseline captures](/workspace/tmp/hearth-qa/run82/captures-baseline) · [Migration captures](/workspace/tmp/hearth-qa/run82/captures-current) · [Diff images](/workspace/tmp/hearth-qa/run82/diffs)
+All 57 captures match the ordered Settings tag, ID, class, and role signatures. The comparison omits the avatar drawing’s generated SVG gradient IDs, whose numbering already differed after Phase 1. Baseline captures (`/workspace/tmp/hearth-qa/run82/captures-baseline`) · Migration captures (`/workspace/tmp/hearth-qa/run82/captures-current`) · Diff images (`/workspace/tmp/hearth-qa/run82/diffs`)
 
 ## Verification
 
 | Check | Result |
 | --- | --- |
-| `python -m unittest discover -s tests` with `HEARTH_CJK_FONT` | 342 passed. [Log](/workspace/tmp/hearth-qa/run82/python.log) |
-| `node --test tests/*.test.mjs` | 37 passed. [Log](/workspace/tmp/hearth-qa/run82/node.log) |
-| `node --check` on the JavaScript files under `web/` | 51 passed. [Log](/workspace/tmp/hearth-qa/run82/js-syntax.log) |
-| `PYTHONPATH=. python tests/browser-smoke.py` | Passed with a 600-second timeout. [Log](/workspace/tmp/hearth-qa/run82/chromium-smoke.log) |
-| `PYTHONPATH=. python tests/browser-smoke.py --disconnect` | Passed. [Log](/workspace/tmp/hearth-qa/run82/chromium-disconnect.log) |
-| `PYTHONPATH=. python tests/browser-smoke.py --chat-search` | Passed. Zero horizontal overflow from 390 through 1920 px. [Log](/workspace/tmp/hearth-qa/run82/chromium-chat-search.log) |
+| `python -m unittest discover -s tests` with `HEARTH_CJK_FONT` | 342 passed. Log (`/workspace/tmp/hearth-qa/run82/python.log`) |
+| `node --test tests/*.test.mjs` | 37 passed. Log (`/workspace/tmp/hearth-qa/run82/node.log`) |
+| `node --check` on the JavaScript files under `web/` | 51 passed. Log (`/workspace/tmp/hearth-qa/run82/js-syntax.log`) |
+| `PYTHONPATH=. python tests/browser-smoke.py` | Passed with a 600-second timeout. Log (`/workspace/tmp/hearth-qa/run82/chromium-smoke.log`) |
+| `PYTHONPATH=. python tests/browser-smoke.py --disconnect` | Passed. Log (`/workspace/tmp/hearth-qa/run82/chromium-disconnect.log`) |
+| `PYTHONPATH=. python tests/browser-smoke.py --chat-search` | Passed. Zero horizontal overflow from 390 through 1920 px. Log (`/workspace/tmp/hearth-qa/run82/chromium-chat-search.log`) |
 
-The Settings smoke covers deep-link focus after a view transition, connector drafts across filtering and history, a pending connector test, Brain preview and model testing, Memory and Search saves, and saved avatar and voice preferences across Chat and a reload. [Test](../tests/settings_smoke.py) · [Settings log](/workspace/tmp/hearth-qa/run82/chromium-settings.log)
+The Settings smoke covers deep-link focus after a view transition, connector drafts across filtering and history, a pending connector test, Brain preview and model testing, Memory and Search saves, and saved avatar and voice preferences across Chat and a reload. [Test](../tests/settings_smoke.py) · Settings log (`/workspace/tmp/hearth-qa/run82/chromium-settings.log`)
 
 ## Risks
 

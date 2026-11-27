@@ -8,14 +8,14 @@ Arrow keys move between enabled actions, and Home and End jump to the first and 
 
 ## Verification
 
-- All 330 Python tests passed with the installed Chinese PDF font. [Python results](/workspace/tmp/hearth-qa/run75/python-with-font.log)
-- All 24 Node tests passed, including fallback placement, viewport clamping, and keyboard navigation. [Node results](/workspace/tmp/hearth-qa/run75/node.log)
-- Chromium smoke covers desktop hover and focus, native anchoring and flipping, dark-mode contrast, mobile touch targets, the fallback, and the Summary, Rename, and Delete flows. [Workspace smoke](/workspace/tmp/hearth-qa/run75/chromium-smoke.log) · [Stream disconnect](/workspace/tmp/hearth-qa/run75/chromium-disconnect.log)
-- The Sprite release smoke checks the exact commit in `GET /health`, verifies the served assets, and reads Chat state and the Main summary. [Deploy log](/workspace/tmp/hearth-qa/run75/deploy.log) · [Live smoke](/workspace/tmp/hearth-qa/run75/live-smoke.log)
+- All 330 Python tests passed with the installed Chinese PDF font. Python results (`/workspace/tmp/hearth-qa/run75/python-with-font.log`)
+- All 24 Node tests passed, including fallback placement, viewport clamping, and keyboard navigation. Node results (`/workspace/tmp/hearth-qa/run75/node.log`)
+- Chromium smoke covers desktop hover and focus, native anchoring and flipping, dark-mode contrast, mobile touch targets, the fallback, and the Summary, Rename, and Delete flows. Workspace smoke (`/workspace/tmp/hearth-qa/run75/chromium-smoke.log`) · Stream disconnect (`/workspace/tmp/hearth-qa/run75/chromium-disconnect.log`)
+- The Sprite release smoke checks the exact commit in `GET /health`, verifies the served assets, and reads Chat state and the Main summary. Deploy log (`/workspace/tmp/hearth-qa/run75/deploy.log`) · Live smoke (`/workspace/tmp/hearth-qa/run75/live-smoke.log`)
 
 ## Screenshots
 
-- [Desktop row hover, light](/workspace/tmp/hearth-qa/run75/thread-hover-1440-light.png)
-- [Desktop menu, light](/workspace/tmp/hearth-qa/run75/thread-popover-1440-light.png)
-- [Desktop menu, dark](/workspace/tmp/hearth-qa/run75/thread-popover-1440-dark.png)
-- [Mobile drawer, light](/workspace/tmp/hearth-qa/run75/thread-mobile-390-light.png)
+- Desktop row hover, light (`/workspace/tmp/hearth-qa/run75/thread-hover-1440-light.png`)
+- Desktop menu, light (`/workspace/tmp/hearth-qa/run75/thread-popover-1440-light.png`)
+- Desktop menu, dark (`/workspace/tmp/hearth-qa/run75/thread-popover-1440-dark.png`)
+- Mobile drawer, light (`/workspace/tmp/hearth-qa/run75/thread-mobile-390-light.png`)

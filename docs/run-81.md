@@ -1,6 +1,6 @@
 # Run 81 · Preact migration phase 1
 
-Phase 1 is on the local `preact-migration` branch in the `hearth-preact` worktree. It was neither pushed nor deployed. The Run 80 baseline is `f58a3fe`, saved as `backup/preact-migration-run81`, tagged `backup/pre-preact`, and archived in a verified Git bundle. [Baseline bundle](/workspace/backups/hearth-pre-preact-f58a3fe.bundle)
+Phase 1 is on the local `preact-migration` branch in the `hearth-preact` worktree. It was neither pushed nor deployed. The Run 80 baseline is `f58a3fe`, saved as `backup/preact-migration-run81`, tagged `backup/pre-preact`, and archived in the workspace bundle `/workspace/backups/hearth-pre-preact-f58a3fe.bundle`.
 
 ## What moved
 
@@ -29,10 +29,10 @@ There are no intended user-facing changes. CSS is byte-identical to the baseline
 
 | State | Viewport | Changed pixels | Capture | Diff |
 | --- | --- | ---: | --- | --- |
-| Chat, light | 1440 × 900 | 0 / 1,296,000 | [PNG](/workspace/tmp/hearth-qa/run81/chat-1440-light.png) | [PNG](/workspace/tmp/hearth-qa/run81/diff-chat-1440-light.png) |
-| Chat, dark | 1440 × 900 | 0 / 1,296,000 | [PNG](/workspace/tmp/hearth-qa/run81/chat-1440-dark.png) | [PNG](/workspace/tmp/hearth-qa/run81/diff-chat-1440-dark.png) |
-| Chat, mobile light | 390 × 844 | 0 / 329,160 | [PNG](/workspace/tmp/hearth-qa/run81/chat-390-light.png) | [PNG](/workspace/tmp/hearth-qa/run81/diff-chat-390-light.png) |
-| Chat search, light | 1440 × 900 | 0 / 1,296,000 | [PNG](/workspace/tmp/hearth-qa/run81/chat-search-1440-light.png) | [PNG](/workspace/tmp/hearth-qa/run81/diff-chat-search-1440-light.png) |
+| Chat, light | 1440 × 900 | 0 / 1,296,000 | PNG (`/workspace/tmp/hearth-qa/run81/chat-1440-light.png`) | PNG (`/workspace/tmp/hearth-qa/run81/diff-chat-1440-light.png`) |
+| Chat, dark | 1440 × 900 | 0 / 1,296,000 | PNG (`/workspace/tmp/hearth-qa/run81/chat-1440-dark.png`) | PNG (`/workspace/tmp/hearth-qa/run81/diff-chat-1440-dark.png`) |
+| Chat, mobile light | 390 × 844 | 0 / 329,160 | PNG (`/workspace/tmp/hearth-qa/run81/chat-390-light.png`) | PNG (`/workspace/tmp/hearth-qa/run81/diff-chat-390-light.png`) |
+| Chat search, light | 1440 × 900 | 0 / 1,296,000 | PNG (`/workspace/tmp/hearth-qa/run81/chat-search-1440-light.png`) | PNG (`/workspace/tmp/hearth-qa/run81/diff-chat-search-1440-light.png`) |
 
 ## Verification
 
@@ -40,16 +40,16 @@ The Browser plugin was unavailable. Playwright ran Chromium with temporary works
 
 | Check | Result |
 | --- | --- |
-| `python -m unittest discover -s tests` with `HEARTH_CJK_FONT` | 342 passed. [Log](/workspace/tmp/hearth-qa/run81/python.log) |
-| `node --test tests/*.test.mjs` | 37 passed. [Log](/workspace/tmp/hearth-qa/run81/node.log) |
-| `node --check` on every `web/` JavaScript module | 44 passed. [Log](/workspace/tmp/hearth-qa/run81/js-syntax.log) |
-| `PYTHONPATH=. python tests/browser-smoke.py` | Passed in 107 seconds. [Log](/workspace/tmp/hearth-qa/run81/chromium-smoke.log) |
-| `PYTHONPATH=. python tests/browser-smoke.py --disconnect` | Passed. [Log](/workspace/tmp/hearth-qa/run81/chromium-disconnect.log) |
-| `PYTHONPATH=. python tests/browser-smoke.py --chat-search` | Passed. Zero horizontal overflow across 390–1920 px. [Log](/workspace/tmp/hearth-qa/run81/chromium-chat-search.log) |
+| `python -m unittest discover -s tests` with `HEARTH_CJK_FONT` | 342 passed. Log (`/workspace/tmp/hearth-qa/run81/python.log`) |
+| `node --test tests/*.test.mjs` | 37 passed. Log (`/workspace/tmp/hearth-qa/run81/node.log`) |
+| `node --check` on every `web/` JavaScript module | 44 passed. Log (`/workspace/tmp/hearth-qa/run81/js-syntax.log`) |
+| `PYTHONPATH=. python tests/browser-smoke.py` | Passed in 107 seconds. Log (`/workspace/tmp/hearth-qa/run81/chromium-smoke.log`) |
+| `PYTHONPATH=. python tests/browser-smoke.py --disconnect` | Passed. Log (`/workspace/tmp/hearth-qa/run81/chromium-disconnect.log`) |
+| `PYTHONPATH=. python tests/browser-smoke.py --chat-search` | Passed. Zero horizontal overflow across 390–1920 px. Log (`/workspace/tmp/hearth-qa/run81/chromium-chat-search.log`) |
 
-The 85-second CI wrapper timed out on this host. The full suite passed with more time. The saved Run 80 snapshot also passed with more time, taking about 110 seconds here. The mobile thread menu check now waits for the drawer to finish sliding before measuring the 44 px hit target. Chromium could round its moving bounds down to 43.99998 px. [Baseline timings](/workspace/tmp/hearth-qa/run81/chromium-baseline-timed.log) · [Drawer measurement trace](/workspace/tmp/hearth-qa/run81/chromium-mobile-thread-stress.log)
+The 85-second CI wrapper timed out on this host. The full suite passed with more time. The saved Run 80 snapshot also passed with more time, taking about 110 seconds here. The mobile thread menu check now waits for the drawer to finish sliding before measuring the 44 px hit target. Chromium could round its moving bounds down to 43.99998 px. Baseline timings (`/workspace/tmp/hearth-qa/run81/chromium-baseline-timed.log`) · Drawer measurement trace (`/workspace/tmp/hearth-qa/run81/chromium-mobile-thread-stress.log`)
 
-An early search run missed focus after quickly reopening with `/` after Escape. The dedicated suite rerun and 40 subsequent rapid reopen checks across fresh light and dark pages passed. The cause of the first failure remains unconfirmed. [Focus rerun log](/workspace/tmp/hearth-qa/run81/chromium-search-stress.log)
+An early search run missed focus after quickly reopening with `/` after Escape. The dedicated suite rerun and 40 subsequent rapid reopen checks across fresh light and dark pages passed. The cause of the first failure remains unconfirmed. Focus rerun log (`/workspace/tmp/hearth-qa/run81/chromium-search-stress.log`)
 
 ## Open risks
 

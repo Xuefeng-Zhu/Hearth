@@ -2,7 +2,7 @@
 
 Timeline, Memory, Skills, and Inbox moved to Preact in the `hearth-preact` worktree on the local `preact-migration` branch. Each view has its own commit. The comparison revision is `f58a3fe` (`backup/pre-preact`). The main worktree was left alone. No commits were pushed or deployed.
 
-The existing native import map loads the vendored Preact, hooks, and htm modules directly. All 14 CSS files match the baseline byte for byte. [Baseline CSS manifest](/workspace/tmp/hearth-qa/run84/css-baseline.txt) · [Branch CSS manifest](/workspace/tmp/hearth-qa/run84/css-current.txt)
+The existing native import map loads the vendored Preact, hooks, and htm modules directly. All 14 CSS files match the baseline byte for byte. Baseline CSS manifest (`/workspace/tmp/hearth-qa/run84/css-baseline.txt`) · Branch CSS manifest (`/workspace/tmp/hearth-qa/run84/css-current.txt`)
 
 ## What moved
 
@@ -29,7 +29,7 @@ First-party frontend counts use Git insertions and deletions under `web/` exclud
 
 ## Visual parity
 
-Chromium captured each state at 1440 × 900 light, 1440 × 900 dark, and 390 × 844 light. The fixture clock, locale, reduced-motion preference, and capture focus and scroll positions were matched. Every RGB pixel was compared without masks or tolerance. The DOM comparison checks ordered tag, ID, class, and role signatures in the captured view or dialog, excluding generated mascot gradient IDs. [Capture scripts](/workspace/tmp/hearth-qa/run84/screens.py) · [Chat capture](/workspace/tmp/hearth-qa/run84/screens-chat.py) · [Settings capture](/workspace/tmp/hearth-qa/run84/screens-settings.py)
+Chromium captured each state at 1440 × 900 light, 1440 × 900 dark, and 390 × 844 light. The fixture clock, locale, reduced-motion preference, and capture focus and scroll positions were matched. Every RGB pixel was compared without masks or tolerance. The DOM comparison checks ordered tag, ID, class, and role signatures in the captured view or dialog, excluding generated mascot gradient IDs. Capture scripts (`/workspace/tmp/hearth-qa/run84/screens.py`) · Chat capture (`/workspace/tmp/hearth-qa/run84/screens-chat.py`) · Settings capture (`/workspace/tmp/hearth-qa/run84/screens-settings.py`)
 
 | View | Captured states | Pairs | Changed pixels | DOM mismatches |
 | --- | --- | ---: | ---: | ---: |
@@ -44,18 +44,18 @@ Chromium captured each state at 1440 × 900 light, 1440 × 900 dark, and 390 × 
 | Settings | Overview, panels, and workspace status | 57 | 0 | 0 |
 | **Total** | | **174** | **0 / 169,427,280** | **0** |
 
-[Baseline PNGs](/workspace/tmp/hearth-qa/run84/captures-baseline) · [Branch PNGs](/workspace/tmp/hearth-qa/run84/captures-current) · [Diff PNGs](/workspace/tmp/hearth-qa/run84/diffs) · [Full comparison log](/workspace/tmp/hearth-qa/run84/pixel-diffs.log)
+Baseline PNGs (`/workspace/tmp/hearth-qa/run84/captures-baseline`) · Branch PNGs (`/workspace/tmp/hearth-qa/run84/captures-current`) · Diff PNGs (`/workspace/tmp/hearth-qa/run84/diffs`) · Full comparison log (`/workspace/tmp/hearth-qa/run84/pixel-diffs.log`)
 
 ## Verification
 
 | Check | Result |
 | --- | --- |
-| Python unittest discovery with `HEARTH_CJK_FONT` | 342 passed using WenQuanYi Micro Hei. [Log](/workspace/tmp/hearth-qa/run84/logs/python.log) |
-| Node tests and `node --check` | 37 Node tests and 63 JavaScript modules passed. [Node](/workspace/tmp/hearth-qa/run84/logs/node.log) · [Syntax](/workspace/tmp/hearth-qa/run84/logs/syntax.log) |
-| Browser smoke and stream disconnect | Passed. [Default](/workspace/tmp/hearth-qa/run84/logs/chromium-smoke.log) · [Disconnect](/workspace/tmp/hearth-qa/run84/logs/chromium-disconnect.log) |
-| Chat search, list search, and searchable combobox | Passed, including Chat and list search width sweeps from 390 to 1920 px. [Chat search](/workspace/tmp/hearth-qa/run84/logs/chromium-chat-search.log) · [List search](/workspace/tmp/hearth-qa/run84/logs/chromium-list-search.log) · [Combobox](/workspace/tmp/hearth-qa/run84/logs/chromium-combobox.log) |
-| Motion and interaction regressions | Passed for Home FLIP, panel reorder and restoration, reminder add and cancel, and Inbox FLIP, insertions, inert exits, and reduced motion. [Motion](/workspace/tmp/hearth-qa/run84/logs/chromium-motion.log) · [Home](/workspace/tmp/hearth-qa/run84/logs/home-behavior.log) · [Reminders](/workspace/tmp/hearth-qa/run84/logs/reminders-behavior.log) · [Inbox](/workspace/tmp/hearth-qa/run84/logs/inbox-behavior.log) |
-| Timeline, Memory, and Skills interactions | Passed for Timeline SSE, disclosure focus, undo/redo and restore receipts, Memory profile and note changes, source links and review decisions, repeated Settings recall tests, and Skills deep links, editor history, drafts, delete, and Try in Chat. [Timeline](/workspace/tmp/hearth-qa/run84/logs/timeline-behavior.log) · [Memory](/workspace/tmp/hearth-qa/run84/logs/memory-behavior.log) · [Recall](/workspace/tmp/hearth-qa/run84/logs/settings-recall.log) · [Skills](/workspace/tmp/hearth-qa/run84/logs/skills-behavior.log) |
+| Python unittest discovery with `HEARTH_CJK_FONT` | 342 passed using WenQuanYi Micro Hei. Log (`/workspace/tmp/hearth-qa/run84/logs/python.log`) |
+| Node tests and `node --check` | 37 Node tests and 63 JavaScript modules passed. Node (`/workspace/tmp/hearth-qa/run84/logs/node.log`) · Syntax (`/workspace/tmp/hearth-qa/run84/logs/syntax.log`) |
+| Browser smoke and stream disconnect | Passed. Default (`/workspace/tmp/hearth-qa/run84/logs/chromium-smoke.log`) · Disconnect (`/workspace/tmp/hearth-qa/run84/logs/chromium-disconnect.log`) |
+| Chat search, list search, and searchable combobox | Passed, including Chat and list search width sweeps from 390 to 1920 px. Chat search (`/workspace/tmp/hearth-qa/run84/logs/chromium-chat-search.log`) · List search (`/workspace/tmp/hearth-qa/run84/logs/chromium-list-search.log`) · Combobox (`/workspace/tmp/hearth-qa/run84/logs/chromium-combobox.log`) |
+| Motion and interaction regressions | Passed for Home FLIP, panel reorder and restoration, reminder add and cancel, and Inbox FLIP, insertions, inert exits, and reduced motion. Motion (`/workspace/tmp/hearth-qa/run84/logs/chromium-motion.log`) · Home (`/workspace/tmp/hearth-qa/run84/logs/home-behavior.log`) · Reminders (`/workspace/tmp/hearth-qa/run84/logs/reminders-behavior.log`) · Inbox (`/workspace/tmp/hearth-qa/run84/logs/inbox-behavior.log`) |
+| Timeline, Memory, and Skills interactions | Passed for Timeline SSE, disclosure focus, undo/redo and restore receipts, Memory profile and note changes, source links and review decisions, repeated Settings recall tests, and Skills deep links, editor history, drafts, delete, and Try in Chat. Timeline (`/workspace/tmp/hearth-qa/run84/logs/timeline-behavior.log`) · Memory (`/workspace/tmp/hearth-qa/run84/logs/memory-behavior.log`) · Recall (`/workspace/tmp/hearth-qa/run84/logs/settings-recall.log`) · Skills (`/workspace/tmp/hearth-qa/run84/logs/skills-behavior.log`) |
 
 The browser suites used offline fixtures and timeouts of six to ten minutes. The Timeline browser restore check exercises the restore confirmation and receipt against a fixture response. The Python suite covers checkpoint storage.
 

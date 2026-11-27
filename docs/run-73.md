@@ -31,16 +31,16 @@ The workspace header and sidebar meet at a shared one-pixel border. Panels and d
 - Python unittest discovery passed all 330 tests. Node passed all 20 tests. JavaScript syntax checks passed.
 - Both offline Chromium suites passed. Browser regressions check grid footer positions, list row height and action centering, the sticky list header, filter interaction, Box retry gating, Ask my files selection and submission, and sibling column edges within one pixel.
 - Artifacts was captured in light and dark at 1280×800, 1440×900, 1680×1050, and 1920×1080, followed by 390×844 and 768×1024. All nine workspace views were audited at 1440 and 1920 in both themes. The 240 captured states showed zero workspace horizontal overflows and zero failures among 16,330 sampled dark contrast pairs. Chromium checked the PDF iframe and its controls. Native PDF rendering was outside the headless check.
-- A separate fixture check downloaded the original file, moved it to Hearth Trash, and restored it through Timeline. [Trash verification](/workspace/tmp/hearth-qa/run73/trash.log)
+- A separate fixture check downloaded the original file, moved it to Hearth Trash, and restored it through Timeline. Trash verification (`/workspace/tmp/hearth-qa/run73/trash.log`)
 
 ## Visual evidence
 
 The comparison sheets contain 1440 light, 1440 dark, and 1920 light at their original screenshot dimensions.
 
-- Artifacts grid [Comparison](/workspace/tmp/hearth-qa/run73/compare-artifacts-grid.png) · [Full-resolution 1440 light after](/workspace/tmp/hearth-qa/run73/artifacts-grid-1440-light.png)
-- Artifacts list [Comparison](/workspace/tmp/hearth-qa/run73/compare-artifacts-list.png) · [Full-resolution 1440 light after](/workspace/tmp/hearth-qa/run73/artifacts-list-1440-light.png)
-- Borders [Settings Approvals](/workspace/tmp/hearth-qa/run73/compare-borders-settings.png) · [Home](/workspace/tmp/hearth-qa/run73/compare-borders-home.png) · [Timeline](/workspace/tmp/hearth-qa/run73/compare-borders-timeline.png) · [Memory](/workspace/tmp/hearth-qa/run73/compare-borders-memory.png)
-- Additional captures [Before](/workspace/tmp/hearth-qa/run73/before) · [After](/workspace/tmp/hearth-qa/run73/after)
+- Artifacts grid Comparison (`/workspace/tmp/hearth-qa/run73/compare-artifacts-grid.png`) · Full-resolution 1440 light after (`/workspace/tmp/hearth-qa/run73/artifacts-grid-1440-light.png`)
+- Artifacts list Comparison (`/workspace/tmp/hearth-qa/run73/compare-artifacts-list.png`) · Full-resolution 1440 light after (`/workspace/tmp/hearth-qa/run73/artifacts-list-1440-light.png`)
+- Borders Settings Approvals (`/workspace/tmp/hearth-qa/run73/compare-borders-settings.png`) · Home (`/workspace/tmp/hearth-qa/run73/compare-borders-home.png`) · Timeline (`/workspace/tmp/hearth-qa/run73/compare-borders-timeline.png`) · Memory (`/workspace/tmp/hearth-qa/run73/compare-borders-memory.png`)
+- Additional captures Before (`/workspace/tmp/hearth-qa/run73/before`) · After (`/workspace/tmp/hearth-qa/run73/after`)
 
 ## Deployment
 
@@ -50,6 +50,6 @@ The comparison sheets contain 1440 light, 1440 dark, and 1920 light at their ori
 
 - Desktop list rows stay 76 px high and center the name cell vertically. Titles take their natural height, clamp at two lines, and leave 4 px between the last line and the chips. Grid tiles keep their two-line title area and aligned footers.
 - The Box status, Refresh, and Ask my files controls already share the vertical center of **Saved work** on desktop. At 390 and 768 px the controls stack below the intro. The 390 px list keeps its 44 px title touch target.
-- The Run 73 capture scripts were reused with the same stabilized fixture ordering. Both views were checked at 1280, 1440, 1920, 390, and 768 px in light and dark. The grid captures were pixel-identical to the baseline. [1440 light list](/workspace/tmp/hearth-qa/run74/artifacts-list-1440-light.png) · [1440 light grid](/workspace/tmp/hearth-qa/run74/artifacts-grid-1440-light.png) · [Full capture matrix](/workspace/tmp/hearth-qa/run74)
+- The Run 73 capture scripts were reused with the same stabilized fixture ordering. Both views were checked at 1280, 1440, 1920, 390, and 768 px in light and dark. The grid captures were pixel-identical to the baseline. 1440 light list (`/workspace/tmp/hearth-qa/run74/artifacts-list-1440-light.png`) · 1440 light grid (`/workspace/tmp/hearth-qa/run74/artifacts-grid-1440-light.png`) · Full capture matrix (`/workspace/tmp/hearth-qa/run74`)
 - All 330 Python tests and 20 Node tests passed, along with JavaScript syntax checks and both Chromium suites. Chromium smoke now checks the gap between the rendered list title and the chips, and the vertical center of the name cell.
-- The release uses `scripts/deploy.sh`. The live smoke checks HTTP 200 and the release SHA from `/health` and compares the served assets against the commit. [Deployment verification](/workspace/tmp/hearth-qa/run74/live-smoke.log)
+- The release uses `scripts/deploy.sh`. The live smoke checks HTTP 200 and the release SHA from `/health` and compares the served assets against the commit. Deployment verification (`/workspace/tmp/hearth-qa/run74/live-smoke.log`)
