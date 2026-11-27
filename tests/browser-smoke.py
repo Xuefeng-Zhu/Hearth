@@ -914,12 +914,14 @@ def mobile_thread_menu_smoke(browser, origin):
             drawer = page.get_by_role("dialog", name="Hearth")
             trigger = page.get_by_role("button", name="Actions for Smoke side chat")
             menu = drawer.get_by_role("menu", name="Smoke side chat")
+            # A translating drawer can round a 44 px box down to 43.99998 px in Chromium.
+            expect(drawer).to_have_css("translate", "none")
             expect(trigger).to_have_css("opacity", "1")
             thread_row = page.locator(".thread-row").filter(has=trigger)
             expect(thread_row).to_have_css("scale", "none")
             box = trigger.bounding_box()
             row = thread_row.bounding_box()
-            assert box and row and box["width"] >= 44 and box["height"] >= 44
+            assert box and row and box["width"] >= 44 and box["height"] >= 44, (box, row)
             assert box["y"] == row["y"] and box["height"] == row["height"]
             if fallback:
                 trigger.click()
