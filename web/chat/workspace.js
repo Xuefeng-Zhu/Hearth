@@ -1,6 +1,7 @@
 import { avatarEvent, avatarPose, newAvatar } from "../avatar-state.js";
 import { announcePose, looks, mascot, poseLabel, setLook, setPose } from "../avatar.js";
 import { createVoiceInput } from "../voice.js";
+import { mountAppearance, readAppearance, createVoiceSettings, readVoiceSettings } from "../settings/persona.js";
 import { createVoiceCall } from "../voice-call.js";
 import { fileAnswerSources } from "../file-questions.js";
 import { channelChip } from "../reminders.js";
@@ -34,7 +35,7 @@ export function createChatWorkspace({
     currentThread: requestedThread || sessionStorage.getItem("hearth-thread") || mainThread.id,
     threads: [mainThread], threadEntries: [mainThread], busy: false, uploading: false,
     sendLabel: "Send message", canStop: false, stoppingReply: false, callActive: false,
-    dictation: { phase: "idle", interim: "" },
+    dictation: { phase: "idle", interim: "" }, ...readAppearance(), ...readVoiceSettings(),
   });
   mountComposer(byId("composer"), store, {
     onSend: chat, onStop: stopActiveReply, onAttach: () => attachmentDraft.pick(),
@@ -102,15 +103,6 @@ export function createChatWorkspace({
     },
   });
   const faceWorkers = createWorkersCard({ stop: stopWorkers });
-  const avatarModes = ["off", "beside", "face"];
-  const savedMode = localStorage.getItem("hearth-avatar-view");
-  const savedLook = localStorage.getItem("hearth-avatar-look");
-  const savedColor = localStorage.getItem("hearth-avatar-color") || "";
-  store.update({
-    avatarMode: avatarModes.includes(savedMode) ? savedMode : "beside",
-    avatarLook: Object.hasOwn(looks, savedLook) ? savedLook : "ember",
-    avatarColor: /^#[0-9a-f]{6}$/i.test(savedColor) ? savedColor : "",
-  });
   mountThreads({
     store, list: byId("threads"), select: byId("thread-select"), avatarSelect: byId("avatar-view"),
     onSelect: openThreadFromList, openMenu: openThreadMenu, menuId: threadMenu.id, onAvatarChange: chooseAvatarMode,
@@ -120,7 +112,14 @@ export function createChatWorkspace({
   const portraitMascot = mascot(store.state.avatarLook, store.state.avatarColor);
   byId("avatar-header").append(headerMascot);
   byId("avatar-portrait").append(portraitMascot);
-  store.update({ voicePreferences: readVoicePreferences() });
+  mountAppearance(byId("settings-appearance"), store, {
+    onMode: chooseAvatarMode, applyAppearance,
+    onFace() {
+      openView("chat");
+      byId("avatar-view").focus();
+    },
+  });
+  const voiceSettings = createVoiceSettings({ store, byId, api, date, openConnections, whisperConnected });
   const voiceLevel = byId("voice-level");
   let spaceHeld = false;
   const voice = createVoiceInput({
@@ -130,6 +129,7 @@ export function createChatWorkspace({
   });
   const voiceCall = createVoiceCall({
     api,
+    getPreferences: () => store.state.callPreferences,
     getThread: () => ({ id: store.state.currentThread, title: threadSource({ thread_id: store.state.currentThread }) }),
     isConfigured: () => serverState?.voice_call_available,
     prepare: () => {
@@ -143,10 +143,9 @@ export function createChatWorkspace({
       store.update({ callActive: voiceCall.inProgress });
       paintAvatars();
       if (refresh) refreshView().catch((error) => showNotice(error.message));
-      if (currentView() === "settings" && currentSettings() === "voice" && !voiceCall.inProgress) voiceCall.refreshSettings();
+      if (currentView() === "settings" && currentSettings() === "voice" && !voiceCall.inProgress) voiceSettings.refreshCall();
     },
     onAction: openVoiceAction,
-    date,
   });
 
   function avatarState(threadId, now) {
@@ -254,8 +253,6 @@ export function createChatWorkspace({
   function applyAppearance() {
     const hidden = store.state.avatarMode === "off";
     const full = store.state.avatarMode === "face";
-    byId("ember-view").value = store.state.avatarMode;
-    byId("avatar-enabled").checked = !hidden;
     byId("avatar-header").hidden = hidden;
     byId("face-stage").hidden = !full;
     byId("chat-view").classList.toggle("avatar-off", hidden);
@@ -268,13 +265,6 @@ export function createChatWorkspace({
     setLook(headerMascot, store.state.avatarLook, store.state.avatarColor);
     setLook(portraitMascot, store.state.avatarLook, store.state.avatarColor);
     updateText(byId("avatar-name"), looks[store.state.avatarLook].name);
-    for (const [preset, look] of Object.entries(looks)) {
-      const choice = byId(`look-${preset}`);
-      choice.setAttribute("aria-pressed", String(preset === store.state.avatarLook));
-      setLook(choice.firstChild, preset, preset === store.state.avatarLook ? store.state.avatarColor : look.color);
-    }
-    byId("avatar-color").value = store.state.avatarColor || looks[store.state.avatarLook].color;
-    byId("avatar-color-reset").disabled = !store.state.avatarColor;
     renderChat(true);
   }
 
@@ -290,42 +280,6 @@ export function createChatWorkspace({
   function whisperConnected() {
     const connection = getConnections()?.providers?.huggingface?.status;
     return connection === "connected" || (connection == null && serverState?.whisper_available === true);
-  }
-
-  function readVoicePreferences() {
-    const languages = [...byId("voice-language").options].map((option) => option.value);
-    const preferences = { engine: "auto", language: "auto", autoSend: false, seconds: 60 };
-    try {
-      const saved = JSON.parse(localStorage.getItem("hearth-voice"));
-      if (["auto", "browser", "whisper"].includes(saved?.engine)) preferences.engine = saved.engine;
-      if (languages.includes(saved?.language)) preferences.language = saved.language;
-      if (Number.isInteger(saved?.seconds) && saved.seconds >= 5 && saved.seconds <= 120) preferences.seconds = saved.seconds;
-      preferences.autoSend = saved?.autoSend === true;
-    } catch {
-      // Start from the default settings if the saved value is unreadable.
-    }
-    return preferences;
-  }
-
-  function syncVoiceSettings() {
-    const { voicePreferences } = store.state;
-    byId("voice-engine").value = voicePreferences.engine;
-    byId("voice-language").value = voicePreferences.language;
-    byId("voice-length").value = voicePreferences.seconds;
-    byId("voice-auto-send").checked = voicePreferences.autoSend;
-    showVoiceEngine();
-  }
-
-  function showVoiceEngine() {
-    const engine = byId("voice-engine").value;
-    const connected = whisperConnected();
-    const browser = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const status = engine === "whisper"
-      ? (connected ? "Hugging Face is connected." : "Connect Hugging Face in Settings → Connections to use Whisper.")
-      : engine === "auto" && connected ? "Auto will use Hugging Face Whisper."
-        : browser ? "Browser uses its default speech language when Language is set to Auto."
-          : "This browser does not support speech recognition. Connect Hugging Face to use Whisper.";
-    updateText(byId("voice-engine-status"), status);
   }
 
   function updateVoice({ thread, phase, interim = "", engine, message }) {
@@ -1151,7 +1105,7 @@ export function createChatWorkspace({
     renderBrain(serverState);
     paintAvatars();
     schedulePoll();
-    if (currentView() === "settings" && currentSettings() === "voice") showVoiceEngine();
+    if (currentView() === "settings" && currentSettings() === "voice") voiceSettings.showEngine();
     return true;
   }
 
@@ -1528,51 +1482,6 @@ export function createChatWorkspace({
     avatarSignal(store.state.currentThread, { type: "typing", gaze });
   }
 
-  for (const [preset, look] of Object.entries(looks)) {
-    const choice = button("", () => {
-      store.update({ avatarLook: preset });
-      localStorage.setItem("hearth-avatar-look", preset);
-      applyAppearance();
-    });
-    choice.id = `look-${preset}`;
-    const preview = mascot(preset);
-    preview.dataset.still = "";
-    choice.append(preview, node("span", "", look.name));
-    byId("avatar-looks").append(choice);
-  }
-  byId("ember-view").addEventListener("change", (event) => {
-    const mode = event.target.value;
-    chooseAvatarMode(mode);
-    if (mode === "face") {
-      openView("chat");
-      byId("avatar-view").focus();
-    }
-  });
-  byId("avatar-enabled").addEventListener("change", (event) => chooseAvatarMode(event.target.checked ? "beside" : "off"));
-  byId("avatar-color").addEventListener("input", (event) => {
-    store.update({ avatarColor: event.target.value });
-    localStorage.setItem("hearth-avatar-color", store.state.avatarColor);
-    applyAppearance();
-  });
-  byId("avatar-color-reset").addEventListener("click", () => {
-    store.update({ avatarColor: "" });
-    localStorage.removeItem("hearth-avatar-color");
-    applyAppearance();
-  });
-  byId("call-connections").addEventListener("click", openConnections);
-  byId("voice-engine").addEventListener("change", showVoiceEngine);
-  byId("voice-settings-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const voicePreferences = {
-      engine: byId("voice-engine").value,
-      language: byId("voice-language").value,
-      seconds: byId("voice-length").valueAsNumber,
-      autoSend: byId("voice-auto-send").checked,
-    };
-    store.update({ voicePreferences });
-    localStorage.setItem("hearth-voice", JSON.stringify(voicePreferences));
-    updateText(byId("voice-settings-status"), "Voice settings saved.");
-  });
   function composerShortcut(event) {
     if (event.key === "Escape" && voice.active) {
       event.preventDefault();
@@ -1697,7 +1606,7 @@ export function createChatWorkspace({
   return {
     activateThread, applyAppearance, composerShortcut, openArtifactThread, openDemo, openMainChat,
     openPanelChat, openSkillChat, paintAvatars, refreshState, refreshVisibleHistory, renderChat,
-    send: chat, sendPanelPrompt, showVoiceEngine, syncVoiceSettings,
+    send: chat, sendPanelPrompt, voiceSettings,
     mobile, voiceCall, signalAvatar: avatarSignal,
     get threads() { return store.state.threads; },
     get busy() { return store.state.busy; },

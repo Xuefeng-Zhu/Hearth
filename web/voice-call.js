@@ -1,21 +1,7 @@
 import { setPose } from "./avatar.js";
 
 const byId = (id) => document.getElementById(id);
-const preferencesKey = "hearth-voice-call";
 const demoLabel = "Sample conversation";
-const defaultPreferences = { language: "auto", minutes: 10, autoSave: true };
-
-function readPreferences() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(preferencesKey));
-    if (saved && ["auto", "en", "zh"].includes(saved.language)
-        && Number.isInteger(saved.minutes) && saved.minutes >= 1 && saved.minutes <= 60
-        && typeof saved.autoSave === "boolean") return saved;
-  } catch {
-    // Use the defaults if the saved preferences cannot be read.
-  }
-  return { ...defaultPreferences };
-}
 
 export function callDuration(seconds) {
   const clock = [Math.floor(seconds / 60), seconds % 60];
@@ -32,7 +18,7 @@ export function captionLine({ role, text }) {
   return item;
 }
 
-export function createVoiceCall({ api, getThread, isConfigured, prepare, makeMascot, update, onAction, date }) {
+export function createVoiceCall({ api, getThread, getPreferences, isConfigured, prepare, makeMascot, update, onAction }) {
   const sheet = byId("call-sheet");
   const phase = byId("call-phase");
   const clock = byId("call-clock");
@@ -46,7 +32,6 @@ export function createVoiceCall({ api, getThread, isConfigured, prepare, makeMas
   const resume = byId("return-to-call");
   const retrySave = byId("call-retry-save");
   const feedback = byId("call-feedback");
-  let preferences = readPreferences();
   let session;
 
   const active = (call) => session === call && !call.ended;
@@ -314,7 +299,7 @@ export function createVoiceCall({ api, getThread, isConfigured, prepare, makeMas
     const call = {
       id: Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join(""),
       thread: getThread(), demo: !isConfigured(),
-      preferences: { ...preferences }, lines: [], bytes: 0, queries: 0, demoTimers: [],
+      preferences: getPreferences(), lines: [], bytes: 0, queries: 0, demoTimers: [],
       controller: new AbortController(), pose: { pose: "idle" }, mascot: makeMascot(),
     };
     session = call;
@@ -341,25 +326,6 @@ export function createVoiceCall({ api, getThread, isConfigured, prepare, makeMas
       connect(call);
     }
     update(call);
-  }
-
-  async function refreshSettings() {
-    const badge = byId("call-engine-status");
-    const check = byId("call-engine-check");
-    try {
-      const info = await api("/api/voice/call/status", undefined, AbortSignal.timeout(8000));
-      badge.textContent = info.configured ? "Connected" : "Not configured";
-      badge.className = `connection-status ${info.configured ? "ok" : "not_set_up"}`;
-      byId("call-setup").hidden = info.configured;
-      const last = info.last_check;
-      const outcome = { configured: "Connector found", missing: "No connector found", passed: "Passed", failed: "Failed", denied: "Access denied" };
-      const kind = { discovery: "Discovery", token: "Token mint", authorization: "Access check" };
-      check.textContent = last ? `${kind[last.kind]} · ${outcome[last.status]} · ${date(last.at)}${last.detail ? ` · ${last.detail}` : ""}` : "";
-    } catch {
-      badge.textContent = "Status unavailable";
-      badge.className = "connection-status unknown";
-      check.textContent = "";
-    }
   }
 
   byId("start-call").addEventListener("click", start);
@@ -404,26 +370,9 @@ export function createVoiceCall({ api, getThread, isConfigured, prepare, makeMas
       setFeedback("Your browser still blocks call audio.");
     }
   });
-  byId("call-settings-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    preferences = {
-      language: byId("call-language").value, minutes: byId("call-limit").valueAsNumber,
-      autoSave: byId("call-save-transcript").checked,
-    };
-    localStorage.setItem(preferencesKey, JSON.stringify(preferences));
-    byId("call-settings-status").textContent = "Call settings saved.";
-  });
-
   return {
     get open() { return sheet.open; },
     get inProgress() { return !!session && !session.ended; },
     poseFor(threadId) { return session?.thread.id === threadId && !session.ended ? session.pose : undefined; },
-    refreshSettings,
-    syncSettings() {
-      byId("call-language").value = preferences.language;
-      byId("call-limit").value = preferences.minutes;
-      byId("call-save-transcript").checked = preferences.autoSave;
-      return refreshSettings();
-    },
   };
 }

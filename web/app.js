@@ -59,8 +59,8 @@ const connections = createConnections({
   },
   onUpdate() {
     if (!isSetting("voice")) return;
-    showVoiceEngine();
-    voiceCall.refreshSettings();
+    voiceSettings.showEngine();
+    voiceSettings.refreshCall();
   },
   loadMail: () => delivery.connections(), pollMail: () => delivery.poll(),
 });
@@ -86,7 +86,7 @@ const chatWorkspace = createChatWorkspace({
 });
 const { activateThread, openArtifactThread, openDemo, openMainChat, openPanelChat, openSkillChat,
   sendPanelPrompt, mobile, voiceCall, refreshState, refreshVisibleHistory, renderChat, paintAvatars,
-  showVoiceEngine, syncVoiceSettings } = chatWorkspace;
+  voiceSettings } = chatWorkspace;
 const timelineErrorRoute = "#timeline/errors";
 const timeline = createTimeline({
   api, refreshAPI, approve, undo, gatewayResults, isBusy: () => chatWorkspace.busy,
@@ -449,10 +449,7 @@ async function loadSettings(section) {
   if (section === "automations") return automation.eventSettings();
   if (section === "watchers") return;
   if (section === "reminders") return delivery.settings();
-  if (section === "voice") {
-    syncVoiceSettings();
-    return voiceCall.syncSettings();
-  }
+  if (section === "voice") return voiceSettings.open();
   return preferences.open(section);
 }
 
