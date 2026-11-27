@@ -16,10 +16,11 @@ import { createWorkersCard } from "./workers.js";
 import { createMemory } from "./memory.js";
 import { createMemoryReview } from "./memory-review.js";
 
-import { connectionHash, createSettings, settingsHash, settingsRoute } from "./settings/workspace.js";
+import { createSettings, settingsHash, settingsRoute } from "./settings/workspace.js";
 import { connectorHasError, createConnections } from "./settings/connections.js";
 import { createPreferences } from "./settings/preferences.js";
-import { createBrain, modelNames } from "./settings/brain.js";
+import { createWorkspaceStatus, showConnectionGuidance } from "./settings/status.js";
+import { createBrain } from "./settings/brain.js";
 import { createChatWorkspace, mainThread } from "./chat/workspace.js";
 
 const settings = createSettings(openSettingsSection, { api, renderRefreshStatus });
@@ -29,7 +30,6 @@ setupSearchableSelects();
 const byId = (id) => document.getElementById(id);
 const notice = byId("notice");
 const nav = [...document.querySelectorAll("[data-view]")];
-const connectionsLabel = "Settings → Connections";
 const dateFormat = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
 const gatewayResults = new Map();
 let homeCache;
@@ -44,19 +44,13 @@ const listSearches = Object.fromEntries(["reminders", "inbox", "skills"].map((na
     void refreshView();
   })]));
 let memoryFindRequest = 0;
-let workspaceModel;
-let workspaceConnectorError = false;
-let homeConnectorError = false;
-const workspaceStatusLabels = document.querySelectorAll("[data-workspace-status]");
 const refreshStatus = new Map();
 const viewRefreshPaths = { chat: "/api/state", home: "/api/home", inbox: "/api/inbox",
   reminders: "/api/reminders", timeline: "/api/timeline" };
+const workspaceStatus = createWorkspaceStatus({ byId, isHome: () => view === "home", openConnections });
 const connections = createConnections({
   byId, api, date, trackRefresh, refreshAPI, isActive: () => isSetting("connections"),
-  onData(data) {
-    workspaceConnectorError = !!data.scan_error || Object.values(data.providers).some(connectorHasError);
-    renderBrain(data);
-  },
+  onData: workspaceStatus.updateConnections,
   onUpdate() {
     if (!isSetting("voice")) return;
     voiceSettings.showEngine();
@@ -65,7 +59,7 @@ const connections = createConnections({
   loadMail: () => delivery.connections(), pollMail: () => delivery.poll(),
 });
 const brain = createBrain({
-  byId, api, date, updateConnections: connections.update, renderBrain,
+  byId, api, date, updateConnections: connections.update, renderBrain: workspaceStatus.updateModel,
   isBusy: () => chatWorkspace.busy, isActive: () => isSetting("brain"),
 });
 const preferences = createPreferences({
@@ -81,7 +75,7 @@ const chatWorkspace = createChatWorkspace({
   getConnections: () => connections.state, getConnectionRequest: () => connections.request,
   openView, refreshView, getArtifacts: () => artifactLibrary,
   onThreadsChanged: () => { if (isSetting("memory")) preferences.updateThreads(); },
-  renderBrain, schedulePoll, approvalCard: (action) => automation.approvalCard(action),
+  renderBrain: workspaceStatus.updateModel, schedulePoll, approvalCard: (action) => automation.approvalCard(action),
   approve, undo, gatewayResults, memoryLabel, openMemorySource, stopWorkers, openVoiceAction, openConnections,
 });
 const { activateThread, openArtifactThread, openDemo, openMainChat, openPanelChat, openSkillChat,
@@ -172,9 +166,7 @@ const homePage = createHome({
     homeWorkers.update(workers);
     if (!homeWorkers.card.isConnected) target.append(homeWorkers.card);
     target.hidden = !workers.length;
-    const connections = data.builtin.connections;
-    homeConnectorError = !!connections.error || connections.items.some((entry) => entry.status === "error");
-    renderBrain(data);
+    workspaceStatus.updateHome(data);
   },
 });
 const delivery = createReminders({
@@ -188,17 +180,6 @@ function showNotice(message = "") {
   const target = byId("workspace-drawer").open ? byId("drawer-notice") : notice;
   target.hidden = !message;
   showConnectionGuidance(target, String(message ?? ""));
-}
-
-function showConnectionGuidance(target, message) {
-  const start = message.indexOf(connectionsLabel);
-  if (start === -1) {
-    target.textContent = message;
-    return;
-  }
-  const link = node("a", "connection-guidance", connectionsLabel);
-  link.href = connectionHash();
-  target.replaceChildren(message.slice(0, start), link, message.slice(start + connectionsLabel.length));
 }
 
 async function api(path, data, signal) {
@@ -278,26 +259,6 @@ function setBusy(value) {
 async function stopWorkers(turnId, id) {
   await api("/api/workers/stop", { turn_id: turnId, ...(id ? { id } : {}) });
   await refreshView();
-}
-
-function renderBrain({ model, model_id: id }) {
-  workspaceModel = model;
-  const name = modelNames[model] || connections.state?.providers[model]?.name || model || "Unavailable";
-  byId("brain-active-model").textContent = id && model !== "mock" ? `${name} · ${id}` : name;
-  renderWorkspaceStatus();
-}
-
-function renderWorkspaceStatus() {
-  const connectorError = workspaceConnectorError || (view === "home" && homeConnectorError);
-  const showWarning = navigator.onLine && connectorError;
-  const status = !navigator.onLine ? "Offline" : !showWarning && workspaceModel === "mock" ? "Mock mode" : "";
-  for (const label of workspaceStatusLabels) {
-    const container = label.parentElement;
-    updateText(label, status);
-    label.hidden = !status;
-    container.querySelector("[data-connection-warning]").hidden = !showWarning;
-    container.hidden = !status && !showWarning;
-  }
 }
 
 function memoryLabel(hit) {
@@ -513,7 +474,7 @@ async function openView(nextView, updateHistory = true, section, focusSection = 
     if (fromDrawer) byId("view-title").focus({ preventScroll: true });
     if (previousView !== nextView && ["home", "settings", "skills"].includes(view)) byId(`${view}-view`).scrollTop = 0;
     paintAvatars();
-    renderWorkspaceStatus();
+    workspaceStatus.paint();
     if (view !== "settings") renderRefreshStatus();
   };
   const switching = transitionView(update, request > 1 && previousView !== nextView);
@@ -694,12 +655,6 @@ byId("memory-find").addEventListener("submit", (event) => {
 byId("memory-query").addEventListener("input", (event) => {
   if (!event.target.value) findMemory();
 });
-for (const link of document.querySelectorAll("[data-connection-warning]")) {
-  link.addEventListener("click", (event) => {
-    event.preventDefault();
-    openConnections();
-  });
-}
 for (const item of nav) {
   item.addEventListener("click", () => openView(item.dataset.view));
 }
@@ -766,7 +721,7 @@ async function pollForeground(immediate) {
 
 window.addEventListener("focus", () => schedulePoll(true));
 function updateConnectivity() {
-  renderWorkspaceStatus();
+  workspaceStatus.paint();
   renderRefreshStatus();
   if (navigator.onLine) schedulePoll(true);
 }
@@ -774,7 +729,7 @@ window.addEventListener("offline", updateConnectivity);
 window.addEventListener("online", updateConnectivity);
 setInterval(() => { if (!document.hidden) delivery.poll(); }, 60_000);
 chatWorkspace.applyAppearance();
-renderWorkspaceStatus();
+workspaceStatus.paint();
 syncWorkspaceRoute();
 schedulePoll();
 if (!document.hidden) delivery.poll();

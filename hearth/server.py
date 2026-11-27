@@ -109,6 +109,7 @@ STATIC = {
     "/settings/connections.js": ("settings/connections.js", "text/javascript; charset=utf-8"),
     "/settings/preferences.js": ("settings/preferences.js", "text/javascript; charset=utf-8"),
     "/settings/persona.js": ("settings/persona.js", "text/javascript; charset=utf-8"),
+    "/settings/status.js": ("settings/status.js", "text/javascript; charset=utf-8"),
     "/settings/workspace.js": ("settings/workspace.js", "text/javascript; charset=utf-8"),
     "/store.js": ("store.js", "text/javascript; charset=utf-8"),
     "/vendor/preact-10.29.8.mjs": ("vendor/preact-10.29.8.mjs", "text/javascript; charset=utf-8"),
