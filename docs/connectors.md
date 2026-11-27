@@ -28,7 +28,7 @@ Run 34 verified Box upload, Whisper transcription, Exa search, and Browserbase's
 
 ## Box versions
 
-Hearth can create a file or upload a new version through the gateway's Box upload routes. It first tries `GET /2.0/files/{file_id}/versions` for remote version history. When that route is unavailable, Hearth builds the history from Box versions it has observed and recorded locally. Revisions created elsewhere may be missing from that list. [Box adapter](../hearth/box.py), [Artifacts](../hearth/artifacts.py)
+Hearth can create a file or upload a new version through the gateway’s Box upload routes. The app attempts `GET /2.0/files/{file_id}/versions` for remote history. Gateway support for that request remains unverified. If the request fails, Hearth uses version information it recorded locally. Revisions made directly in Box may be absent. [Box adapter](../hearth/box.py), [Artifacts implementation](../hearth/artifacts.py)
 
 ## Other providers
 

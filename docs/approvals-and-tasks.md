@@ -14,6 +14,8 @@ A reminder delivers a message when it comes due. Use **Reminders** to review sch
 
 An AgentMail inbox can also import forwarded email into Inbox as proposals for review. Sender allowlists and opt-in rules govern automatic acceptance and acknowledgments. [Inbox](../hearth/inbox.py), [AgentMail setup](connectors.md)
 
+Use the search field or press `/` outside an editing control. **Reminders** matches titles, notes, channels, and displayed due dates. **Inbox** matches mail fields such as sender, subject, and body preview in Review and Processed. The **Recurring tasks** tab keeps its own list. [List search](run-79.md), [Search tests](../tests/test_list_search.py)
+
 ## Recurring tasks
 
 A recurring task sends a saved instruction to Hearth's brain. In **Reminders → Recurring tasks**, choose **New task** and set its instruction, schedule, IANA time zone, and delivery. The scheduler supports **Once**, **Daily**, **Weekly**, **Interval**, and five-field **Cron**, with a preview of up to three upcoming run times. You can also ask in Chat, for example “Every weekday at 8am list my reminders,” and confirm the schedule on its card. A first-time workspace includes a paused **Morning brief** with reminders, For you suggestions, weather, and pending approvals. [Morning brief](proactivity.md#morning-brief)

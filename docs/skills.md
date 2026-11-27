@@ -2,6 +2,8 @@
 
 Skills are reusable playbooks for Hearth. Open **Skills** from the desktop sidebar or mobile drawer. The library shows which playbooks are built in, when Hearth last loaded each one, and its use count. Use `#skills` to bookmark the library.
 
+Use the search field or press `/` outside an editing control to find current playbooks by name, description, when to use, optional tags, or Markdown body. The search is case- and accent-insensitive. [List search](run-79.md), [Search tests](../tests/test_list_search.py)
+
 - **Plan a dinner party** checks memory for guest allergies and dietary needs, proposes a menu, and creates an Excel shopping list.
 - **Weekly family brief** reads reminders, recurring tasks, and memory to summarize the coming week.
 - **Research and compare** uses Exa to find sources and Browserbase Fetch to read them, then presents a comparison table. It needs both providers for the full workflow and honors the global search and browsing switches.
@@ -9,7 +11,7 @@ Skills are reusable playbooks for Hearth. Open **Skills** from the desktop sideb
 
 ## Use a playbook
 
-Ask in chat naturally or name the skill. Hearth supplies the brain with skill names and descriptions so it can load a matching playbook before using its tools. Select the **Using skill** chip in chat to open that playbook in Settings. **Try it** opens a new side chat pinned to the selected skill. Enter a request in that chat to run the skill. Usage is counted when a turn loads the playbook, including turns that later fail.
+Ask in chat naturally or name the skill. Hearth supplies the brain with skill names and descriptions so it can load a matching playbook before using its tools. Select the **Using skill** chip in chat to open that playbook in Skills. **Try it** opens a new side chat pinned to the selected skill. Enter a request in that chat to run the skill. Usage is counted when a turn loads the playbook, including turns that later fail.
 
 Use a connected brain for model-based matching and to follow custom playbooks. Mock can demonstrate built-in dinner planning and the family brief with local data.
 
