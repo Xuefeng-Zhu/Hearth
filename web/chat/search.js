@@ -342,16 +342,14 @@ export function createChatSearch({ api, thread, jump, reveal, prepareFind }) {
     }
   }
   dialog.addEventListener("cancel", (event) => { event.preventDefault(); close(); });
-  document.addEventListener("pointerdown", (event) => {
-    if (mode === "all" && !sheet.matches && !panel.contains(event.target) && !trigger.contains(event.target)) {
+  function dismissOnOutsideInteraction(event) {
+    // A pointer press on a result can focus the dialog before the click is delivered.
+    if (mode === "all" && !sheet.matches && !dialog.contains(event.target) && !trigger.contains(event.target)) {
       close({ restoreFocus: false });
     }
-  });
-  document.addEventListener("focusin", (event) => {
-    if (mode === "all" && !sheet.matches && !panel.contains(event.target) && event.target !== trigger) {
-      close({ restoreFocus: false });
-    }
-  });
+  }
+  document.addEventListener("pointerdown", dismissOnOutsideInteraction);
+  document.addEventListener("focusin", dismissOnOutsideInteraction);
   sheet.addEventListener("change", () => {
     if (mode !== "all") return;
     hideDialog();

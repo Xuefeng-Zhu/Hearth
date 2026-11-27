@@ -2,6 +2,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect
 
@@ -210,6 +211,50 @@ def desktop_flow(page, garden, scheme):
     expect(status).to_have_text("6 results")
 
 
+def desktop_pointer_flow(page, garden):
+    open_chat(page)
+    trigger = page.get_by_role("button", name="Search chats")
+    dialog = page.locator("#chat-search-dialog")
+    search = page.get_by_role("combobox", name="Search messages")
+    composer = page.locator("#message")
+
+    trigger.click()
+    page.get_by_role("button", name="This chat").click()
+    expect(page.get_by_role("searchbox", name="Search messages")).to_be_focused()
+    page.get_by_role("button", name="All chats").click()
+    expect(dialog).to_be_visible()
+    search.click()
+    expect(search).to_be_focused()
+    page.keyboard.press("Escape")
+    expect(dialog).to_be_hidden()
+    expect(trigger).to_be_focused()
+
+    trigger.click()
+    composer.click()
+    expect(dialog).to_be_hidden()
+    expect(composer).to_be_focused()
+
+    trigger.click()
+    search.fill("orchid")
+    options = dialog.get_by_role("option")
+    expect(options).to_have_count(6)
+    expect(page.locator('#chat-scroll [data-message-id="main-light"]')).to_be_visible()
+
+    def is_message_location(request):
+        url = urlsplit(request.url)
+        query = parse_qs(url.query)
+        return (request.method == "GET" and url.path == "/api/state"
+                and query.get("around") == ["greenhouse-hit"] and query.get("thread") == [garden])
+
+    with page.expect_request(is_message_location):
+        options.first.locator("mark").click()
+    expect(page.locator("#thread-title")).to_have_text("Weekend greenhouse")
+    expect(dialog).to_be_hidden()
+    target = verify_hit(page, "greenhouse-hit")
+    expect(target).to_be_focused()
+    capture(page, "chat-search-click-jump-1440-light.png")
+
+
 def mobile_flow(page):
     open_chat(page, mobile=True)
     trigger = page.get_by_role("button", name="Search chats")
@@ -258,6 +303,8 @@ def overflow_sweep(page):
 
 def chat_search_smoke(browser, app, origin, browser_page, *, sweep=False):
     garden = seed_chat_search(app)
+    with browser_page(browser, origin, viewport={"width": 1440, "height": 900}, color_scheme="light") as page:
+        desktop_pointer_flow(page, garden)
     for scheme in ("light", "dark"):
         with browser_page(browser, origin, viewport={"width": 1440, "height": 900}, color_scheme=scheme) as page:
             desktop_flow(page, garden, scheme)
