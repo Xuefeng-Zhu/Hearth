@@ -1,5 +1,8 @@
+import base64
+import hashlib
 import io
 import json
+import re
 import tempfile
 import threading
 import time
@@ -299,13 +302,23 @@ class HearthTest(unittest.TestCase):
             return json.loads(request(path)[0])
 
         self.assertEqual(get("/health"), {"ok": True, "checkpoints": "local", "version": None})
-        self.assertIn("Message Hearth", request("/")[0])
+        with opener.open(base + "/", timeout=5) as response:
+            index = response.read()
+            self.assertIn(b'id="composer"', index)
+            import_map = re.search(rb'<script type="importmap">(.*?)</script>', index, re.DOTALL)
+            self.assertIsNotNone(import_map)
+            imports = json.loads(import_map[1])["imports"]
+            self.assertEqual(imports.keys(), {"preact", "preact/hooks", "htm"})
+            digest = base64.b64encode(hashlib.sha256(import_map[1]).digest()).decode("ascii")
+            self.assertIn(f"script-src 'self' 'sha256-{digest}'", response.headers["Content-Security-Policy"])
         for asset, content_type in {
             "manifest.webmanifest": "application/manifest+json",
             "icons/icon.svg": "image/svg+xml",
             "icons/favicon.svg": "image/svg+xml",
             "icons/apple-touch-icon.png": "image/png",
             "icons/icon-512.png": "image/png",
+            "chat/composer.js": "text/javascript",
+            **{path.removeprefix("/"): "text/javascript" for path in imports.values()},
         }.items():
             with self.subTest(asset=asset), opener.open(f"{base}/{asset}", timeout=5) as response:
                 self.assertEqual(response.headers.get_content_type(), content_type)

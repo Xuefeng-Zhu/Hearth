@@ -492,6 +492,57 @@ def smoke(browser, origin):
         expect(heading).to_be_focused()
 
 
+def composer_smoke(browser, origin):
+    with browser_page(browser, origin, viewport={"width": 1440, "height": 900}) as page:
+        page.add_init_script("""(() => {
+          navigator.mediaDevices.getUserMedia = async () => ({ getTracks: () => [] });
+          window.AudioContext = window.webkitAudioContext = undefined;
+          window.SpeechRecognition = class {
+            start() {
+              queueMicrotask(() => this.onresult({
+                results: [{ 0: { transcript: "voice fixture" }, isFinal: true }],
+              }));
+            }
+            stop() { queueMicrotask(() => this.onend()); }
+            abort() {}
+          };
+        })();""")
+        open_chat(page)
+        composer = page.get_by_role("textbox", name="Message Hearth")
+        composer.fill("Draft before after")
+        composer.evaluate("input => input.setSelectionRange(13, 13)")
+        page.get_by_role("button", name="Start voice input").click()
+        expect(page.locator("#voice-interim")).to_have_text("voice fixture")
+        page.get_by_role("button", name="Stop voice recording").click()
+        expect(composer).to_have_value("Draft before voice fixture after")
+        expect(composer).to_be_focused()
+        expect(page.locator("#voice-bar")).to_be_hidden()
+
+        attach = page.get_by_role("button", name="Attach files")
+        with page.expect_file_chooser() as chooser:
+            attach.click()
+        chooser.value.set_files({"name": "draft-notes.txt", "mimeType": "text/plain", "buffer": b"Composer draft fixture."})
+        ready = page.locator('#composer-attachments [data-status="ready"]')
+        expect(ready).to_contain_text("draft-notes.txt")
+        page.get_by_role("button", name="Smoke side chat", exact=True).click()
+        expect(composer).to_have_value("")
+        expect(ready).to_have_count(0)
+        page.locator('.thread-link[data-thread="main"]').click()
+        expect(composer).to_have_value("Draft before voice fixture after")
+        expect(ready).to_contain_text("draft-notes.txt")
+        page.get_by_role("button", name="Remove draft-notes.txt").click()
+        expect(ready).to_have_count(0)
+        expect(attach).to_be_focused()
+
+        avatar_view = page.get_by_label("Avatar view")
+        avatar_view.select_option("face")
+        expect(page.get_by_role("region", name="Face to face")).to_be_visible()
+        page.keyboard.press("Escape")
+        expect(avatar_view).to_have_value("beside")
+        expect(avatar_view).to_be_focused()
+        expect(composer).to_have_value("Draft before voice fixture after")
+
+
 def assert_thread_menu_position(page, trigger, menu, *, above=False):
     expect(menu).to_have_css("opacity", "1")
     anchor, popup = trigger.bounding_box(), menu.bounding_box()
@@ -1120,6 +1171,8 @@ def main():
                     home_add_smoke(browser, home_app, home_origin)
                 with workspace() as (thread_app, thread_origin):
                     thread_row_smoke(browser, thread_app, thread_origin)
+                with workspace() as (_, composer_origin):
+                    composer_smoke(browser, composer_origin)
                 smoke(browser, origin)
                 mobile_thread_menu_smoke(browser, origin)
                 thread_menu_smoke(browser, origin)
