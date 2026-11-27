@@ -18,6 +18,7 @@ import { createMemoryReview } from "./memory-review.js";
 
 import { connectionHash, createSettings, settingsHash, settingsRoute } from "./settings/workspace.js";
 import { connectorHasError, createConnections } from "./settings/connections.js";
+import { createPreferences } from "./settings/preferences.js";
 import { createBrain, modelNames } from "./settings/brain.js";
 import { createChatWorkspace, mainThread } from "./chat/workspace.js";
 
@@ -50,8 +51,6 @@ const workspaceStatusLabels = document.querySelectorAll("[data-workspace-status]
 const refreshStatus = new Map();
 const viewRefreshPaths = { chat: "/api/state", home: "/api/home", inbox: "/api/inbox",
   reminders: "/api/reminders", timeline: "/api/timeline" };
-let reindexPoll;
-const preferences = { memory: {}, search: {} };
 const connections = createConnections({
   byId, api, date, trackRefresh, refreshAPI, isActive: () => isSetting("connections"),
   onData(data) {
@@ -69,13 +68,19 @@ const brain = createBrain({
   byId, api, date, updateConnections: connections.update, renderBrain,
   isBusy: () => chatWorkspace.busy, isActive: () => isSetting("brain"),
 });
+const preferences = createPreferences({
+  byId, api, date, isActive: isSetting, openConnections, renderRecall, getThreads: () => chatWorkspace.threads,
+  hasPineconeError: () => connectorHasError(connections.state?.providers.pinecone),
+  loadReview: () => memoryReview.settings(), refreshState: (...args) => chatWorkspace.refreshState(...args),
+  isBusy: () => chatWorkspace.busy, isThreadBusy: () => chatWorkspace.threadBusy,
+});
 const requestedThread = new URLSearchParams(location.search).get("thread");
 const chatWorkspace = createChatWorkspace({
   requestedThread, byId, api, trackRefresh, readResponse, showNotice, showConnectionGuidance, date,
   currentView: () => view, currentSettings: () => settings.section,
   getConnections: () => connections.state, getConnectionRequest: () => connections.request,
   openView, refreshView, getArtifacts: () => artifactLibrary,
-  onThreadsChanged: () => { if (isSetting("memory")) renderMemoryThreadOptions(); },
+  onThreadsChanged: () => { if (isSetting("memory")) preferences.updateThreads(); },
   renderBrain, schedulePoll, approvalCard: (action) => automation.approvalCard(action),
   approve, undo, gatewayResults, memoryLabel, openMemorySource, stopWorkers, openVoiceAction, openConnections,
 });
@@ -178,9 +183,6 @@ const delivery = createReminders({
   startSending: () => chatWorkspace.reminderSending(true),
   stopSending: () => chatWorkspace.reminderSending(false),
 });
-const memoryNames = { auto: "Auto", pinecone: "Pinecone", local: "Local", keyword: "Local", huggingface: "Local · Hugging Face embeddings" };
-const folderNames = { root: "Profile and approvals", people: "people/", locations: "locations/",
-  topics: "Topic notes", projects: "projects/", daily: "daily/" };
 function showNotice(message = "") {
   chatWorkspace.clearNoticeTurn();
   const target = byId("workspace-drawer").open ? byId("drawer-notice") : notice;
@@ -435,199 +437,6 @@ function syncWorkspaceRoute() {
   openView(route.view, false, route.section, focusSection);
 }
 
-function settingOptions(select, options, selected) {
-  select.replaceChildren(...options.map(([value, label, disabled]) => {
-    const option = new Option(label, value);
-    option.disabled = !!disabled && value !== selected;
-    return option;
-  }));
-  select.value = selected;
-}
-
-function renderMemoryThreadOptions() {
-  const select = byId("memory-test-thread");
-  settingOptions(select, [["", "All threads"], ...chatWorkspace.threads.map(({ id, title }) => [id, title])], select.value);
-}
-
-function renderMemoryPreferences(info) {
-  const choice = info.selection;
-  const stores = choice.backend === "huggingface" ? ["auto", "pinecone", "local", "huggingface"]
-    : ["auto", "pinecone", "local"];
-  settingOptions(byId("memory-backend"), stores.map((value) => [value, memoryNames[value]]),
-    choice.backend === "keyword" ? "local" : choice.backend);
-  settingOptions(byId("memory-model"), Object.entries(info.models), choice.model);
-  settingOptions(byId("memory-test-kind"), [["", "All kinds"], ...info.kinds.map((kind) =>
-    [kind, kind[0].toUpperCase() + kind.slice(1)])], byId("memory-test-kind").value);
-  renderMemoryThreadOptions();
-  byId("memory-top-k").value = choice.top_k;
-  byId("memory-similarity").value = choice.min_similarity;
-  byId("memory-chat-history").checked = choice.include_chat;
-  byId("memory-summarize-chats").checked = choice.summarize_long_chats;
-  byId("memory-remember").value = choice.auto_remember;
-  const header = node("div", "scope-row");
-  header.append(node("span", "", "Folder"), node("span", "", "Include"), node("span", "", "Exclude"));
-  const scope = byId("memory-folders");
-  scope.replaceChildren(header, ...info.folders.map((folder) => {
-    const row = node("div", "scope-row");
-    row.append(node("span", "", folderNames[folder]));
-    for (const field of ["include", "exclude"]) {
-      const check = node("input");
-      check.type = "checkbox";
-      check.checked = choice[field].includes(folder);
-      check.dataset[field] = folder;
-      check.setAttribute("aria-label", `${field === "include" ? "Include" : "Exclude"} ${folderNames[folder]}`);
-      const target = node("label", "scope-choice");
-      target.append(check);
-      row.append(target);
-    }
-    return row;
-  }));
-  updateMemoryJobs(info);
-}
-
-function renderSearchPreferences(info) {
-  const choice = info.selection;
-  const browsing = byId("allow-browsing");
-  browsing.checked = info.browsing.allowed;
-  browsing.disabled = false;
-  const options = info.providers.map((entry) => [entry.provider, entry.connected ? entry.name
-    : `${entry.name} · Connect in Connections`, !entry.connected]);
-  settingOptions(byId("search-provider"), [["auto", "Auto"], ["off", "Off"], ...options], choice.provider);
-  byId("search-limit").value = choice.max_results;
-  byId("search-recency").value = choice.recency;
-  byId("search-safe").checked = choice.safe_search;
-  byId("search-include").value = choice.include_domains.join(", ");
-  byId("search-exclude").value = choice.exclude_domains.join(", ");
-  byId("search-connections").replaceChildren(...info.providers.map((entry) => {
-    const row = node("li");
-    row.append(node("span", "", entry.name), entry.connected ? node("span", "meta", "Connected")
-      : button("Connect in Connections", openConnections));
-    return row;
-  }));
-}
-
-byId("allow-browsing").addEventListener("change", async (event) => {
-  const input = event.currentTarget;
-  const feedback = byId("browsing-feedback");
-  const allowed = input.checked;
-  input.disabled = true;
-  feedback.textContent = "Saving…";
-  try {
-    const result = await api("/api/browse/settings", { allowed });
-    if (preferences.search.info) preferences.search.info.browsing = result;
-    input.checked = result.allowed;
-    feedback.textContent = result.allowed ? "Web browsing is on." : "Web browsing is off.";
-  } catch (error) {
-    input.checked = !allowed;
-    feedback.textContent = error.message;
-  } finally {
-    input.disabled = false;
-  }
-});
-
-function updatePreferenceControls(feature) {
-  const { info, pending, indexing } = preferences[feature];
-  byId(`${feature}-fields`).disabled = !info || !!pending || !!indexing;
-  const test = byId(`${feature}-test-form`).querySelector("button");
-  test.disabled = !info || !!pending || !!indexing;
-  if (!info) return;
-  if (feature === "memory") {
-    const backend = byId("memory-backend").value;
-    byId("memory-backend-detail").textContent = {
-      auto: "Try Pinecone first. Use Local if it’s unavailable or slow.",
-      local: "Search the workspace’s notes and saved artifacts offline.",
-      huggingface: "Rank local excerpts with Hugging Face embeddings.",
-      pinecone: "Search the Pinecone index with Local fallback.",
-    }[backend];
-    byId("memory-model-field").hidden = backend !== "huggingface";
-    byId("memory-similarity").disabled = backend === "local";
-    byId("memory-sync").disabled = !!pending || !!preferences.memory.syncing || !info.available.pinecone;
-    byId("memory-reindex").disabled = !!pending || !!indexing || !!preferences.memory.syncing;
-  } else {
-    const provider = byId("search-provider").value;
-    const connected = info.providers.filter((entry) => entry.connected);
-    const active = provider === "auto" ? connected[0] : connected.find((entry) => entry.provider === provider);
-    test.disabled ||= !active;
-    byId("search-safe-detail").hidden = !byId("search-safe").checked || !active || active.native_safe;
-    byId("search-provider-detail").textContent = provider === "off" ? "Web search is off."
-      : active ? provider === "auto" ? `Auto starts with ${active.name}.` : `${active.name} is connected.`
-        : "No selected provider is connected. Open Settings → Connections.";
-  }
-}
-
-function updateMemoryJobs({ pinecone, sync, reindex }) {
-  clearTimeout(reindexPoll);
-  const status = byId("memory-index-status");
-  const progress = byId("memory-index-progress");
-  const job = pinecone.connected ? sync : reindex;
-  preferences.memory.syncing = sync?.status === "running";
-  preferences.memory.indexing = reindex?.status === "running";
-  const running = job?.status === "running";
-  const details = byId("pinecone-index-details");
-  const mode = pinecone.integrated && !pinecone.vector_transport ? "integrated" : "dense";
-  const synced = pinecone.last_sync ? date(pinecone.last_sync) : "Pending";
-  details.replaceChildren(...[
-    ["Index", pinecone.name],
-    ["Namespace", pinecone.namespace],
-    ["Model", pinecone.embedding_model ? `${pinecone.embedding_model} · ${mode}` : undefined],
-    ["Dimension", pinecone.dimension],
-    ["Records", pinecone.record_count?.toLocaleString()],
-    ["Last sync", synced],
-  ].flatMap(([label, value]) => [node("dt", "", label), node("dd", "", value ?? "—")]));
-
-  progress.hidden = !running;
-  if (running && (job.work || job.unique)) {
-    progress.max = job.work || job.unique;
-    progress.value = job.work ? job.upserted + job.deleted : job.embedded + job.reused;
-  } else {
-    progress.removeAttribute("value");
-  }
-  if (running) {
-    status.textContent = job.phase === "checkpoint" ? "Saving checkpoint…"
-      : job.phase === "connecting" ? "Checking the Pinecone connection…"
-        : job.work ? `Syncing · ${job.upserted + job.deleted} of ${job.work} changes` : "Checking saved excerpts…";
-  } else if (job?.status === "failed") {
-    status.textContent = job.error;
-  } else if (job && pinecone.connected) {
-    status.textContent = `${job.upserted} upserted · ${job.deleted} deleted · ${job.unchanged} unchanged`;
-  } else if (job) {
-    status.textContent = `Local index · ${job.total} excerpts · ${job.embedded} embedded`;
-  } else {
-    status.textContent = pinecone.connected ? "Ready to sync memories." : "Pinecone is disconnected.";
-  }
-  byId("memory-connect").hidden = pinecone.connected && !connectorHasError(connections.state?.providers.pinecone);
-
-  updatePreferenceControls("memory");
-  if (running && view === "settings" && settings.section === "memory") {
-    reindexPoll = setTimeout(async () => {
-      try {
-        updateMemoryJobs(await api("/api/memory/reindex"));
-      } catch (error) {
-        status.textContent = error.message;
-        preferences.memory.indexing = false;
-        preferences.memory.syncing = false;
-        updatePreferenceControls("memory");
-      }
-    }, 500);
-  }
-}
-
-function readPreferences(feature) {
-  if (feature === "search") {
-    const domains = (id) => byId(id).value.split(/[\s,]+/).filter(Boolean);
-    return { provider: byId("search-provider").value, max_results: byId("search-limit").valueAsNumber,
-      recency: byId("search-recency").value, safe_search: byId("search-safe").checked,
-      include_domains: domains("search-include"), exclude_domains: domains("search-exclude") };
-  }
-  const scope = (field) => [...byId("memory-folders").querySelectorAll(`[data-${field}]:checked`)]
-    .map((element) => element.dataset[field]);
-  return { backend: byId("memory-backend").value, model: byId("memory-model").value,
-    top_k: byId("memory-top-k").valueAsNumber, min_similarity: byId("memory-similarity").valueAsNumber,
-    include_chat: byId("memory-chat-history").checked, summarize_long_chats: byId("memory-summarize-chats").checked,
-    auto_remember: byId("memory-remember").value,
-    include: scope("include"), exclude: scope("exclude") };
-}
-
 async function loadSettings(section) {
   if (section === "connections") return connections.open();
   if (section === "brain") return brain.open();
@@ -644,88 +453,7 @@ async function loadSettings(section) {
     syncVoiceSettings();
     return voiceCall.syncSettings();
   }
-  if (preferences[section].pending) return;
-  if (section === "memory") {
-    memoryReview.settings();
-    if (!chatWorkspace.busy && !chatWorkspace.threadBusy) {
-      refreshState(undefined, { background: true }).catch(() => {
-        // The recall form can still search across all threads.
-      });
-    }
-  }
-  try {
-    const info = await api(`/api/${section}/settings`);
-    if (view !== "settings" || settings.section !== section || preferences[section].pending) return;
-    preferences[section].info = info;
-    if (section === "memory") renderMemoryPreferences(info);
-    else renderSearchPreferences(info);
-    updatePreferenceControls(section);
-  } catch (error) {
-    byId(`${section}-feedback`).textContent = error.message;
-  }
-}
-
-function renderSearchTest(container, result) {
-  const provider = preferences.search.info.providers.find((item) => item.provider === result.provider);
-  container.replaceChildren(node("p", "meta", `${provider?.name || result.provider} · ${result.results.length} results · ${result.latency_ms.toLocaleString()} ms`));
-  for (const warning of result.warnings) container.append(node("p", "meta", warning));
-  if (!result.results.length) container.append(node("p", "empty", "No search results."));
-  for (const hit of result.results) {
-    const article = node("article", "result");
-    const link = node("a", "result-title", hit.title);
-    link.href = hit.url;
-    link.target = "_blank";
-    link.rel = "noreferrer noopener";
-    article.append(link, node("p", "meta", hit.published ? `${hit.url} · ${hit.published}` : hit.url));
-    if (hit.snippet) article.append(node("p", "", hit.snippet));
-    container.append(article);
-  }
-}
-
-async function changePreferences(feature, operation) {
-  const state = preferences[feature];
-  const form = byId(`${feature}-settings-form`);
-  if (!state.info || state.pending || state.indexing || chatWorkspace.busy) return;
-  const indexAction = operation === "reindex" || operation === "sync";
-  if (!indexAction && !form.reportValidity()) return;
-  const selection = readPreferences(feature);
-  const filters = {};
-  if (feature === "memory" && operation === "test") {
-    const kind = byId("memory-test-kind").value;
-    const thread = byId("memory-test-thread").value;
-    if (kind) filters.kind = kind;
-    if (thread) filters.thread_id = thread;
-  }
-  const feedback = byId(`${feature}-feedback`);
-  const results = byId(`${feature}-test-results`);
-  const query = operation === "test" ? byId(`${feature}-test-query`).value.trim() : "";
-  if (operation === "test" && !query) return;
-  state.pending = operation;
-  updatePreferenceControls(feature);
-  feedback.textContent = "";
-  if (operation === "test") results.replaceChildren(node("p", "meta", "Testing…"));
-  if (operation === "settings") feedback.textContent = "Saving settings…";
-  try {
-    const result = await api(`/api/${feature}/${operation}`, operation === "test" ? { selection, query, ...filters }
-      : indexAction ? {} : selection);
-    if (indexAction) {
-      updateMemoryJobs(await api("/api/memory/reindex"));
-    } else if (operation === "test") {
-      if (feature === "memory") renderRecall(results, result);
-      else renderSearchTest(results, result);
-    } else {
-      state.info = result;
-      if (feature === "memory") renderMemoryPreferences(result);
-      else renderSearchPreferences(result);
-      feedback.textContent = "Settings saved.";
-    }
-  } catch (error) {
-    const target = operation === "test" ? results : feedback;
-    target.textContent = error.message;
-  } finally {
-    state.pending = undefined;
-    updatePreferenceControls(feature);
-  }
+  return preferences.open(section);
 }
 
 async function refreshView(options) {
@@ -778,7 +506,7 @@ async function openView(nextView, updateHistory = true, section, focusSection = 
     schedulePoll();
     byId("start-call").hidden = view !== "chat";
     byId("view-title").textContent = view[0].toUpperCase() + view.slice(1);
-    clearTimeout(reindexPoll);
+    preferences.stopPolling();
     for (const item of nav) {
       const active = item.dataset.view === view;
       if (active) item.setAttribute("aria-current", "page");
@@ -968,24 +696,6 @@ byId("memory-find").addEventListener("submit", (event) => {
 });
 byId("memory-query").addEventListener("input", (event) => {
   if (!event.target.value) findMemory();
-});
-for (const feature of ["memory", "search"]) {
-  byId(`${feature}-settings-form`).addEventListener("submit", (event) => {
-    event.preventDefault();
-    changePreferences(feature, "settings");
-  });
-  byId(`${feature}-settings-form`).addEventListener("change", () => updatePreferenceControls(feature));
-  byId(`${feature}-test-form`).addEventListener("submit", (event) => {
-    event.preventDefault();
-    changePreferences(feature, "test");
-  });
-}
-byId("memory-sync").addEventListener("click", () => changePreferences("memory", "sync"));
-byId("memory-reindex").addEventListener("click", () => {
-  const connected = preferences.memory.info?.available.pinecone;
-  const question = connected ? "Rebuild the Pinecone index for this profile from saved memories?"
-    : "Rebuild the local index from saved memories?";
-  if (window.confirm(question)) changePreferences("memory", "reindex");
 });
 for (const link of document.querySelectorAll("[data-connection-warning]")) {
   link.addEventListener("click", (event) => {
