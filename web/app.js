@@ -2,7 +2,8 @@ import { createTimeline } from "./timeline.js";
 import { createArtifacts } from "./artifacts/library.js";
 import { artifactFilterFromHash } from "./artifacts/format.js";
 import { mountArtifacts } from "./artifacts/view.js";
-import { createReminders } from "./reminders.js";
+import { createReminders } from "./reminders/workspace.js";
+import { mountReminders } from "./reminders/view.js";
 import { button, node, slashSearchShortcut, updateText } from "./dom.js";
 import { confirmControl, moveNavHighlight, showLoading, transitionView } from "./motion.js";
 import { setupSearchableSelects } from "./combobox.js";
@@ -32,6 +33,7 @@ const settings = createSettings(openSettingsSection, { api, renderRefreshStatus 
 mountSupportingSections(byId);
 mountArtifacts(byId);
 mountTasks(byId);
+mountReminders(byId);
 mountIcons();
 setupSearchableSelects();
 

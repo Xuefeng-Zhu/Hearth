@@ -1,12 +1,12 @@
-import { icon } from "./icons.js";
-import { localInputTime, localTimeToISO, setTimeZone, timeFormatter } from "./time.js";
-import { appendHighlighted, reconcileChildren } from "./dom.js";
-import { listSearchExcerpt, listSearchPath } from "./list-search.js";
-import { confirmControl, prepareListMotion } from "./motion.js";
+import { render } from "preact";
+import { html } from "../chat/view.js";
+import { node as el, button } from "../dom.js";
+import { formatDate, statuses, ReminderList } from "./view.js";
+import { localInputTime, localTimeToISO, setTimeZone } from "../time.js";
+import { appendHighlighted, reconcileChildren } from "../dom.js";
+import { listSearchExcerpt, listSearchPath } from "../list-search.js";
+import { confirmControl, prepareListMotion } from "../motion.js";
 
-const channels = { app: "In app", email: "Email", both: "Both" };
-const icons = { app: ["bell"], email: ["mail"], both: ["bell", "mail"] };
-const statuses = { queued: "Queued", sent: "Sent", failed: "Failed", canceled: "Canceled" };
 const kinds = {
   reminder: "Reminder", event: "Event or booking", receipt: "Receipt or order",
   person: "Person or fact", list: "List or plan", other: "Note",
@@ -15,35 +15,10 @@ const inboxStatuses = {
   review: "Needs review", accepted: "Accepted", dismissed: "Dismissed", undone: "Undone",
 };
 const get = (id) => document.getElementById(id);
-const fmt = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
-const formatDate = (at) => at && Number.isFinite(Date.parse(at)) ? fmt.format(new Date(at)) : "—";
-
-function el(tag, className, text) {
-  const item = document.createElement(tag);
-  if (className) item.className = className;
-  if (text !== undefined) item.textContent = text;
-  return item;
-}
-
-function button(label, action) {
-  const item = el("button", "", label);
-  item.type = "button";
-  item.addEventListener("click", action);
-  return item;
-}
-
 function link(text, href) {
   const item = el("a", "", text);
   item.href = href;
   return item;
-}
-
-export function channelChip(channel = "app", status, matches) {
-  const chip = el("span", `delivery-chip${status ? ` delivery-${status}` : ""}`);
-  const label = appendHighlighted(el("span"), matches, channels[channel]);
-  if (status) label.append(` · ${statuses[status]}`);
-  chip.append(...icons[channel].map((name) => icon(name, 14)), label);
-  return chip;
 }
 
 function heading(container, title, count) {
@@ -100,32 +75,31 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
     options.append(wrapper);
   }
 
-  function emailCard(target, info, title = "Email Hearth") {
-    target.replaceChildren(el("h3", "", title));
-    if (info.inbox_address) {
-      const address = el("code", "hearth-address", info.inbox_address);
-      const copy = button("Copy address", async () => {
-        try {
-          await navigator.clipboard.writeText(info.inbox_address);
-          confirmControl(copy);
-          copy.textContent = "Copied";
-        } catch {
-          const selection = window.getSelection();
-          const range = document.createRange();
-          range.selectNodeContents(address);
-          selection.removeAllRanges();
-          selection.addRange(range);
-        }
-      });
-      const line = el("div", "delivery-actions");
-      line.append(address, copy);
-      target.append(line, el("p", "meta", "Forward emails here to turn them into proposals in Inbox."));
-    } else {
-      target.append(el("p", "meta", info.connection_message || info.inbox_error || "Hearth is preparing your AgentMail inbox."));
-      if (!info.connected && target.id !== "email-hearth-connection") {
-        target.append(link("Open Connections", "#settings/connections"));
+  function emailCard(target, info) {
+    async function copyAddress(event) {
+      const copy = event.currentTarget;
+      try {
+        await navigator.clipboard.writeText(info.inbox_address);
+        confirmControl(copy);
+        copy.textContent = "Copied";
+      } catch {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(target.querySelector(".hearth-address"));
+        selection.removeAllRanges();
+        selection.addRange(range);
       }
     }
+    // The copy confirmation resets on the next refresh.
+    render(null, target);
+    render(html`<h3>Email Hearth</h3>${info.inbox_address ? html`
+      <div class="delivery-actions">
+        <code class="hearth-address">${info.inbox_address}</code><button type="button" onClick=${copyAddress}>Copy address</button>
+      </div>
+      <p class="meta">Forward emails here to turn them into proposals in Inbox.</p>` : html`
+      <p class="meta">${info.connection_message || info.inbox_error || "Hearth is preparing your AgentMail inbox."}</p>
+      ${!info.connected && target.id !== "email-hearth-connection" && html`<a href="#settings/connections">Open Connections</a>`}
+    `}`, target);
   }
 
   function wakeStatus(info) {
@@ -160,7 +134,7 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
     try {
       emailCard(target, await api("/api/reminders/settings"));
     } catch (error) {
-      target.textContent = error.message;
+      render(error.message, target);
     }
   }
 
@@ -243,46 +217,6 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
     }
   }
 
-  function reminderCard(row) {
-    const matches = row.search_matches;
-    const card = el("article", "card delivery-card");
-    card.dataset.reminder = row.job_id || row.id;
-    const header = el("div", "delivery-card-head");
-    const title = appendHighlighted(el("h4"), matches?.title, row.message);
-    const when = row.due_text ?? formatDate(row.next_at || row.scheduled_at);
-    header.append(title, appendHighlighted(el("span", "meta"), matches?.due, when));
-    const chips = el("div", "delivery-chips");
-    for (const [channel, delivery] of Object.entries(row.delivery)) {
-      chips.append(channelChip(channel, delivery.status, matches?.[channel]));
-    }
-    card.append(header, chips);
-    if (row.note) card.append(appendHighlighted(el("p", "delivery-note"), matches?.note, row.note));
-    const excerpt = listSearchExcerpt(matches);
-    if (excerpt) card.append(excerpt);
-    for (const [channel, delivery] of Object.entries(row.delivery)) {
-      if (delivery.reason || delivery.sending) {
-        const reason = el("p", "meta", `${channels[channel]} · ${delivery.sending ? "Sending reminder" : delivery.reason}`);
-        if (delivery.next_at && delivery.status === "queued" && !delivery.sending) {
-          reason.append(` · Next attempt ${formatDate(delivery.next_at)}`);
-        }
-        if (delivery.reason?.startsWith("Not connected")) reason.append(" · ", link("Connections", "#settings/connections"));
-        card.append(reason);
-      }
-    }
-    const detail = [
-      row.late_minutes ? `Late by ${row.late_minutes}m` : "",
-      row.action?.label,
-      row.cron ? `Repeats · ${row.cron} UTC` : "",
-    ].filter(Boolean).join(" · ");
-    if (detail) card.append(el("p", "meta", detail));
-    if (row.cancelable) {
-      const actions = el("div", "delivery-actions");
-      actions.append(button("Undo", () => cancelReminder(row.job_id || row.id)));
-      card.append(actions);
-    }
-    return card;
-  }
-
   let reminderSignature;
   let reminderRequest = 0;
   async function reminders({ background } = {}) {
@@ -299,7 +233,6 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
       const signature = JSON.stringify([query, result]);
       if (signature === reminderSignature) return;
       reminderSignature = signature;
-      const content = document.createDocumentFragment();
       const groups = [
         ["Upcoming", [
           ...result.jobs.filter((job) => !job.snoozed_at),
@@ -308,39 +241,14 @@ export function createReminders({ api, refreshAPI, openView, openSettings, start
         ["Snoozed", result.jobs.filter((job) => job.snoozed_at)],
         ["Delivered", result.delivered.filter((row) => row.delivery.email?.status !== "queued" || row.delivery.app)],
       ];
-      for (const [name, entries] of groups) {
-        if (query && !entries.length) continue;
-        const group = heading(content, name, entries.length);
-        if (!entries.length) group.append(el("p", "delivery-empty", `No ${name.toLowerCase()} reminders.`));
-        else group.append(...entries.map((row) => {
-          const card = reminderCard(row);
-          card.dataset.motionKey = `${name}:${card.dataset.reminder}`;
-          return card;
-        }));
-      }
-      if (result.outbox.length) {
-        const outbox = heading(content, "Outbox", result.outbox.length);
-        for (const row of result.outbox) {
-          const card = el("article", "card delivery-card");
-          card.dataset.motionKey = `outbox:${row.id}`;
-          const matches = row.search_matches;
-          const title = link("", `/api/reminders/outbox?id=${encodeURIComponent(row.id)}`);
-          appendHighlighted(title, matches?.title, row.subject);
-          title.target = "_blank";
-          title.rel = "noopener";
-          const date = appendHighlighted(el("p", "meta"), matches?.due, row.due_text ?? formatDate(row.created_at));
-          date.append(" · Demo copy");
-          card.append(title, date);
-          const excerpt = listSearchExcerpt(matches);
-          if (excerpt) card.append(excerpt);
-          outbox.append(card);
-        }
-      }
-      const keys = [...content.querySelectorAll("[data-motion-key]")].map((card) => card.dataset.motionKey);
+      const keys = [
+        ...groups.flatMap(([name, rows]) => rows.map((row) => `${name}:${row.job_id || row.id}`)),
+        ...result.outbox.map((row) => `outbox:${row.id}`),
+      ];
       const play = remindersUnfiltered && !query ? prepareListMotion(target, keys) : undefined;
       remindersUnfiltered = !query;
       target.hidden = !!query && !count;
-      target.replaceChildren(content);
+      render(html`<${ReminderList} ...${{ groups, outbox: result.outbox, query, cancelReminder }} />`, target);
       play?.();
     } catch (error) {
       if (!background && request === reminderRequest && query === reminderSearch.query) {

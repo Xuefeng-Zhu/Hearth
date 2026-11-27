@@ -203,25 +203,6 @@
           <button type="button" role="tab" id="tasks-tab" aria-selected="false" aria-controls="tasks-panel" tabindex="-1">Recurring tasks</button>
         </div>
         <div id="reminders-panel" role="tabpanel" aria-labelledby="reminders-tab">
-        <div class="section-intro split-heading delivery-intro">
-          <div><h2>Reminders</h2><p>See what’s coming up and what reached each channel.</p></div>
-          <button type="button" id="open-reminder-settings">Reminder settings</button>
-        </div>
-        <div id="reminders-search" class="list-search"></div>
-        <details class="card reminder-create" id="reminder-create">
-          <summary>New reminder</summary>
-          <form class="delivery-form" id="reminder-create-form">
-            <label class="delivery-full">Title<input name="message" required maxlength="800"></label>
-            <label>When<input name="at" type="datetime-local" required></label>
-            <label>Channel<select name="channel"><option value="">Settings default</option><option value="app">In app</option><option value="email">Email</option><option value="both">Both</option></select></label>
-            <label class="delivery-full">Note<textarea name="note" rows="2" maxlength="4000"></textarea></label>
-            <label class="check-label delivery-full"><input name="urgent" type="checkbox"> Urgent · send during quiet hours</label>
-            <div class="action-row delivery-full"><button class="primary-setting" type="submit">Schedule reminder</button></div>
-          </form>
-        </details>
-        <p id="reminders-feedback" class="meta" role="status"></p>
-        <div id="reminders-search-empty" class="list-search-empty" hidden></div>
-        <div id="reminders-content" class="list-search-results"></div>
         </div>
         <div id="tasks-panel" role="tabpanel" aria-labelledby="tasks-tab" hidden>
         </div>

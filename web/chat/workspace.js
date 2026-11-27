@@ -1,10 +1,12 @@
+import { render } from "preact";
+import { html } from "./view.js";
 import { avatarEvent, avatarPose, newAvatar } from "../avatar-state.js";
 import { announcePose, looks, mascot, poseLabel, setLook, setPose } from "../avatar.js";
 import { createVoiceInput } from "../voice.js";
 import { mountAppearance, readAppearance, createVoiceSettings, readVoiceSettings } from "../settings/persona.js";
 import { createVoiceCall } from "../voice-call.js";
 import { fileAnswerSources } from "../file-questions.js";
-import { channelChip } from "../reminders.js";
+import { ChannelChip } from "../reminders/view.js";
 import { button, node, updateText } from "../dom.js";
 import { arrive, prepareListMotion, showLoading } from "../motion.js";
 import { setupMobile } from "../mobile.js";
@@ -615,7 +617,7 @@ export function createChatWorkspace({
       const controls = node("div", "delivery-actions");
       const chip = button("", () => openView("reminders"));
       chip.setAttribute("aria-label", "Open Reminders");
-      chip.append(channelChip(action.job.channel));
+      render(html`<${ChannelChip} channel=${action.job.channel} />`, chip);
       controls.append(chip);
       if (action.job.cancelable ?? (action.job.status === "scheduled" && !action.undone)) {
         controls.append(button("Undo", () => undo(action)));
