@@ -105,6 +105,7 @@ STATIC = {
     "/chat/search.js": ("chat/search.js", "text/javascript; charset=utf-8"),
     "/chat/conversation.js": ("chat/conversation.js", "text/javascript; charset=utf-8"),
     "/chat/workspace.js": ("chat/workspace.js", "text/javascript; charset=utf-8"),
+    "/settings/brain.js": ("settings/brain.js", "text/javascript; charset=utf-8"),
     "/settings/workspace.js": ("settings/workspace.js", "text/javascript; charset=utf-8"),
     "/store.js": ("store.js", "text/javascript; charset=utf-8"),
     "/vendor/preact-10.29.8.mjs": ("vendor/preact-10.29.8.mjs", "text/javascript; charset=utf-8"),

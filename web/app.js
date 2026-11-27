@@ -18,6 +18,7 @@ import { createMemoryReview } from "./memory-review.js";
 import { githubSettings } from "./self-update.js";
 
 import { configTabs, connectionHash, createSettings, settingsHash, settingsRoute } from "./settings/workspace.js";
+import { createBrain, modelNames } from "./settings/brain.js";
 import { createChatWorkspace, mainThread } from "./chat/workspace.js";
 
 const settings = createSettings(openSettingsSection, { api, renderRefreshStatus });
@@ -29,11 +30,6 @@ const notice = byId("notice");
 const nav = [...document.querySelectorAll("[data-view]")];
 const connectionsLabel = "Settings → Connections";
 const dateFormat = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
-const modelNames = {
-  mock: "Mock", meta: "Muse Spark", openrouter: "OpenRouter", openai: "OpenAI", anthropic: "Claude",
-  gemini: "Gemini", ollama: "Ollama Cloud", huggingface: "Hugging Face", digitalocean: "DigitalOcean Inference",
-  fireworks: "Fireworks", nscale: "Nscale", parasail: "Parasail", zerogpu: "ZeroGPU", echo: "Echo by Fulcrum",
-};
 const connectorSettings = {
   pinecone: { field: "index", label: "Index name", placeholder: "hearth-memory", maxLength: 45 },
   agentmail: { field: "inbox_id", label: "Inbox ID", placeholder: "your-inbox@agentmail.to", maxLength: 254 },
@@ -65,16 +61,12 @@ const viewRefreshPaths = { chat: "/api/state", home: "/api/home", inbox: "/api/i
 let connectionRequest;
 let connectionTabPreference = localStorage.getItem(connectionTabStorage);
 let newlyConfigured = new Set();
-let brainSettings;
-let brainBusy = false;
-let modelRequest;
-let routingRequest;
-let poolRequest;
-let poolModels = {};
-let poolDraft = [];
-let poolDirty = false;
 let reindexPoll;
 const preferences = { memory: {}, search: {} };
+const brain = createBrain({
+  byId, api, date, updateConnections, renderBrain,
+  isBusy: () => chatWorkspace.busy, isActive: () => isSetting("brain"),
+});
 const requestedThread = new URLSearchParams(location.search).get("thread");
 const chatWorkspace = createChatWorkspace({
   requestedThread, byId, api, trackRefresh, readResponse, showNotice, showConnectionGuidance, date,
@@ -187,12 +179,6 @@ const delivery = createReminders({
 const memoryNames = { auto: "Auto", pinecone: "Pinecone", local: "Local", keyword: "Local", huggingface: "Local · Hugging Face embeddings" };
 const folderNames = { root: "Profile and approvals", people: "people/", locations: "locations/",
   topics: "Topic notes", projects: "projects/", daily: "daily/" };
-const brainProvider = byId("brain-provider");
-const brainModel = byId("brain-model");
-const customModel = byId("brain-custom");
-const poolProvider = byId("pool-provider");
-const poolModel = byId("pool-model");
-
 function showNotice(message = "") {
   chatWorkspace.clearNoticeTurn();
   const target = byId("workspace-drawer").open ? byId("drawer-notice") : notice;
@@ -281,12 +267,8 @@ function setBusy(value) {
     item.disabled = value;
   }
   timeline.setBusy();
-  setBrainControls();
+  brain.updateControls();
   schedulePoll();
-}
-
-function shortModel({ name, model, provider }) {
-  return provider === "mock" ? "Mock" : model?.split("/").at(-1).split(":")[0] || name;
 }
 
 async function stopWorkers(turnId, id) {
@@ -736,324 +718,6 @@ function updateConnections(operation, body = {}) {
   return connectionRequest;
 }
 
-function brainChoice() {
-  return brainSettings?.providers.find((entry) => entry.provider === brainProvider.value);
-}
-
-function brainDraft() {
-  return {
-    provider: brainProvider.value,
-    model: brainChoice() ? brainModel.value || customModel.value.trim() : "",
-    ...(poolDirty ? { pool: poolDraft } : {}),
-  };
-}
-
-function setBrainControls() {
-  const choice = brainChoice();
-  const locked = !brainSettings || brainBusy || chatWorkspace.busy;
-  const usable = !choice || (choice.available && choice.supported);
-  const custom = !!choice && !brainModel.value;
-  const needsModel = !!choice && !brainDraft().model;
-  brainProvider.disabled = locked;
-  byId("brain-workers").disabled = locked;
-  brainModel.disabled = locked || !usable || !!modelRequest;
-  customModel.disabled = brainModel.disabled;
-  byId("brain-custom-field").hidden = !custom;
-  byId("brain-test").disabled = byId("brain-save").disabled = locked || !usable || !!modelRequest || needsModel;
-  byId("routing-test").disabled = byId("brain-save").disabled;
-  byId("brain-pool").disabled = locked;
-  poolModel.disabled = !!poolRequest || !poolProvider.value;
-  byId("pool-add").disabled = poolModel.disabled || !poolModel.value || poolDraft.length >= 32;
-}
-
-function routedModel(model) {
-  if (!model) return "—";
-  return model.provider === "huggingface" && model.model ? shortModel(model)
-    : `${model.name} · ${model.model || "Automatic model"}`;
-}
-
-function renderRoutingPreview(plans) {
-  byId("routing-preview").replaceChildren(...plans.map((plan) => {
-    const row = node("tr");
-    const type = node("th", "", plan.label);
-    type.scope = "row";
-    const model = node("td", "", routedModel(plan.order[0]));
-    model.title = plan.reason;
-    row.append(type, model);
-    return row;
-  }));
-}
-
-async function previewRouting(prompt) {
-  routingRequest?.abort();
-  const result = byId("routing-result");
-  result.hidden = true;
-  if (byId("brain-save").disabled) return;
-  const status = byId("routing-preview-status");
-  const controller = routingRequest = new AbortController();
-  status.textContent = "Updating routing preview…";
-  try {
-    const { preview, test } = await api("/api/brain/route", {
-      ...brainDraft(), ...(prompt === undefined ? {} : { prompt }),
-    }, controller.signal);
-    if (routingRequest !== controller) return;
-    renderRoutingPreview(preview);
-    status.textContent = "";
-    if (test) {
-      const order = node("ol");
-      order.append(...test.order.map((model) => node("li", "", routedModel(model))));
-      result.replaceChildren(node("strong", "", test.label), node("p", "meta", test.reason), order);
-      result.hidden = false;
-    }
-  } catch (error) {
-    if (routingRequest === controller) status.textContent = error.message;
-  } finally {
-    if (routingRequest === controller) routingRequest = undefined;
-  }
-}
-
-function updatePoolOptions() {
-  const available = Object.keys(poolModels).filter((model) =>
-    !poolDraft.some((entry) => entry.provider === poolProvider.value && entry.model === model));
-  poolModel.replaceChildren(new Option(available.length ? "Choose a model…" : "No models to add", ""),
-    ...available.map((model) => new Option(model, model)));
-  setBrainControls();
-}
-
-async function loadPoolModels() {
-  poolRequest?.abort();
-  poolModels = {};
-  const status = byId("pool-status");
-  const provider = poolProvider.value;
-  const controller = poolRequest = new AbortController();
-  updatePoolOptions();
-  if (provider) showLoading(status, "Loading live chat models…");
-  else status.textContent = "Connect a chat provider to add models.";
-  try {
-    if (provider) {
-      const { tags, detail } = await api(`/api/brain/models?provider=${encodeURIComponent(provider)}`,
-        undefined, controller.signal);
-      if (poolRequest !== controller) return;
-      poolModels = tags || {};
-      status.textContent = tags && Object.keys(tags).length ? "" : detail;
-    }
-  } catch (error) {
-    if (poolRequest === controller) status.textContent = error.message;
-  } finally {
-    if (poolRequest === controller) {
-      poolRequest = undefined;
-      updatePoolOptions();
-    }
-  }
-}
-
-function poolChanged() {
-  poolDirty = true;
-  clearBrainTest();
-  previewRouting();
-}
-
-function renderPool() {
-  const rows = byId("brain-pool-rows");
-  rows.replaceChildren(...poolDraft.map((entry, index) => {
-    const item = node("details", "pool-entry");
-    item.dataset.model = `${entry.provider}:${entry.model}`;
-    const provider = brainSettings.providers.find((row) => row.provider === entry.provider);
-    const name = provider?.name || modelNames[entry.provider] || entry.provider;
-    const status = provider?.available ? "" : " (disconnected)";
-    item.append(node("summary", "", routedModel({ ...entry, name }) + status));
-    const stats = brainSettings.stats[item.dataset.model];
-    if (stats) {
-      const latency = stats.p50_ms === null ? "" : `${stats.p50_ms.toLocaleString()} ms median · `;
-      const failure = stats.last_failure === null ? "" : ` · Last failure ${date(stats.last_failure * 1000)}`;
-      item.append(node("p", "meta", `${latency}${Math.round(stats.error_rate * 100)}% errors${failure}`));
-    }
-    const tags = node("div", "pool-tags");
-    for (const [key, label, values] of [
-      ["speed", "Speed", ["slow", "balanced", "fast"]],
-      ["cost", "Cost tier", ["low", "medium", "high"]],
-      ["tools", "Tool reliability", ["low", "medium", "high"]],
-      ["context", "Context (tokens)"],
-      ["multilingual", "Multilingual"],
-    ]) {
-      const field = node("label", key === "multilingual" ? "check-label" : "", label);
-      const control = node(values ? "select" : "input");
-      if (values) {
-        settingOptions(control, values.map((value) => [value, value]), entry.tags[key]);
-      } else if (key === "multilingual") {
-        control.type = "checkbox";
-        control.checked = entry.tags[key];
-      } else {
-        control.type = "number";
-        control.min = 1;
-        control.max = 10_000_000;
-        control.required = true;
-        control.value = entry.tags[key];
-      }
-      control.addEventListener("change", () => {
-        if (!control.reportValidity()) return;
-        entry.tags[key] = values ? control.value : key === "context" ? control.valueAsNumber : control.checked;
-        poolChanged();
-      });
-      if (key === "multilingual") field.prepend(control);
-      else field.append(control);
-      tags.append(field);
-    }
-    const remove = button("Remove model", () => {
-      poolDraft.splice(index, 1);
-      renderPool();
-      updatePoolOptions();
-      poolProvider.focus();
-      poolChanged();
-    });
-    remove.setAttribute("aria-label", `Remove ${entry.model}`);
-    item.append(tags, remove);
-    return item;
-  }));
-  if (!poolDraft.length) rows.append(node("p", "meta", "An empty pool uses connected provider defaults."));
-}
-
-function brainFeedback(message = "") {
-  byId("brain-feedback").hidden = !message;
-  byId("brain-feedback").textContent = message;
-}
-
-async function loadBrainModels() {
-  modelRequest?.abort();
-  modelRequest = undefined;
-  const choice = brainChoice();
-  const detail = byId("brain-provider-detail");
-  const modelDetail = byId("brain-model-detail");
-  byId("brain-model-fields").hidden = !choice;
-  byId("brain-pool").hidden = brainProvider.value !== "smart";
-  if (!byId("brain-pool").hidden && !poolRequest && !poolProvider.options.length) {
-    const providers = brainSettings.providers.filter((entry) => entry.available && entry.supported);
-    poolProvider.replaceChildren(...providers.map((entry) => new Option(entry.name, entry.provider)));
-    loadPoolModels();
-  }
-  if (!choice) {
-    detail.textContent = {
-      priority: "Try connected providers in a fixed order, beginning with Muse Spark when available.",
-      smart: "Rank the pool for each turn using model tags and recent performance.",
-      mock: "Use Hearth’s offline demo model.",
-    }[brainProvider.value];
-    setBrainControls();
-    return;
-  }
-  detail.textContent = choice.available ? "Connected through Fly Sprites." : "This saved provider is disconnected.";
-  const saved = brainSettings.selection;
-  const selected = saved.provider === choice.provider ? saved.model : choice.default_model;
-  brainModel.replaceChildren(new Option("Enter a model ID…", ""));
-  customModel.value = selected;
-  if (choice.available && choice.supported) showLoading(modelDetail, "Loading chat models…");
-  else modelDetail.textContent = choice.available ? "Loading chat models…" : "Refresh Settings → Connections after authorizing this provider.";
-  if (!choice.available || !choice.supported) {
-    setBrainControls();
-    return;
-  }
-  const controller = modelRequest = new AbortController();
-  setBrainControls();
-  try {
-    const { models, detail } = await api(`/api/brain/models?provider=${encodeURIComponent(choice.provider)}`,
-      undefined, controller.signal);
-    if (modelRequest !== controller) return;
-    brainModel.prepend(...models.map((model) => new Option(model, model)));
-    brainModel.value = models.includes(selected) ? selected : selected ? "" : models[0] || "";
-    modelDetail.textContent = detail || `${models.length} chat models available.`;
-  } catch (error) {
-    if (modelRequest === controller) modelDetail.textContent = error.message;
-  } finally {
-    if (modelRequest === controller) {
-      modelRequest = undefined;
-      setBrainControls();
-    }
-  }
-}
-
-async function openBrainSettings() {
-  if (brainBusy) return;
-  routingRequest?.abort();
-  routingRequest = undefined;
-  poolRequest?.abort();
-  poolRequest = undefined;
-  poolProvider.replaceChildren();
-  byId("brain-pool").hidden = true;
-  byId("routing-result").hidden = true;
-  byId("routing-preview").replaceChildren();
-  showLoading(byId("routing-preview-status"), "Loading routing preview…");
-  brainSettings = undefined;
-  setBrainControls();
-  brainFeedback();
-  byId("brain-test-result").hidden = true;
-  try {
-    await updateConnections("rescan");
-    if (view !== "settings") return;
-    brainSettings = await api("/api/brain");
-    byId("brain-workers").value = brainSettings.parallel_workers;
-    const providers = brainSettings.providers.map((entry) => {
-      const suffix = !entry.available ? " (disconnected)" : !entry.supported ? " (chat unavailable)" : "";
-      const option = new Option(entry.name + suffix, entry.provider);
-      option.disabled = !entry.supported;
-      return option;
-    });
-    brainProvider.replaceChildren(new Option("Auto (priority)", "priority"), new Option("Smart routing", "smart"),
-      ...providers, new Option("Mock", "mock"));
-    brainProvider.value = brainSettings.mode;
-    poolDraft = structuredClone(brainSettings.pool.length ? brainSettings.pool : brainSettings.default_pool);
-    poolDirty = false;
-    renderPool();
-    renderRoutingPreview(brainSettings.preview);
-    byId("routing-preview-status").textContent = "";
-    renderBrain(brainSettings);
-    brainFeedback(brainSettings.scan_error || "");
-    await loadBrainModels();
-  } catch (error) {
-    byId("routing-preview-status").textContent = "";
-    brainFeedback(error.message);
-  }
-}
-
-function clearBrainTest() {
-  brainFeedback();
-  byId("brain-test-result").hidden = true;
-}
-
-async function updateBrain(operation) {
-  if (brainBusy || chatWorkspace.busy || modelRequest) return;
-  const draft = brainDraft();
-  if (operation === "settings") draft.parallel_workers = Number(byId("brain-workers").value);
-  routingRequest?.abort();
-  routingRequest = undefined;
-  byId("routing-preview-status").textContent = "";
-  brainBusy = true;
-  setBrainControls();
-  if (operation === "test") byId("brain-test-result").hidden = true;
-  brainFeedback(operation === "test" ? "Testing the selected model…" : "Saving brain settings…");
-  try {
-    const result = await api(`/api/brain/${operation}`, draft);
-    if (operation === "test") {
-      byId("brain-test-latency").textContent = `Test reply · ${result.latency_ms.toLocaleString()} ms`;
-      byId("brain-test-reply").textContent = result.reply;
-      byId("brain-test-result").hidden = false;
-      brainFeedback();
-    } else {
-      brainSettings = result;
-      poolDraft = structuredClone(result.pool.length ? result.pool : result.default_pool);
-      poolDirty = false;
-      renderPool();
-      updatePoolOptions();
-      renderRoutingPreview(result.preview);
-      renderBrain(result);
-      brainFeedback("Brain settings saved.");
-    }
-  } catch (error) {
-    brainFeedback(error.message);
-  } finally {
-    brainBusy = false;
-    setBrainControls();
-  }
-}
-
 function settingOptions(select, options, selected) {
   select.replaceChildren(...options.map(([value, label, disabled]) => {
     const option = new Option(label, value);
@@ -1256,7 +920,7 @@ async function loadSettings(section) {
     if (isSetting("connections")) delivery.poll();
     return;
   }
-  if (section === "brain") return openBrainSettings();
+  if (section === "brain") return brain.open();
   if (section === "appearance") return;
   if (section === "artifacts") return artifactLibrary.settings();
   if (section === "home") return homePage.settings();
@@ -1622,44 +1286,6 @@ for (const tab of configTabs) {
 }
 window.addEventListener("hashchange", syncWorkspaceRoute);
 byId("rescan-connections").addEventListener("click", () => updateConnections("rescan"));
-brainProvider.addEventListener("change", async () => {
-  clearBrainTest();
-  await loadBrainModels();
-  previewRouting();
-});
-brainModel.addEventListener("change", () => {
-  clearBrainTest();
-  setBrainControls();
-  if (!brainModel.value) customModel.focus();
-  previewRouting();
-});
-customModel.addEventListener("input", () => {
-  clearBrainTest();
-  setBrainControls();
-});
-customModel.addEventListener("change", () => previewRouting());
-poolProvider.addEventListener("change", loadPoolModels);
-poolModel.addEventListener("change", setBrainControls);
-byId("pool-add").addEventListener("click", () => {
-  const model = poolModel.value;
-  const key = `${poolProvider.value}:${model}`;
-  poolDraft.push({ provider: poolProvider.value, model, tags: { ...poolModels[model] } });
-  renderPool();
-  updatePoolOptions();
-  const summary = [...byId("brain-pool-rows").children].find((item) => item.dataset.model === key);
-  summary?.querySelector("summary")?.focus();
-  poolChanged();
-});
-byId("routing-test-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  const prompt = byId("routing-prompt").value.trim();
-  if (prompt) previewRouting(prompt);
-});
-byId("brain-test").addEventListener("click", () => updateBrain("test"));
-byId("brain-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  updateBrain("settings");
-});
 byId("memory-find").addEventListener("submit", (event) => {
   event.preventDefault();
   findMemory();
