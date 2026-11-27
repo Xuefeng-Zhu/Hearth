@@ -5,8 +5,8 @@ import { artifactFilterFromHash } from "./artifacts/format.js";
 import { mountArtifacts } from "./artifacts/view.js";
 import { createReminders } from "./reminders/workspace.js";
 import { mountReminders } from "./reminders/view.js";
-import { button, node, slashSearchShortcut, updateText } from "./dom.js";
-import { confirmControl, moveNavHighlight, showLoading, transitionView } from "./motion.js";
+import { slashSearchShortcut, updateText } from "./dom.js";
+import { confirmControl, moveNavHighlight, transitionView } from "./motion.js";
 import { setupSearchableSelects } from "./combobox.js";
 import { createListSearch, listSearchHash, listSearchRoute } from "./list-search.js";
 import { mountIcons } from "./icons.js";
@@ -19,8 +19,9 @@ import { createAutomation } from "./automation/workspace.js";
 import { mountTasks } from "./automation/view.js";
 import { createSkills } from "./skills.js";
 import { createWorkersCard } from "./workers.js";
-import { createMemory } from "./memory.js";
-import { createMemoryReview } from "./memory-review.js";
+import { createMemory } from "./memory/workspace.js";
+import { memoryLabel } from "./memory/view.js";
+import { createReviewSettings } from "./memory/review.js";
 
 import { createSettings, settingsHash, settingsRoute } from "./settings/workspace.js";
 import { connectorHasError, createConnections } from "./settings/connections.js";
@@ -56,7 +57,6 @@ const listSearches = Object.fromEntries(["reminders", "inbox", "skills"].map((na
     if (hash !== location.hash) history.pushState(history.state, "", hash);
     void refreshView();
   })]));
-let memoryFindRequest = 0;
 const refreshStatus = new Map();
 const viewRefreshPaths = { chat: "/api/state", home: "/api/home", inbox: "/api/inbox",
   reminders: "/api/reminders", timeline: "/api/timeline" };
@@ -76,9 +76,9 @@ const brain = createBrain({
   isBusy: () => chatWorkspace.busy, isActive: () => isSetting("brain"),
 });
 const preferences = createPreferences({
-  byId, api, date, isActive: isSetting, openConnections, renderRecall, getThreads: () => chatWorkspace.threads,
+  byId, api, date, isActive: isSetting, openConnections, renderRecall: (...args) => memoryPage.renderRecall(...args), getThreads: () => chatWorkspace.threads,
   hasPineconeError: () => connectorHasError(connections.state?.providers.pinecone),
-  loadReview: () => memoryReview.settings(), refreshState: (...args) => chatWorkspace.refreshState(...args),
+  loadReview: () => reviewSettings(), refreshState: (...args) => chatWorkspace.refreshState(...args),
   isBusy: () => chatWorkspace.busy, isThreadBusy: () => chatWorkspace.threadBusy,
 });
 const requestedThread = new URLSearchParams(location.search).get("thread");
@@ -274,22 +274,11 @@ async function stopWorkers(turnId, id) {
   await refreshView();
 }
 
-function memoryLabel(hit) {
-  if (hit.artifact_id) return hit.heading || "Artifact";
-  return `${hit.message_id ? hit.heading : hit.path} · line ${hit.line}`;
-}
-
-const memoryReview = createMemoryReview({ api });
+const reviewSettings = createReviewSettings({ api });
 const memoryPage = createMemory({
-  api,
-  forget: (hit) => forgetMemory(hit),
-  approvals: () => openSettingsSection("approvals"),
-  renderReview: memoryReview.render,
+  api, openSource: openMemorySource, approvals: () => openSettingsSection("approvals"),
+  isBusy: () => chatWorkspace.busy, setBusy, showNotice,
 });
-
-async function renderMemory() {
-  await memoryPage.load();
-}
 
 async function openMemorySource(hit) {
   showNotice();
@@ -299,68 +288,6 @@ async function openMemorySource(hit) {
   }
   memoryPage.selectSource(hit);
   await openView("memory");
-}
-
-async function forgetMemory(hit, excerpt = false) {
-  const question = hit.message_id ? "Forget this message from recall?" : excerpt
-    ? `Remove this excerpt from ${hit.path}?` : `Delete the note ${hit.path}?`;
-  if (chatWorkspace.busy || !window.confirm(`${question} Hearth will save a checkpoint first.`)) return;
-  setBusy(true);
-  try {
-    const body = { path: hit.path };
-    if (hit.message_id) body.message_id = hit.message_id;
-    else if (excerpt) body.item_id = hit.id;
-    else if (hit.revision) body.revision = hit.revision;
-    await api("/api/memory/forget", body);
-    memoryPage.clearSource();
-    await renderMemory();
-    if (byId("memory-query").value.trim()) await findMemory();
-    showNotice("Memory forgotten. Undo is available in Timeline.");
-  } catch (error) {
-    showNotice(error.message);
-  } finally {
-    setBusy(false);
-  }
-}
-
-function renderRecall(container, result, allowForget = false) {
-  const backend = memoryNames[result.backend];
-  container.replaceChildren(node("p", "meta",
-    `${backend} · ${result.results.length} ${result.results.length === 1 ? "hit" : "hits"} · ${result.latency_ms.toLocaleString()} ms`));
-  for (const warning of result.warnings) container.append(node("p", "meta", warning));
-  if (!result.results.length) container.append(node("p", "empty", "No memories matched."));
-  for (const hit of result.results) {
-    const article = node("article", "result");
-    const open = button(memoryLabel(hit), () => openMemorySource(hit));
-    open.className = "result-title";
-    const score = hit.backend === "pinecone"
-      ? `Score ${hit.score.toFixed(3)} · ${result.reranked ? "Reranked" : "Cosine similarity"}`
-      : hit.similarity === null ? `Keyword ${hit.keyword.toFixed(3)}`
-        : `Score ${hit.score.toFixed(3)} · Similarity ${hit.similarity.toFixed(3)} · Keyword ${hit.keyword.toFixed(3)}`;
-    article.append(open, node("p", "meta", score), node("p", "", hit.excerpt));
-    if (allowForget && !hit.artifact_id && !hit.profile_fields && hit.path !== "APPROVAL_PREFERENCES.md") {
-      const remove = button("Forget", () => forgetMemory(hit, true));
-      remove.className = "forget-excerpt";
-      remove.setAttribute("aria-label", `Forget ${memoryLabel(hit)}`);
-      article.append(remove);
-    }
-    container.append(article);
-  }
-}
-
-async function findMemory() {
-  const container = byId("memory-find-results");
-  const query = byId("memory-query").value.trim();
-  const request = ++memoryFindRequest;
-  container.hidden = !query;
-  if (!query) return;
-  container.replaceChildren(showLoading(node("p", "meta"), "Searching memory…"));
-  try {
-    const result = await api("/api/memory/search", { query });
-    if (request === memoryFindRequest) renderRecall(container, result, true);
-  } catch (error) {
-    if (request === memoryFindRequest) container.replaceChildren(node("p", "meta", error.message));
-  }
 }
 
 async function openVoiceAction(action, payload) {
@@ -440,7 +367,7 @@ async function refreshView(options) {
     renderChat();
     await refreshVisibleHistory();
   }
-  else if (view === "memory") await renderMemory();
+  else if (view === "memory") await memoryPage.load();
 }
 
 async function openView(nextView, updateHistory = true, section, focusSection = false) {
@@ -660,13 +587,6 @@ document.addEventListener("keydown", (event) => {
   chatWorkspace.composerShortcut(event);
 });
 window.addEventListener("hashchange", syncWorkspaceRoute);
-byId("memory-find").addEventListener("submit", (event) => {
-  event.preventDefault();
-  findMemory();
-});
-byId("memory-query").addEventListener("input", (event) => {
-  if (!event.target.value) findMemory();
-});
 for (const item of nav) {
   item.addEventListener("click", () => openView(item.dataset.view));
 }

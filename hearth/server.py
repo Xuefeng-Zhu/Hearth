@@ -87,8 +87,9 @@ WORKSPACE_IMPORT_MAP_HASH = "sha256-u5dz4Tq+zI7mXqhmHihbTJa6O2tNQCiziXU+bWGx3Iw=
 
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
-    "/memory.js": ("memory.js", "text/javascript; charset=utf-8"),
-    "/memory-review.js": ("memory-review.js", "text/javascript; charset=utf-8"),
+    "/memory/workspace.js": ("memory/workspace.js", "text/javascript; charset=utf-8"),
+    "/memory/view.js": ("memory/view.js", "text/javascript; charset=utf-8"),
+    "/memory/review.js": ("memory/review.js", "text/javascript; charset=utf-8"),
     "/memory.css": ("memory.css", "text/css; charset=utf-8"),
     "/proactivity.js": ("proactivity.js", "text/javascript; charset=utf-8"),
     "/goals.js": ("goals.js", "text/javascript; charset=utf-8"),

@@ -1,4 +1,6 @@
 import { render } from "preact";
+import { useLayoutEffect, useRef } from "preact/hooks";
+import { markdown } from "./format.js";
 import { html, Icon } from "../chat/view.js";
 
 function Library() {
@@ -167,4 +169,12 @@ export function mountArtifacts(byId) {
   render(html`<${PageDialog} />`, byId("page-dialog"));
   render(html`<${Drawer} />`, byId("artifact-drawer"));
   render(html`<${FileQuestions} />`, byId("file-question-dialog"));
+}
+
+export function Markdown({ text, className = "artifact-markdown" }) {
+  const host = useRef(null);
+  useLayoutEffect(() => {
+    host.current.replaceChildren(...markdown(text).childNodes);
+  }, [text]);
+  return html`<div class=${className} ref=${host}></div>`;
 }

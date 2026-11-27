@@ -1,8 +1,8 @@
 import { render } from "preact";
-import { node } from "../dom.js";
 import { html, Icon } from "../chat/view.js";
 
-const memoryNames = { auto: "Auto", pinecone: "Pinecone", local: "Local", keyword: "Local", huggingface: "Local · Hugging Face embeddings" };
+import { memoryNames } from "../memory/view.js";
+
 const folderNames = { root: "Profile and approvals", people: "people/", locations: "locations/",
   topics: "Topic notes", projects: "projects/", daily: "daily/" };
 
@@ -410,10 +410,7 @@ export function createPreferences({
     state.pending = operation;
     updatePreferenceControls(feature);
     feedback.textContent = "";
-    if (operation === "test") {
-      if (feature === "memory") results.replaceChildren(node("p", "meta", "Testing…"));
-      else render(html`<p class="meta">Testing…</p>`, results);
-    }
+    if (operation === "test") render(html`<p class="meta">Testing…</p>`, results);
     if (operation === "settings") feedback.textContent = "Saving settings…";
     try {
       const result = await api(`/api/${feature}/${operation}`, operation === "test" ? { selection, query, ...filters }
@@ -430,8 +427,8 @@ export function createPreferences({
         feedback.textContent = "Settings saved.";
       }
     } catch (error) {
-      if (operation === "test" && feature === "search") render(error.message, results);
-      else (operation === "test" ? results : feedback).textContent = error.message;
+      if (operation === "test") render(error.message, results);
+      else feedback.textContent = error.message;
     } finally {
       state.pending = undefined;
       updatePreferenceControls(feature);
