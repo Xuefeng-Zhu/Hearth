@@ -4,6 +4,15 @@
 
 Hearth is a personal agent that lives on a Fly.io Sprite. Ask Ember to plan dinner, and Hearth can recall your Markdown notes, draft an invitation for approval, make a shopping spreadsheet, and schedule a reminder. The workspace disk persists across sleeps and restarts. Fly's connector gateway supplies access to models and services such as Box and Pinecone, while Timeline shows what Hearth did and which changes you can undo. Built for Fly.io Hacksgiving 2026.
 
+## Deploy your own
+
+1. On GitHub, select **Use this template**, or fork Hearth and enable workflows in your copy’s **Actions** tab.
+2. Create a Sprites access token for your Fly organization and save it in your copy as the `SPRITES_TOKEN` repository secret under **Settings → Secrets and variables → Actions**.
+3. Open **Actions → Deploy to my Sprite → Run workflow**. Leave the Sprite name as `hearth` or enter your own.
+4. Open your Sprite from the Fly dashboard. Add Hugging Face or other providers under **Sprites → Connectors** and grant your Sprite access. In Hearth, select **Settings → Connections → Refresh**.
+
+[Deployment guide](docs/deploy.md#deploy-your-own) · [Local quick start](#quick-start)
+
 ## Screenshots
 
 | Home | Chat search | Artifacts and Pages |
@@ -102,13 +111,7 @@ python -m hearth.server
 
 Open <http://127.0.0.1:8080>. A fresh local workspace seeds the sample memory and falls back to Mock. You can also pin **Mock** in **Settings → Brain**. In Chat, select **Plan Thanksgiving dinner** to try recall, approvals, reminders, and file creation. The weather card can still contact Open-Meteo in Mock mode.
 
-To deploy, sign in with the Sprites CLI, create a private Sprite named `hearth`, and run the deploy script.
-
-```sh
-scripts/deploy.sh
-```
-
-GitHub Actions requires the unit suites, JavaScript syntax checks, and both offline Chromium checks before deploying with the `SPRITES_TOKEN` repository secret. The deployment guide covers organization selection, scheduler wake, the optional Pages publisher, and the manual signed-out edge check. [Workflow](.github/workflows/deploy.yml), [Deployment guide](docs/deploy.md)
+For Sprite deployments through GitHub or the CLI, see the [deployment guide](docs/deploy.md).
 
 ## Configuration
 

@@ -1,5 +1,16 @@
 # Deploy to a Fly Sprite
 
+## Deploy your own
+
+1. On GitHub, select **Use this template** or fork Hearth. For a fork, enable workflows in your copy’s **Actions** tab. [GitHub workflow dispatch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)
+2. In the Fly dashboard, select your organization and create a Sprites access token with permission to create and manage the target Sprite. In your GitHub copy, open **Settings → Secrets and variables → Actions** and add it as the `SPRITES_TOKEN` repository secret. [Sprites access tokens](https://fly.io/run-agent-code/)
+3. Open **Actions → Deploy to my Sprite → Run workflow**. Use `hearth` or enter another `sprite_name`. The optional `org` input takes a Fly organization slug. When left blank, the workflow uses the `HEARTH_SPRITE_ORG` repository variable if set, or the token’s organization. The workflow creates or reuses the named Sprite, sets URL authentication to **Sprite**, deploys the selected revision, and checks `/health`. [Manual workflow](../.github/workflows/deploy-my-sprite.yml)
+4. Open your Sprite from the Fly dashboard. Under **Sprites → Connectors**, add providers such as Hugging Face and grant access to the Sprite name you chose. In Hearth, open **Settings → Connections** and select **Refresh**. [Connector setup](connectors.md)
+
+[Local quick start](../README.md#quick-start)
+
+## Deploy from the CLI
+
 Install and authenticate the Sprites CLI. Run the deployment from a Linux shell with GNU tar. Create a Sprite named `hearth` in the CLI's selected organization and keep its URL authentication set to **Sprite**. The workspace uses that authentication for access. [Sprites quickstart](https://docs.fly.io/sprites/quickstart), [Sprite HTTP access](https://docs.fly.io/sprites/working-with-sprites#http-access)
 
 ```sh
@@ -8,13 +19,13 @@ scripts/deploy.sh
 sprite exec --http-post --no-stdin --no-port-forward -s hearth -- curl -fsS http://127.0.0.1:8080/health
 ```
 
-If you use multiple organizations, select the right one in the CLI or export `HEARTH_SPRITE_ORG` before running the Hearth scripts. When calling `sprite` directly, pass the CLI's `-o` flag for that organization.
+If you use multiple organizations, select the right one in the CLI or export `HEARTH_SPRITE_ORG` before running the Hearth scripts. When calling `sprite` directly, pass the CLI's `-o` flag for that organization. Set `HEARTH_SPRITE_NAME` when running `scripts/deploy.sh` to deploy to an existing Sprite with a name other than `hearth`.
 
 The deploy script uploads runtime files and seed memory. The installer extracts a content-addressed release, installs dependencies in the shared `~/hearth/.venv`, installs the PDF font, switches the `current` symlink, and starts or restarts the web and scheduler services. A successful loopback probe returns `{"ok": true, "checkpoints": "sprite"}`. A failed probe exits with the new release still selected. Use the Sprite's entry in the Fly dashboard to open the workspace. [Deploy script](../scripts/deploy.sh), [Installer](../scripts/install-sprite.sh)
 
 ## GitHub Actions
 
-Set the repository secret `SPRITES_TOKEN` to a Sprites token authorized for the deployment organization. If the CLI needs explicit organization selection, set the repository variable `HEARTH_SPRITE_ORG`. The workflow runs on pushes to `main` and on manual dispatch. Deploy requires the Python and Node suites, JavaScript syntax checks, and both offline Chromium runs (workspace smoke and Chat stream disconnect recovery). The deployment steps run when `SPRITES_TOKEN` is set. [Deploy workflow](../.github/workflows/deploy.yml), [Local browser commands](testing.md#offline-chromium-smoke)
+The **Test and deploy Hearth** workflow runs tests on pushes to `main`, pull requests into `main`, and manual dispatch. Its deploy job is restricted to the upstream `Xuefeng-Zhu/Hearth` repository and `main` pushes or dispatches. Deployment requires the Python and Node suites, JavaScript syntax checks, both offline Chromium runs, and the `SPRITES_TOKEN` repository secret. The upstream workflow uses `HEARTH_SPRITE_ORG` if set. [Deploy workflow](../.github/workflows/deploy.yml), [Local browser commands](testing.md#offline-chromium-smoke)
 
 ## Verify workspace access
 

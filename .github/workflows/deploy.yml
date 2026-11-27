@@ -69,7 +69,7 @@ jobs:
         run: timeout 85s python tests/browser-smoke.py --disconnect
 
   deploy:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.repository == 'Xuefeng-Zhu/Hearth' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: [test, browser-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 10
