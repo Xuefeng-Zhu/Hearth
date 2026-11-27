@@ -370,41 +370,6 @@
       </section>
       <section class="view panel" id="settings-view" aria-labelledby="view-title" hidden>
         <div class="settings-sections" id="settings-sections">
-        <div class="settings-body" id="settings-connections" hidden>
-          <div class="settings-actions">
-            <p class="meta" id="connection-notice" role="status">Checking connections…</p>
-            <button type="button" class="settings-button" id="rescan-connections">Refresh</button>
-          </div>
-          <section id="email-hearth-connection" class="card email-hearth-card" aria-label="Email Hearth"></section>
-          <div class="connection-tabs" id="connection-tabs" role="tablist" aria-label="Connector configuration">
-            <button type="button" id="configured-tab" data-connection-tab="configured" role="tab" aria-controls="configured-panel" aria-selected="false" tabindex="-1">
-              Configured <span class="connection-badge" hidden></span>
-            </button>
-            <button type="button" id="not-configured-tab" data-connection-tab="not-configured" role="tab" aria-controls="not-configured-panel" aria-selected="true">
-              Not configured <span class="connection-badge" hidden></span>
-            </button>
-          </div>
-          <p class="connection-promotion" id="connection-promotion" role="status" hidden></p>
-          <section id="configured-panel" role="tabpanel" aria-labelledby="configured-tab" tabindex="0" hidden></section>
-          <section id="not-configured-panel" role="tabpanel" aria-labelledby="not-configured-tab" tabindex="0">
-            <p class="connection-setup">Add a connector in the Fly dashboard. Turn off <strong>Allow all sprites</strong>, set <strong>Name Prefix</strong> to <strong>hearth</strong>, then click <strong>Refresh</strong> here.</p>
-          </section>
-          <template id="connection-content">
-            <div class="connection-filters">
-              <label>Search providers
-                <input type="search" placeholder="Name or capability" autocomplete="off">
-              </label>
-              <label>Category
-                <select><option value="">All categories</option></select>
-              </label>
-            </div>
-            <div class="connection-summary" role="status">
-              <p class="empty connection-count"></p>
-              <a class="connection-match-link" hidden></a>
-            </div>
-            <div class="connection-groups"></div>
-          </template>
-        </div>
         <div class="settings-body" id="settings-automations" hidden>
           <div class="automation-controls event-automation-toolbar">
             <button type="button" class="settings-button primary-setting automation-button" id="new-event-automation" disabled>

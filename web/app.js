@@ -5,7 +5,7 @@ import { button, node, slashSearchShortcut, updateText } from "./dom.js";
 import { confirmControl, moveNavHighlight, showLoading, transitionView } from "./motion.js";
 import { setupSearchableSelects } from "./combobox.js";
 import { createListSearch, listSearchHash, listSearchRoute } from "./list-search.js";
-import { icon, mountIcons } from "./icons.js";
+import { mountIcons } from "./icons.js";
 import { setTimeZone, timeFormatter } from "./time.js";
 import { createFeed } from "./feed.js";
 import { createHome } from "./home.js";
@@ -15,9 +15,9 @@ import { createSkills } from "./skills.js";
 import { createWorkersCard } from "./workers.js";
 import { createMemory } from "./memory.js";
 import { createMemoryReview } from "./memory-review.js";
-import { githubSettings } from "./self-update.js";
 
-import { configTabs, connectionHash, createSettings, settingsHash, settingsRoute } from "./settings/workspace.js";
+import { connectionHash, createSettings, settingsHash, settingsRoute } from "./settings/workspace.js";
+import { connectorHasError, createConnections } from "./settings/connections.js";
 import { createBrain, modelNames } from "./settings/brain.js";
 import { createChatWorkspace, mainThread } from "./chat/workspace.js";
 
@@ -30,13 +30,6 @@ const notice = byId("notice");
 const nav = [...document.querySelectorAll("[data-view]")];
 const connectionsLabel = "Settings → Connections";
 const dateFormat = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
-const connectorSettings = {
-  pinecone: { field: "index", label: "Index name", placeholder: "hearth-memory", maxLength: 45 },
-  agentmail: { field: "inbox_id", label: "Inbox ID", placeholder: "your-inbox@agentmail.to", maxLength: 254 },
-};
-const connectionTabStorage = "hearth-connections-tab";
-const connectionPanels = new Map();
-const connectionDrafts = new Map();
 const gatewayResults = new Map();
 let homeCache;
 let homeSequence = 0;
@@ -50,7 +43,6 @@ const listSearches = Object.fromEntries(["reminders", "inbox", "skills"].map((na
     void refreshView();
   })]));
 let memoryFindRequest = 0;
-let connectionState;
 let workspaceModel;
 let workspaceConnectorError = false;
 let homeConnectorError = false;
@@ -58,20 +50,30 @@ const workspaceStatusLabels = document.querySelectorAll("[data-workspace-status]
 const refreshStatus = new Map();
 const viewRefreshPaths = { chat: "/api/state", home: "/api/home", inbox: "/api/inbox",
   reminders: "/api/reminders", timeline: "/api/timeline" };
-let connectionRequest;
-let connectionTabPreference = localStorage.getItem(connectionTabStorage);
-let newlyConfigured = new Set();
 let reindexPoll;
 const preferences = { memory: {}, search: {} };
+const connections = createConnections({
+  byId, api, date, trackRefresh, refreshAPI, isActive: () => isSetting("connections"),
+  onData(data) {
+    workspaceConnectorError = !!data.scan_error || Object.values(data.providers).some(connectorHasError);
+    renderBrain(data);
+  },
+  onUpdate() {
+    if (!isSetting("voice")) return;
+    showVoiceEngine();
+    voiceCall.refreshSettings();
+  },
+  loadMail: () => delivery.connections(), pollMail: () => delivery.poll(),
+});
 const brain = createBrain({
-  byId, api, date, updateConnections, renderBrain,
+  byId, api, date, updateConnections: connections.update, renderBrain,
   isBusy: () => chatWorkspace.busy, isActive: () => isSetting("brain"),
 });
 const requestedThread = new URLSearchParams(location.search).get("thread");
 const chatWorkspace = createChatWorkspace({
   requestedThread, byId, api, trackRefresh, readResponse, showNotice, showConnectionGuidance, date,
   currentView: () => view, currentSettings: () => settings.section,
-  getConnections: () => connectionState, getConnectionRequest: () => connectionRequest,
+  getConnections: () => connections.state, getConnectionRequest: () => connections.request,
   openView, refreshView, getArtifacts: () => artifactLibrary,
   onThreadsChanged: () => { if (isSetting("memory")) renderMemoryThreadOptions(); },
   renderBrain, schedulePoll, approvalCard: (action) => automation.approvalCard(action),
@@ -278,7 +280,7 @@ async function stopWorkers(turnId, id) {
 
 function renderBrain({ model, model_id: id }) {
   workspaceModel = model;
-  const name = modelNames[model] || connectionState?.providers[model]?.name || model || "Unavailable";
+  const name = modelNames[model] || connections.state?.providers[model]?.name || model || "Unavailable";
   byId("brain-active-model").textContent = id && model !== "mock" ? `${name} · ${id}` : name;
   renderWorkspaceStatus();
 }
@@ -293,30 +295,6 @@ function renderWorkspaceStatus() {
     label.hidden = !status;
     container.querySelector("[data-connection-warning]").hidden = !showWarning;
     container.hidden = !status && !showWarning;
-  }
-}
-
-function connectorHasError(entry) {
-  return entry?.uses.length > 0 && (entry.status === "unauthorized" || ["failed", "denied"].includes(entry.test_status)
-    || entry.index_state === "Unavailable");
-}
-
-function applyConnections(data) {
-  connectionState = data;
-  workspaceConnectorError = !!data.scan_error || Object.values(data.providers).some(connectorHasError);
-  renderConnections();
-  renderBrain(data);
-}
-
-async function refreshPineconeHealth() {
-  const previous = connectionState;
-  const entry = previous?.providers.pinecone;
-  if (connectionRequest || entry?.status !== "connected" ||
-      (entry.index_state === "Ready" && !connectorHasError(entry))) return;
-  const data = await refreshAPI("/api/connections", { background: true, signal: AbortSignal.timeout(6000) });
-  if (isSetting("connections") && !connectionRequest && connectionState === previous &&
-      JSON.stringify(data.providers.pinecone) !== JSON.stringify(entry)) {
-    applyConnections(data);
   }
 }
 
@@ -418,103 +396,6 @@ async function openVoiceAction(action, payload) {
   heading.focus();
 }
 
-function externalLink(label, url) {
-  const link = node("a", "", label);
-  link.href = url;
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  return link;
-}
-
-function connectorForm(provider, entry, info) {
-  const form = node("form", "connector-settings");
-  const inputId = `connection-${provider}`;
-  const label = node("label", "", info.label);
-  label.htmlFor = inputId;
-  const field = node("input");
-  field.id = inputId;
-  field.type = info.field === "inbox_id" ? "email" : "text";
-  field.required = info.field === "index";
-  field.maxLength = info.maxLength;
-  field.autocomplete = "off";
-  field.spellcheck = false;
-  field.placeholder = info.placeholder;
-  field.value = connectionDrafts.get(provider) ?? entry.settings[info.field];
-  field.addEventListener("input", () => connectionDrafts.set(provider, field.value));
-  const save = node("button", "", "Save");
-  save.type = "submit";
-  save.setAttribute("aria-label", `Save ${entry.name} settings`);
-  const controls = node("div", "connector-controls");
-  controls.append(field, save);
-  form.append(label, controls);
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    updateConnections("settings", { provider, value: field.value });
-  });
-  return form;
-}
-
-function connectionCard(provider, entry) {
-  const card = node("article", "card connection-card");
-  card.dataset.provider = provider;
-  if (newlyConfigured.delete(provider)) card.classList.add("newly-configured");
-
-  const configured = entry.status === "connected";
-  const used = entry.uses.length > 0;
-  const check = connectorHasError(entry) ? "error"
-    : entry.index_state === "Ready" ? "ready" : entry.index_state === "Connecting" ? "checking"
-      : entry.test_status === "passed" ? "ok" : entry.test_status ? "error" : "untested";
-  const status = used ? (configured ? check : entry.status) : "not_used";
-  const labels = {
-    ok: "OK", ready: "Ready", checking: "Checking", error: "Error", untested: "Untested", unauthorized: "Found but not authorized",
-    not_set_up: "Not set up", unknown: "Not checked", not_used: "Not used by Hearth",
-  };
-  const heading = node("div", "card-header");
-  const tone = status === "ready" ? "ok" : status === "checking" ? "untested" : status;
-  heading.append(node("h4", "", entry.name), node("span", `connection-status ${tone}`, labels[status]));
-  card.append(heading);
-  if (entry.auth) card.append(node("p", "meta", entry.auth));
-  card.append(node("p", "connection-description", entry.description));
-  if (configured && used) {
-    const uses = node("p", "connection-uses");
-    uses.append(node("strong", "", "Used for"), ` ${entry.uses.join(" · ")}`);
-    card.append(uses);
-  }
-  if (Object.hasOwn(connectorSettings, provider)) card.append(connectorForm(provider, entry, connectorSettings[provider]));
-  if (provider === "github" && connectionState.self_update) {
-    card.append(githubSettings(connectionState.self_update, async (settings) => {
-      applyConnections(await api("/api/self-update/settings", settings));
-      byId("connection-notice").textContent = "GitHub settings saved.";
-      document.querySelector('[data-provider="github"] input')?.focus();
-    }));
-  }
-  if (entry.index_error) card.append(node("p", "connection-test failed", entry.index_error));
-  else if (entry.test_detail) card.append(node("p", used ? `connection-test ${entry.test_status}` : "meta", entry.test_detail));
-
-  const footer = node("div", "connector-footer");
-  const access = node("span", "connector-access", entry.access_rule);
-  const links = node("div", "connector-links");
-  const flyLabel = configured ? "Open in Fly" : entry.status === "unauthorized" ? "Review in Fly" : "Add in Fly";
-  for (const [label, url] of [[flyLabel, entry.dashboard_url], ["Docs", entry.docs_url]]) {
-    const link = externalLink(label, url);
-    if (url) link.append(" ", icon("external", 14));
-    links.append(link);
-  }
-  footer.append(access, links);
-  if (entry.can_test) {
-    const test = button("Test", async () => {
-      await updateConnections("test", { provider });
-      if (isSetting("connections") && document.activeElement === document.body) byId(test.id)?.focus();
-    });
-    test.id = `test-connection-${provider}`;
-    test.setAttribute("aria-label", `Test ${entry.name}`);
-    if (!entry.test_path) test.title = "Check gateway authorization.";
-    links.append(test);
-  }
-  card.append(footer);
-  return card;
-}
-
 function isSetting(section) {
   return view === "settings" && settings.section === section;
 }
@@ -526,18 +407,6 @@ function workspaceRoute() {
   const filter = artifactFilterFromHash(hash);
   if (filter) return { view: "artifacts", hash: artifactHash(filter) };
   if (hash === timelineErrorRoute) return { view: "timeline", hash };
-}
-
-function rememberConnectionTab(tab) {
-  connectionTabPreference = tab;
-  localStorage.setItem(connectionTabStorage, tab);
-}
-
-function selectConnectionTab(tab) {
-  rememberConnectionTab(tab);
-  if (location.hash !== connectionHash(tab)) history.pushState(history.state, "", connectionHash(tab));
-  renderConnections();
-  connectionPanels.get(tab).button.focus();
 }
 
 function artifactHash(filter = "all") {
@@ -561,161 +430,9 @@ function syncWorkspaceRoute() {
     artifactLibrary.selectFormat(artifactFilterFromHash(route.hash));
     return;
   }
-  if (route.section === "connections") {
-    if (route.target) rememberConnectionTab(route.target);
-    if (isSetting("connections")) {
-      renderConnections();
-      return;
-    }
-  }
+  if (route.section === "connections" && connections.syncTab(route.target)) return;
   const focusSection = route.section && !isSetting(route.section);
   openView(route.view, false, route.section, focusSection);
-}
-
-function renderConnections() {
-  const entries = Object.entries(connectionState?.providers ?? {});
-  const configured = entries.filter(([, entry]) => entry.status === "connected");
-  const unconfigured = entries.filter(([, entry]) => entry.status !== "connected");
-  const providersByTab = { configured, "not-configured": unconfigured };
-  const defaultTab = configured.length ? "configured" : "not-configured";
-  const activeConnectionTab = configTabs.includes(connectionTabPreference) ? connectionTabPreference : defaultTab;
-  if (isSetting("connections") && location.hash === connectionHash()
-      && (connectionState || connectionTabPreference === activeConnectionTab)) {
-    history.replaceState(history.state, "", connectionHash(activeConnectionTab));
-  }
-
-  const categories = [...new Set(entries.map(([, entry]) => entry.category))].sort();
-  for (const [tab, controls] of connectionPanels) {
-    const selected = tab === activeConnectionTab;
-    controls.button.setAttribute("aria-selected", String(selected));
-    controls.button.tabIndex = selected ? 0 : -1;
-    controls.badge.hidden = !connectionState;
-    controls.badge.textContent = providersByTab[tab].length;
-    controls.panel.hidden = !selected;
-    if (!selected) controls.groups.replaceChildren();
-    const filter = controls.filter;
-    if (categories.join("|") !== filter.dataset.categories) {
-      const category = filter.value;
-      filter.replaceChildren(new Option("All categories", ""), ...categories.map((name) => new Option(name, name)));
-      filter.value = categories.includes(category) ? category : "";
-      filter.dataset.categories = categories.join("|");
-    }
-  }
-  if (!connectionState) return;
-
-  const controls = connectionPanels.get(activeConnectionTab);
-  const terms = controls.search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const matchesFilters = ([provider, entry]) => {
-    if (controls.filter.value && controls.filter.value !== entry.category) return false;
-    const searchable = [provider, entry.gateway_provider, entry.name, entry.category, entry.auth, entry.description,
-      ...entry.uses].join(" ").toLowerCase();
-    return terms.every((term) => searchable.includes(term));
-  };
-  const active = providersByTab[activeConnectionTab];
-  const matches = active.filter(matchesFilters);
-  const otherTab = configTabs.find((tab) => tab !== activeConnectionTab);
-  const otherMatches = terms.length ? providersByTab[otherTab].filter(matchesFilters).length : 0;
-  controls.count.textContent = matches.length ? `${matches.length} of ${active.length} providers`
-    : active.length ? "No providers match your filters."
-    : activeConnectionTab === "configured" ? "No configured connectors yet." : "All providers are configured.";
-  controls.link.hidden = !otherMatches;
-  controls.link.href = connectionHash(otherTab);
-  controls.link.textContent = `${otherMatches} ${otherMatches === 1 ? "match" : "matches"} in the other tab`;
-  controls.groups.replaceChildren(...connectionGroups(matches));
-  if (connectionRequest) setConnectionsBusy(true);
-}
-
-function connectionGroups(entries) {
-  const groups = new Map();
-  const unused = [];
-  for (const [provider, entry] of entries) {
-    const card = connectionCard(provider, entry);
-    if (!entry.uses.length) {
-      unused.push(card);
-      continue;
-    }
-    const group = entry.pinned ? "Hearth essentials" : entry.category;
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push(card);
-  }
-  if (unused.length) groups.set("Available, not used", unused);
-  return [...groups].map(([name, cards]) => {
-    const section = node("section", "connection-section");
-    const grid = node("div", "connection-grid");
-    grid.append(...cards);
-    section.append(node("h3", "", name), grid);
-    return section;
-  });
-}
-
-function setConnectionsBusy(value) {
-  byId("rescan-connections").setAttribute("aria-disabled", String(value));
-  for (const control of byId("settings-connections").querySelectorAll(".connection-grid button, .connection-grid input")) {
-    control.disabled = value;
-  }
-}
-
-function announceNewConnections(previous, current) {
-  const promoted = Object.entries(current.providers).filter(([provider, entry]) =>
-    entry.status === "connected" && previous.providers[provider]?.status !== "connected");
-  newlyConfigured = new Set(promoted.map(([provider]) => provider));
-  const notice = byId("connection-promotion");
-  notice.hidden = !promoted.length;
-  notice.replaceChildren();
-  if (!promoted.length) return;
-  const names = promoted.map(([, entry]) => entry.name);
-  notice.append(names.length === 1 ? `${names[0]} moved to Configured. ` : `${names.length} connectors moved to Configured. `);
-  const link = node("a", "", "Show configured");
-  link.href = connectionHash("configured");
-  link.addEventListener("click", (event) => {
-    event.preventDefault();
-    const controls = connectionPanels.get("configured");
-    controls.search.value = controls.filter.value = "";
-    selectConnectionTab("configured");
-  });
-  notice.append(link);
-}
-
-function updateConnections(operation, body = {}) {
-  if (connectionRequest) return connectionRequest;
-  const feedback = byId("connection-notice");
-  const name = connectionState?.providers[body.provider]?.name;
-  feedback.textContent = { rescan: "Checking connections…", test: `Testing ${name}…`, settings: "Saving settings…" }[operation];
-  setConnectionsBusy(true);
-  connectionRequest = (async () => {
-    try {
-      const previous = connectionState;
-      const data = await trackRefresh("/api/connections", false, () => api(`/api/connections/${operation}`, body));
-      if (operation === "rescan" && previous && !data.scan_error) {
-        announceNewConnections(previous, data);
-      }
-      if (operation === "settings") connectionDrafts.delete(body.provider);
-      applyConnections(data);
-      if (view === "settings" && settings.section === "voice") {
-        showVoiceEngine();
-        voiceCall.refreshSettings();
-      }
-      const entry = connectionState.providers[body.provider];
-      feedback.textContent = {
-        rescan: connectionState.scan_error || `Last checked ${date(connectionState.last_scan)}.`,
-        test: entry ? `${name} · ${entry.test_detail}` : "",
-        settings: `${name} settings saved.`,
-      }[operation];
-    } catch (error) {
-      feedback.textContent = error.message;
-      if (!connectionState) {
-        try {
-          applyConnections(await refreshAPI("/api/connections"));
-        } catch {
-          // The request message remains visible until a re-scan succeeds.
-        }
-      }
-    } finally {
-      connectionRequest = undefined;
-      setConnectionsBusy(false);
-    }
-  })();
-  return connectionRequest;
 }
 
 function settingOptions(select, options, selected) {
@@ -878,7 +595,7 @@ function updateMemoryJobs({ pinecone, sync, reindex }) {
   } else {
     status.textContent = pinecone.connected ? "Ready to sync memories." : "Pinecone is disconnected.";
   }
-  byId("memory-connect").hidden = pinecone.connected && !connectorHasError(connectionState?.providers.pinecone);
+  byId("memory-connect").hidden = pinecone.connected && !connectorHasError(connections.state?.providers.pinecone);
 
   updatePreferenceControls("memory");
   if (running && view === "settings" && settings.section === "memory") {
@@ -912,14 +629,7 @@ function readPreferences(feature) {
 }
 
 async function loadSettings(section) {
-  if (section === "connections") {
-    renderConnections();
-    const mailCard = delivery.connections();
-    await updateConnections("rescan");
-    await mailCard;
-    if (isSetting("connections")) delivery.poll();
-    return;
-  }
+  if (section === "connections") return connections.open();
   if (section === "brain") return brain.open();
   if (section === "appearance") return;
   if (section === "artifacts") return artifactLibrary.settings();
@@ -1251,41 +961,7 @@ document.addEventListener("keydown", (event) => {
   }
   chatWorkspace.composerShortcut(event);
 });
-for (const tab of configTabs) {
-  const panel = byId(`${tab}-panel`);
-  const tabButton = byId(`${tab}-tab`);
-  panel.append(byId("connection-content").content.cloneNode(true));
-  const controls = {
-    panel, button: tabButton, badge: tabButton.querySelector(".connection-badge"),
-    search: panel.querySelector("input"), filter: panel.querySelector("select"),
-    count: panel.querySelector(".connection-count"), link: panel.querySelector(".connection-match-link"),
-    groups: panel.querySelector(".connection-groups"),
-  };
-  connectionPanels.set(tab, controls);
-  controls.search.addEventListener("input", renderConnections);
-  controls.filter.addEventListener("change", renderConnections);
-  controls.link.addEventListener("click", (event) => {
-    event.preventDefault();
-    const otherTab = configTabs.find((item) => item !== tab);
-    const other = connectionPanels.get(otherTab);
-    other.search.value = controls.search.value;
-    other.filter.value = controls.filter.value;
-    selectConnectionTab(otherTab);
-  });
-  tabButton.addEventListener("click", () => selectConnectionTab(tab));
-  tabButton.addEventListener("keydown", (event) => {
-    const target = {
-      ArrowLeft: configTabs.find((item) => item !== tab),
-      ArrowRight: configTabs.find((item) => item !== tab),
-      Home: configTabs[0], End: configTabs.at(-1),
-    }[event.key];
-    if (!target) return;
-    event.preventDefault();
-    selectConnectionTab(target);
-  });
-}
 window.addEventListener("hashchange", syncWorkspaceRoute);
-byId("rescan-connections").addEventListener("click", () => updateConnections("rescan"));
 byId("memory-find").addEventListener("submit", (event) => {
   event.preventDefault();
   findMemory();
@@ -1359,7 +1035,7 @@ async function pollForeground(immediate) {
   try {
     const drawer = byId("workspace-drawer").open;
     if (isSetting("connections")) {
-      if (!chatWorkspace.busy) await refreshPineconeHealth();
+      if (!chatWorkspace.busy) await connections.refreshHealth();
     } else if (view === "chat" && !chatWorkspace.threadBusy) {
       const previous = chatWorkspace.snapshot;
       if (await refreshState(undefined, { background: true }) && view === "chat") {
@@ -1395,4 +1071,4 @@ renderWorkspaceStatus();
 syncWorkspaceRoute();
 schedulePoll();
 if (!document.hidden) delivery.poll();
-if (!isSetting("connections")) updateConnections("rescan");
+if (!isSetting("connections")) connections.update("rescan");
