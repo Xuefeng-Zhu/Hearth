@@ -175,11 +175,11 @@
   .composer {
     position: relative;
     gap: var(--space-1);
-    margin-bottom: 0;
-    padding: var(--space-1) var(--space-1) max(var(--space-1), env(safe-area-inset-bottom));
-    border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;
+    margin: 0 var(--space-2) calc(var(--space-2) + env(safe-area-inset-bottom));
+    padding: var(--space-1);
+    border-radius: var(--radius-dialog);
   }
-  [data-keyboard] .composer, .face-view .composer { padding-bottom: var(--space-1); }
+  [data-keyboard] .composer { margin-bottom: var(--space-2); }
   .composer textarea { max-height: min(132px, calc(var(--keyboard-height, 100dvh) * .26)); }
   .voice-key { display: none; }
   .voice-bar {
