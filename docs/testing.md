@@ -2,19 +2,18 @@
 
 See the [development guide](development.md) for the Python suite, Node tests, and JavaScript syntax checks.
 
-## Run 63 verification
+## Runs 85 and 86 verification
 
-Run 63 verified `main` at `6ee3a23` using Python 3.12, Node.js 22, the pinned requirements, and the project's Chinese PDF font.
+Run 85 walked through the deployed workspace in read-only Chromium at 1440 × 900 and 390 × 844 in light and dark. Local Playwright fixtures exercised streaming, Stop, attachments, side chats, reminders and recurring tasks, Inbox review, Artifacts, Skills, Memory, Settings, Home layout, and the voice UI in Chromium 159, WebKitGTK 27.2, and Firefox 159. WebKit used reduced motion after a graphics crash on normal-motion view transitions on the Linux ARM64 host. Firefox’s additional emulated-touch geometry check crashed at 390 px. The local attachment and Home mutation checks passed in a targeted Firefox rerun with reduced motion. [Run 85 full-flow QA](run-85.md), [Engine notes](development.md#webkit-and-firefox)
+
+Run 85 found that clicking a desktop Chat search result dismissed the popover before jumping. Run 86 fixed the dismissal boundary. The pointer-click regression passed in Chromium and Firefox with normal motion and in WebKit with reduced motion. The local voice checks used fake media, mocked speech recognition, and a mocked Vocal Bridge SDK. A real microphone, a real Vocal Bridge call, and a physical iPhone were outside coverage. [Run 86 pointer fix](run-86.md), [Voice test coverage](run-85.md#local--browser-flow-matrix)
 
 | Check | Result |
 | --- | --- |
-| `python -m unittest discover -s tests` | 315 passed |
-| `node --test tests/*.test.mjs` | 16 passed |
-| `node --check` for `web/*.js` | 27 files passed |
-| Offline Chromium smoke and stream disconnect | Both passed |
-| Signed-out edge matrix on loopback fixtures | All 23 checks passed. A fixture that exposed anonymous health was rejected. |
-
-The Python suite covers conditional polling and paging, worker storage faults, delivery during restore, summary recovery, Box cache and transfers, HTTP validation, subsystem status, untrusted content, and edge-check parsing. The browser checks use local fixtures. Live connector probes and the deployed edge matrix are outside this run. [Python tests](../tests/), [Design-review status](../DESIGN-REVIEW.md#run-63-status)
+| Python suite with the CJK font | 342 passed in Runs 85 and 86 |
+| Node unit tests | 37 passed in both runs |
+| JavaScript syntax | 63 frontend modules passed in both runs |
+| Offline Chromium | Default smoke, stream disconnect, Chat search, list search, and motion passed in both runs |
 
 ## Offline Chromium smoke
 
@@ -28,7 +27,7 @@ PYTHONPATH=. python tests/browser-smoke.py --disconnect
 
 Add `--with-deps` to the install command if Chromium needs Linux system libraries. In the ARM workspace, set `LD_LIBRARY_PATH=/workspace/tools/chromelibs/usr/lib/aarch64-linux-gnu` when launching the test. Set `PLAYWRIGHT_BROWSERS_PATH` if Chromium was installed outside Playwright’s default cache.
 
-The smoke starts Hearth on a random loopback port with temporary data, the mock model, empty connector discovery, and browser requests restricted to the local server. It checks Home, Settings, the 390×844 drawer, keyboard send and Stop, focus during a mid-stream thread switch, and one live-region update per completed reply. It also checks that two consecutive background failures mark the view stale while keeping existing content visible and that later `200` or `304` responses clear the indicator. Accessibility assertions cover focus, live-region DOM updates, and sampled contrast.
+The smoke starts Hearth on a random loopback port with temporary data, the mock model, empty connector discovery, and browser requests restricted to the local server. It checks Settings, the 390 × 844 drawer, Home panel creation and restoration, thread actions, searchable selects, Chat and list search, motion, and the self-update card. Chat coverage includes keyboard send and Stop, focus during a mid-stream thread switch, and one live-region update per completed reply. The stale-data check verifies that two consecutive background failures show a stale indicator and that a later `200` or `304` clears it. Accessibility assertions cover focus, live-region DOM updates, and sampled contrast. [Smoke entry point](../tests/browser-smoke.py), [Targeted smoke commands](development.md#playwright)
 
 The disconnect regression aborts the Chat request after the first visible token and lets the server persist the reply. It checks that polling replaces the partial bubble, announces the saved reply once, and keeps the announcement count unchanged after another refresh. The deploy workflow caches Chromium and requires both browser checks and the unit test job to pass. [Workflow](../.github/workflows/deploy.yml)
 
@@ -56,3 +55,7 @@ scripts/check-edge-auth.sh
 | GET to sampled workspace routes on the public Pages origin | 404 |
 
 The script sends no cookies or authorization headers and stops at the first response without following redirects. Inspect the edge configuration separately to confirm login. Each POST sends an empty JSON object. Results print fixture labels and status codes, and any mismatch causes a nonzero exit. Keep fixture values out of commits and logs. The live matrix is manual. Its URL, status, and redirect parsing tests run in the regular Python suite. [Edge-check implementation](../scripts/check_edge_auth.py), [Edge-check tests](../tests/test_edge_auth.py)
+
+## Run 63 verification
+
+Run 63 verified `6ee3a23` with 315 Python tests, 16 Node tests, syntax checks for 27 frontend modules, and both offline Chromium runs. All 23 signed-out edge checks passed against loopback fixtures, and the matrix rejected a fixture that exposed anonymous health. [Run 63 design-review status](../DESIGN-REVIEW.md#run-63-status)

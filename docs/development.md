@@ -15,14 +15,33 @@ scripts/install-office-font.sh .hearth/fonts
 export HEARTH_CJK_FONT="$PWD/.hearth/fonts/wqy-microhei.ttc"
 python -m unittest discover -s tests
 node --test tests/*.test.mjs
-for file in web/*.js; do node --check "$file" || exit; done
+find web -type f \( -name '*.js' -o -name '*.mjs' \) -exec sh -c '
+  for file do
+    node --check "$file" || exit 1
+  done
+' sh {} +
 ```
 
 ## Playwright
 
-The Python requirements include Playwright. Install Chromium with `python -m playwright install chromium` to run the Python browser fixtures. Use `--with-deps` on a Linux host that needs browser system libraries. Browser fixtures exercise desktop and touch layouts in light and dark themes.
+The test requirements include Playwright. Run these commands from the repository root. Add `--with-deps` to the install command on Linux if system libraries are missing.
 
-Run `PYTHONPATH=. python tests/browser-smoke.py` and `PYTHONPATH=. python tests/browser-smoke.py --disconnect` to reproduce both Chromium deploy gates. These use a temporary workspace and fixture responses. The signed-out edge check is a separate manual command against disposable deployed fixtures. [Testing Hearth](testing.md)
+```sh
+python -m playwright install --only-shell chromium
+PYTHONPATH=. python tests/browser-smoke.py
+PYTHONPATH=. python tests/browser-smoke.py --disconnect
+PYTHONPATH=. python tests/browser-smoke.py --chat-search
+PYTHONPATH=. python tests/browser-smoke.py --list-search
+PYTHONPATH=. python tests/browser-smoke.py --motion
+```
+
+The default smoke uses temporary workspaces and offline fixtures, and runs the Settings, searchable combobox, Chat search, list search, and motion helpers. Use one flag per invocation. `--disconnect` checks stream recovery, `--chat-search` and `--list-search` add 390–1920 px overflow sweeps, and `--motion` isolates view transitions, reduced motion, and focus. The default and disconnect commands are the deploy gates. [Browser entry point](../tests/browser-smoke.py), [Chat search smoke](../tests/chat_search_smoke.py), [Settings smoke](../tests/settings_smoke.py), [Motion smoke](../tests/motion_smoke.py)
+
+### WebKit and Firefox
+
+Install the other Playwright browsers with `python -m playwright install webkit firefox`. The smoke entry point launches Chromium. For an engine-specific fixture, launch `playwright.webkit` or `playwright.firefox` and reuse the temporary workspace and page helpers. In Run 85 on Linux ARM64, WebKitGTK crashed on normal-motion view transitions, including on a standalone example. The full WebKit flow used `reduced_motion="reduce"`. Playwright screenshot capture also triggered an inline stylesheet CSP warning in WebKit. The isolated probe observed it only after capture. Firefox contexts omitted `is_mobile` and used explicit viewport sizes. Firefox crashed in the extra 390 px touch geometry check when opening Home’s Add panel sheet on both revisions. Targeted Firefox attachment and Home mutation checks passed with reduced motion. The tested phone layouts used emulation. [Run 85 browser matrix](run-85.md#local--browser-flow-matrix)
+
+### Earlier browser fixtures
 
 Run the browser regressions from the repository root. The first two scripts use `--shots` and the remaining scripts use `--output`. Each script accepts `--chromium` to use an existing browser binary.
 
@@ -38,7 +57,7 @@ done
 
 The fixtures exercise Home, attachments, Pages, Settings → Connections, the Skills library, parallel workers, structured Memory, and For you. The navigation, Connections, and Skills checks include 375, 390, and 1440 px in light and dark themes.
 
-The drawer and Settings screenshot fixture prefers WebKit and falls back to Chromium with iPhone emulation when WebKit cannot launch. It checks both themes at 375×667 and 390×844 on phones and 1440×1000 on desktop. The fixture seeds 12 side chats with long titles and checks that every workspace link fits before scrolling, thread titles truncate, and Settings stays pinned while the drawer scrolls. It also exercises all 11 Settings disclosures, the Skills page, and former Connections and Skills bookmarks. [Browser fixture](../tests/run38-browser.py)
+The Run 38 drawer and Settings fixture prefers WebKit and can use Chromium with phone emulation. It seeds 12 side chats with long titles and checks navigation, truncation, the pinned Settings button, and legacy bookmarks. The fixture predates the current Settings panels. Use the current Settings smoke for coverage of the migrated view. [Run 38 fixture](../tests/run38-browser.py), [Settings smoke](../tests/settings_smoke.py)
 
 ```sh
 python -m playwright install webkit
@@ -79,6 +98,37 @@ node tests/contrast.mjs
 ```
 
 The fixture listens on loopback port 39519. Set `CHROMIUM_PATH` to use an existing Chromium binary, `HEARTH_QA_URL` to target another fixture, or `HEARTH_QA_SCREENSHOTS` to save captures. [Contrast fixture](../tests/contrast-fixture.py), [Contrast sweep](../tests/contrast.mjs), [Live Sprite results](../QA-REPORT.md)
+
+## Add a workspace view
+
+1. Add the view’s section to `web/index.html` with an ID of the form `<name>-view` and a matching `data-view="<name>"` button in the desktop sidebar and mobile drawer.
+2. Put the Preact components in `web/<name>/view.js` and the data loading and actions in a controller, following Reminders or Timeline. Render into a stable host with `render` from `preact` and the shared htm binding. Use stable keys for list items and keep any native dialog or input mount stable across refreshes.
+3. Import and mount the view in `web/app.js`, wire its loader into `refreshView` and its entry into `openView`, and add any bookmark handling to the workspace router. For a view that polls, add its refresh path to `viewRefreshPaths` and wire the refresh into `pollForeground`.
+4. Add the module URLs and any new stylesheets to the server’s `STATIC` allowlist. Verify navigation, focus, and refresh behavior with the offline browser fixture.
+
+[Shell and navigation](../web/index.html), [View wiring](../web/app.js), [Reminders mount](../web/reminders/view.js), [Reminders controller](../web/reminders/workspace.js), [Static allowlist](../hearth/server.py)
+
+## Update vendored frontend dependencies
+
+1. Copy the published browser ES modules and licenses into `web/vendor/`, keeping Preact and its hooks on the same version. The hooks module should import the bare specifier `preact` so both resolve to the same core.
+2. Update the versioned filenames in the inline import map in `web/index.html` and the matching `STATIC` entries in `hearth/server.py`. Serve the modules as `text/javascript`.
+3. Recompute `WORKSPACE_IMPORT_MAP_HASH` after the last edit to the map. Hash the bytes between the script tags, including indentation and newlines. Use the command below to print the value for the server constant.
+4. Run the syntax checks, Python suite, and default browser smoke above. The HTTP test verifies that the served map matches the CSP hash and that the mapped modules are served with the expected content type.
+
+```sh
+python - <<'PY'
+import base64
+import hashlib
+import re
+from pathlib import Path
+
+index = Path("web/index.html").read_bytes()
+body = re.search(rb'<script type="importmap">(.*?)</script>', index, re.DOTALL)[1]
+print("sha256-" + base64.b64encode(hashlib.sha256(body).digest()).decode("ascii"))
+PY
+```
+
+[Vendored modules](../web/vendor/), [Import map](../web/index.html), [CSP and static assets](../hearth/server.py), [HTTP test](../tests/test_hearth.py)
 
 ## Conventions
 
