@@ -58,6 +58,24 @@ def clean_message(row):
     return {**row, "content": clean(row["content"])}
 
 
+def model_content(row, actions):
+    content = row["content"]
+    if row["role"] != "assistant" or content == "[forgotten]":
+        return content
+    source = row.get("source")
+    if source == "approval":
+        status = actions.get(row.get("approval_id"), {}).get("status")
+        if status in {"complete", "sent"}:
+            return f"[Completed after your approval] {content}"
+        label = f"Hearth approval outcome ({status.replace('_', ' ')})" if status else "Hearth approval outcome"
+        return f"[{label}] {content}"
+    if source == "event-automation":
+        return f"[Hearth automation run result] {content}"
+    if source == "recurring-task":
+        return f"[Hearth recurring task result] {content}"
+    return content
+
+
 def record_id(thread_id, position, row):
     return row.get("id") or f"{thread_id}:{position}"
 
@@ -137,6 +155,10 @@ class Threads:
                     messages = (message for message in messages if message["role"] != "call")
                 rows = list(messages if limit is None else deque(messages, maxlen=limit))
         return [clean_message(row) for row in rows]
+
+    def model_history(self, rows):
+        actions = self.storage.load()["actions"] if any(row.get("source") == "approval" for row in rows) else {}
+        return [{**row, "content": model_content(row, actions)} for row in rows]
 
     def search_records(self, thread_id):
         path = self.path(thread_id)
@@ -378,8 +400,9 @@ class Threads:
 
     def context(self, thread_id, *, rolling=True):
         if thread_id != MAIN:
+            rows = self.model_history(self.messages(MAIN, limit=6, dialogue_only=True))
             recent = [{"role": message["role"], "excerpt": compact(message["content"], 390)}
-                      for message in self.messages(MAIN, limit=6, dialogue_only=True)]
+                      for message in rows]
             return "Recent Main excerpts for read-only reference", recent
         summaries = []
         for thread in self.list()[1:]:

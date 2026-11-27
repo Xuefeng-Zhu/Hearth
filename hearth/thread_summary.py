@@ -8,7 +8,7 @@ from .connections import with_model
 from .connectors import ConnectorError
 from .reply_text import clean_reply
 from .storage import HearthError, atomic_write
-from .threads import SIDE_TITLE, SUMMARY_TRIGGER, InvalidSummary, older_dialogue
+from .threads import SIDE_TITLE, SUMMARY_TRIGGER, InvalidSummary, model_content, older_dialogue
 
 BATCH_SIZE = 16
 SUMMARY_WORKERS = 2
@@ -208,14 +208,15 @@ class RollingSummaries:
         older = older_dialogue(rows, previous.get("cursor") or previous.get("reset_after"))
         if len(older) < SUMMARY_TRIGGER:
             return True
-        files = artifacts.message_artifacts(self.storage.load(), thread_id)
+        state = self.storage.load()
+        files = artifacts.message_artifacts(state, thread_id)
         summary = previous.get("text", "")
         if memory.matches_rule(summary, rules):
             summary = ""
         for start in range(0, len(older), BATCH_SIZE):
             batch = []
             for row in older[start:start + BATCH_SIZE]:
-                content = safe_text(row["content"])[:4_000]
+                content = safe_text(model_content(row, state["actions"]))[:4_000]
                 names = [*row.get("artifact_names", []), *(item["filename"] for item in files.get(row["id"], []))]
                 names = [name for name in dict.fromkeys(map(safe_text, names)) if name]
                 if memory.matches_rule(" ".join([content, *names]), rules):
