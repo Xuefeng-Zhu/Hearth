@@ -17,40 +17,16 @@ import { createMemory } from "./memory.js";
 import { createMemoryReview } from "./memory-review.js";
 import { githubSettings } from "./self-update.js";
 
+import { configTabs, connectionHash, createSettings, settingsHash, settingsRoute } from "./settings/workspace.js";
 import { createChatWorkspace, mainThread } from "./chat/workspace.js";
 
+const settings = createSettings(openSettingsSection, { api, renderRefreshStatus });
 mountIcons();
 setupSearchableSelects();
 
 const byId = (id) => document.getElementById(id);
 const notice = byId("notice");
 const nav = [...document.querySelectorAll("[data-view]")];
-const settingsGroups = [
-  ["Assistant", [
-    ["brain", "Brain", "Models and routing", "route"],
-    ["memory", "Memory", "Recall and saved facts", "book"],
-    ["search", "Search", "Web search providers", "search"],
-    ["voice", "Voice", "Calls and dictation", "mic"],
-  ]],
-  ["Connected", [
-    ["connections", "Connections", "Fly connectors and health", "plug"],
-    ["artifacts", "Artifacts", "File sync and Box storage", "files"],
-  ]],
-  ["Notifications", [
-    ["reminders", "Reminders", "Delivery and forwarded mail", "bell"],
-    ["feed", "Feed", "Topics and steering", "sparkle"],
-    ["proactivity", "Action suggestions", "Quiet hours and email digests", "bell"],
-    ["automations", "Automations", "When events trigger actions", "clock"],
-    ["watchers", "Watchers", "Public pages and Apify status", "monitor"],
-    ["approvals", "Approvals", "When Hearth asks first", "shield"],
-  ]],
-  ["App", [
-    ["home", "Home", "Weather location", "home"],
-    ["appearance", "Appearance", "Ember view and style", "image"],
-    ["about", "About", "Deployed Hearth version", "history"],
-  ]],
-];
-const settingsDisclosures = new Map();
 const connectionsLabel = "Settings → Connections";
 const dateFormat = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
 const modelNames = {
@@ -62,7 +38,6 @@ const connectorSettings = {
   pinecone: { field: "index", label: "Index name", placeholder: "hearth-memory", maxLength: 45 },
   agentmail: { field: "inbox_id", label: "Inbox ID", placeholder: "your-inbox@agentmail.to", maxLength: 254 },
 };
-const configTabs = ["configured", "not-configured"];
 const connectionTabStorage = "hearth-connections-tab";
 const connectionPanels = new Map();
 const connectionDrafts = new Map();
@@ -98,13 +73,12 @@ let poolRequest;
 let poolModels = {};
 let poolDraft = [];
 let poolDirty = false;
-let settingsSection;
 let reindexPoll;
 const preferences = { memory: {}, search: {} };
 const requestedThread = new URLSearchParams(location.search).get("thread");
 const chatWorkspace = createChatWorkspace({
   requestedThread, byId, api, trackRefresh, readResponse, showNotice, showConnectionGuidance, date,
-  currentView: () => view, currentSettings: () => settingsSection,
+  currentView: () => view, currentSettings: () => settings.section,
   getConnections: () => connectionState, getConnectionRequest: () => connectionRequest,
   openView, refreshView, getArtifacts: () => artifactLibrary,
   onThreadsChanged: () => { if (isSetting("memory")) renderMemoryThreadOptions(); },
@@ -205,7 +179,7 @@ const homePage = createHome({
   },
 });
 const delivery = createReminders({
-  api, refreshAPI, openView, openSettings: openSettingsSection, onInbox: automation.inbox, currentView: () => view, currentSettings: () => settingsSection,
+  api, refreshAPI, openView, openSettings: openSettingsSection, onInbox: automation.inbox, currentView: () => view, currentSettings: () => settings.section,
   reminderSearch: listSearches.reminders, inboxSearch: listSearches.inbox,
   startSending: () => chatWorkspace.reminderSending(true),
   stopSending: () => chatWorkspace.reminderSending(false),
@@ -559,29 +533,14 @@ function connectionCard(provider, entry) {
   return card;
 }
 
-function settingsHash(section, target) {
-  return "#settings" + (section ? `/${section}` : "") + (target ? `/${encodeURIComponent(target)}` : "");
-}
-
-function connectionHash(tab) {
-  return settingsHash("connections", tab);
-}
-
 function isSetting(section) {
-  return view === "settings" && settingsSection === section;
+  return view === "settings" && settings.section === section;
 }
 
 function workspaceRoute() {
   const hash = location.hash;
-  if (hash === "#settings") return { view: "settings", hash };
-  const searchRoute = listSearchRoute(hash);
-  if (searchRoute) return searchRoute;
-  const [root, ...path] = hash.slice(1).split("/");
-  const [section, item, extra] = root === "settings" ? path : [root, ...path];
-  if (extra === undefined && (root === "settings" || root === "connections") && settingsDisclosures.has(section)) {
-    const target = section === "connections" && configTabs.includes(item) ? item : undefined;
-    return { view: "settings", section, target, hash: settingsHash(section, target) };
-  }
+  const route = settingsRoute(hash) || listSearchRoute(hash);
+  if (route) return route;
   const filter = artifactFilterFromHash(hash);
   if (filter) return { view: "artifacts", hash: artifactHash(filter) };
   if (hash === timelineErrorRoute) return { view: "timeline", hash };
@@ -628,8 +587,7 @@ function syncWorkspaceRoute() {
     }
   }
   const focusSection = route.section && !isSetting(route.section);
-  openView(route.view, false, route.section, route.target);
-  if (focusSection) focusSetting(route.section);
+  openView(route.view, false, route.section, focusSection);
 }
 
 function renderConnections() {
@@ -751,7 +709,7 @@ function updateConnections(operation, body = {}) {
       }
       if (operation === "settings") connectionDrafts.delete(body.provider);
       applyConnections(data);
-      if (view === "settings" && settingsSection === "voice") {
+      if (view === "settings" && settings.section === "voice") {
         showVoiceEngine();
         voiceCall.refreshSettings();
       }
@@ -1259,7 +1217,7 @@ function updateMemoryJobs({ pinecone, sync, reindex }) {
   byId("memory-connect").hidden = pinecone.connected && !connectorHasError(connectionState?.providers.pinecone);
 
   updatePreferenceControls("memory");
-  if (running && view === "settings" && settingsSection === "memory") {
+  if (running && view === "settings" && settings.section === "memory") {
     reindexPoll = setTimeout(async () => {
       try {
         updateMemoryJobs(await api("/api/memory/reindex"));
@@ -1289,25 +1247,7 @@ function readPreferences(feature) {
     include: scope("include"), exclude: scope("exclude") };
 }
 
-function focusSetting(section) {
-  const control = settingsDisclosures.get(section);
-  const previous = control.closest(".settings-entry").previousElementSibling;
-  const anchor = previous.matches(".settings-group-label") ? previous : control;
-  anchor.scrollIntoView({ block: "start" });
-  control.focus({ preventScroll: true });
-}
-
-async function openSettings(section, target) {
-  settingsSection = section;
-  renderRefreshStatus();
-  clearTimeout(reindexPoll);
-  for (const [key, disclosure] of settingsDisclosures) {
-    const open = key === section;
-    disclosure.setAttribute("aria-expanded", String(open));
-    byId(`settings-${key}`).hidden = !open;
-  }
-  settingsDisclosures.get(section)?.scrollIntoView({ block: "nearest" });
-  if (!section) return;
+async function loadSettings(section) {
   if (section === "connections") {
     renderConnections();
     const mailCard = delivery.connections();
@@ -1318,15 +1258,6 @@ async function openSettings(section, target) {
   }
   if (section === "brain") return openBrainSettings();
   if (section === "appearance") return;
-  if (section === "about") {
-    const version = byId("hearth-version");
-    try {
-      version.textContent = (await api("/health")).version || "Local checkout";
-    } catch (error) {
-      version.textContent = error.message;
-    }
-    return;
-  }
   if (section === "artifacts") return artifactLibrary.settings();
   if (section === "home") return homePage.settings();
   if (section === "feed") return feed.settings();
@@ -1350,7 +1281,7 @@ async function openSettings(section, target) {
   }
   try {
     const info = await api(`/api/${section}/settings`);
-    if (view !== "settings" || settingsSection !== section || preferences[section].pending) return;
+    if (view !== "settings" || settings.section !== section || preferences[section].pending) return;
     preferences[section].info = info;
     if (section === "memory") renderMemoryPreferences(info);
     else renderSearchPreferences(info);
@@ -1440,7 +1371,7 @@ async function refreshView(options) {
   else if (view === "memory") await renderMemory();
 }
 
-async function openView(nextView, updateHistory = true, section, target) {
+async function openView(nextView, updateHistory = true, section, focusSection = false) {
   const request = ++viewRequest;
   const previousView = view;
   const fromDrawer = mobile.closeDrawer({ restoreFocus: false });
@@ -1491,12 +1422,12 @@ async function openView(nextView, updateHistory = true, section, target) {
   if (request !== viewRequest) return;
   if (view === "timeline") timeline.setTodayErrors(location.hash === timelineErrorRoute);
   if (view === "settings") {
-    await openSettings(section, target);
+    await settings.open(section, focusSection, loadSettings);
   } else if (view === "home") {
     await homePage.load();
     if (previousView !== "home" && feed.root.isConnected) feed.show(true);
   } else if (view === "skills") {
-    await skills.loadLinked(target);
+    await skills.loadLinked(searchRoute?.target);
   } else if (view === "artifacts") {
     artifactLibrary.selectFormat(artifactFilterFromHash(location.hash) || "all");
     await artifactLibrary.show();
@@ -1523,9 +1454,7 @@ function openWeatherSettings() {
 }
 
 function openConnections() {
-  const opening = openSettingsSection("connections");
-  focusSetting("connections");
-  return opening;
+  return openView("settings", true, "connections", true);
 }
 
 async function approve(action) {
@@ -1738,38 +1667,6 @@ byId("memory-find").addEventListener("submit", (event) => {
 byId("memory-query").addEventListener("input", (event) => {
   if (!event.target.value) findMemory();
 });
-for (const [groupName, sections] of settingsGroups) {
-  const group = node("div", "settings-group");
-  const groupLabel = node("p", "settings-group-label", groupName);
-  groupLabel.id = `settings-group-${groupName.toLowerCase()}`;
-  group.setAttribute("role", "group");
-  group.setAttribute("aria-labelledby", groupLabel.id);
-  group.append(groupLabel);
-  for (const [section, title, subtitle, symbol] of sections) {
-    const panel = byId(`settings-${section}`);
-    const disclosure = button("", () => openSettingsSection(isSetting(section) ? undefined : section));
-    disclosure.className = "settings-disclosure";
-    disclosure.dataset.settings = section;
-    disclosure.setAttribute("aria-controls", panel.id);
-    disclosure.setAttribute("aria-expanded", "false");
-    const copy = node("span", "settings-label");
-    const name = node("span", "settings-title", title);
-    const description = node("span", "settings-subtitle", subtitle);
-    name.id = `${panel.id}-title`;
-    description.id = `${panel.id}-subtitle`;
-    disclosure.setAttribute("aria-labelledby", name.id);
-    disclosure.setAttribute("aria-describedby", description.id);
-    copy.append(name, description);
-    disclosure.append(icon(symbol), copy, icon("chevron", 18));
-    const heading = node("h2", "settings-heading");
-    heading.append(disclosure);
-    const entry = node("div", "settings-entry");
-    entry.append(heading, panel);
-    group.append(entry);
-    settingsDisclosures.set(section, disclosure);
-  }
-  byId("settings-sections").append(group);
-}
 for (const feature of ["memory", "search"]) {
   byId(`${feature}-settings-form`).addEventListener("submit", (event) => {
     event.preventDefault();
