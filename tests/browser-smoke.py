@@ -15,6 +15,7 @@ from combobox_smoke import combobox_smoke
 from chat_search_smoke import chat_search_smoke
 from list_search_smoke import list_search_smoke
 from motion_smoke import motion_smoke
+from settings_smoke import settings_smoke
 
 from hearth import browserbase
 from hearth.agent import Agent, mock_completion, mock_text, tool_call
@@ -1175,6 +1176,8 @@ def main():
                     thread_row_smoke(browser, thread_app, thread_origin)
                 with workspace() as (_, composer_origin):
                     composer_smoke(browser, composer_origin)
+                with workspace() as (settings_app, settings_origin):
+                    settings_smoke(browser, settings_app, settings_origin, browser_page)
                 smoke(browser, origin)
                 mobile_thread_menu_smoke(browser, origin)
                 thread_menu_smoke(browser, origin)
