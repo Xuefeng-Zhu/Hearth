@@ -79,14 +79,11 @@ function SettingsSections({ active, onSelect }) {
 
 export function createSettings(onSelect, { api, renderRefreshStatus }) {
   const host = document.getElementById("settings-sections");
-  const panels = [...host.children];
   let active;
   function paint() {
     render(html`<${SettingsSections} active=${active} onSelect=${onSelect} />`, host);
   }
-  host.replaceChildren();
   paint();
-  for (const panel of panels) document.getElementById(panel.id).append(...panel.childNodes);
   render(html`
     <div class="card">
       <p>Deployed commit</p>
@@ -117,7 +114,7 @@ export function createSettings(onSelect, { api, renderRefreshStatus }) {
         }
         return;
       }
-      return load(section);
+      return load?.();
     },
   };
 }

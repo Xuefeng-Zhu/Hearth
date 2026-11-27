@@ -20,14 +20,16 @@ import { createSettings, settingsHash, settingsRoute } from "./settings/workspac
 import { connectorHasError, createConnections } from "./settings/connections.js";
 import { createPreferences } from "./settings/preferences.js";
 import { createWorkspaceStatus, showConnectionGuidance } from "./settings/status.js";
+import { mountSupportingSections } from "./settings/sections.js";
 import { createBrain } from "./settings/brain.js";
 import { createChatWorkspace, mainThread } from "./chat/workspace.js";
 
+const byId = (id) => document.getElementById(id);
 const settings = createSettings(openSettingsSection, { api, renderRefreshStatus });
+mountSupportingSections(byId);
 mountIcons();
 setupSearchableSelects();
 
-const byId = (id) => document.getElementById(id);
 const notice = byId("notice");
 const nav = [...document.querySelectorAll("[data-view]")];
 const dateFormat = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
@@ -398,21 +400,20 @@ function syncWorkspaceRoute() {
   openView(route.view, false, route.section, focusSection);
 }
 
-async function loadSettings(section) {
-  if (section === "connections") return connections.open();
-  if (section === "brain") return brain.open();
-  if (section === "appearance") return;
-  if (section === "artifacts") return artifactLibrary.settings();
-  if (section === "home") return homePage.settings();
-  if (section === "feed") return feed.settings();
-  if (section === "proactivity") return proactivity.settings();
-  if (section === "approvals") return automation.settings();
-  if (section === "automations") return automation.eventSettings();
-  if (section === "watchers") return;
-  if (section === "reminders") return delivery.settings();
-  if (section === "voice") return voiceSettings.open();
-  return preferences.open(section);
-}
+const loadSettings = {
+  connections: connections.open,
+  brain: brain.open,
+  memory: () => preferences.open("memory"),
+  search: () => preferences.open("search"),
+  voice: voiceSettings.open,
+  artifacts: artifactLibrary.settings,
+  home: homePage.settings,
+  feed: feed.settings,
+  proactivity: proactivity.settings,
+  approvals: automation.settings,
+  automations: automation.eventSettings,
+  reminders: delivery.settings,
+};
 
 async function refreshView(options) {
   renderRefreshStatus();
@@ -482,7 +483,7 @@ async function openView(nextView, updateHistory = true, section, focusSection = 
   if (request !== viewRequest) return;
   if (view === "timeline") timeline.setTodayErrors(location.hash === timelineErrorRoute);
   if (view === "settings") {
-    await settings.open(section, focusSection, loadSettings);
+    await settings.open(section, focusSection, loadSettings[section]);
   } else if (view === "home") {
     await homePage.load();
     if (previousView !== "home" && feed.root.isConnected) feed.show(true);
