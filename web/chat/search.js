@@ -31,7 +31,7 @@ function SearchPanel({ bind, handlers, mode, groups, active, hasQuery, before, t
       <label class="visually-hidden" for="chat-search-query">Search messages</label>
       <${Icon} name="search" size=${18} />
       <input type="search" id="chat-search-query" class="search-input" placeholder="Search messages…" maxlength="400"
-        autocomplete="off" spellcheck="false" ref=${bind.input} role=${all ? "combobox" : null}
+        autocomplete="off" spellcheck=${false} ref=${bind.input} role=${all ? "combobox" : null}
         aria-autocomplete=${all ? "list" : null} aria-controls=${all ? "chat-search-results" : null}
         aria-expanded=${all ? String(!!groups.length) : null}
         aria-activedescendant=${active < 0 ? null : `chat-search-option-${active}`}

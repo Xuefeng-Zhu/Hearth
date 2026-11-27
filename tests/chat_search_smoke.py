@@ -119,6 +119,7 @@ def desktop_flow(page, garden, scheme):
     composer.press("Control+k")
     search = page.get_by_role("combobox", name="Search messages")
     expect(search).to_be_focused()
+    expect(search).to_have_attribute("spellcheck", "false")
     expect(page.locator("#chat-search-status")).to_have_text("Enter at least 2 characters to search.")
     search.press("Escape")
     expect(composer).to_be_focused()
