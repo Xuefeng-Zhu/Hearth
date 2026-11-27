@@ -42,7 +42,7 @@ jobs:
 
   browser-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,14 +59,30 @@ jobs:
         run: python -m pip install -r requirements-test.txt
       - name: Install Chromium and system dependencies
         run: python -m playwright install --with-deps --only-shell chromium
-      - name: Offline Chromium smoke
+      - name: Offline Chromium smoke (core)
         env:
           PYTHONPATH: .
-        run: timeout 85s python tests/browser-smoke.py
+        run: timeout 180s python tests/browser-smoke.py --core
+      - name: Feed Ideas
+        env:
+          PYTHONPATH: .
+        run: timeout 180s python tests/browser-smoke.py --feed-ideas
+      - name: Chat search
+        env:
+          PYTHONPATH: .
+        run: timeout 180s python tests/browser-smoke.py --chat-search
+      - name: Reminders, Inbox and Skills search
+        env:
+          PYTHONPATH: .
+        run: timeout 180s python tests/browser-smoke.py --list-search
+      - name: Motion and focus
+        env:
+          PYTHONPATH: .
+        run: timeout 180s python tests/browser-smoke.py --motion
       - name: Chat stream disconnect recovery
         env:
           PYTHONPATH: .
-        run: timeout 85s python tests/browser-smoke.py --disconnect
+        run: timeout 180s python tests/browser-smoke.py --disconnect
 
   deploy:
     if: github.repository == 'Xuefeng-Zhu/Hearth' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

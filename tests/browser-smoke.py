@@ -1216,6 +1216,7 @@ def main():
     parser.add_argument("--list-search", action="store_true", help="Run Reminders, Inbox, and Skills search with the width sweep.")
     parser.add_argument("--motion", action="store_true", help="Run only the motion and focus regression.")
     parser.add_argument("--feed-ideas", action="store_true", help="Run only the Feed Ideas action regression.")
+    parser.add_argument("--core", action="store_true", help="Run the default smoke without the Feed Ideas, Chat search, list search, and motion checks, which CI runs as separate steps.")
     args = parser.parse_args()
     expect.set_options(timeout=5_000)
     with workspace() as (app, origin), sync_playwright() as playwright:
@@ -1237,8 +1238,9 @@ def main():
                     layout_smoke(browser, layout_app, layout_origin)
                 with workspace() as (home_app, home_origin):
                     home_add_smoke(browser, home_app, home_origin)
-                with workspace() as (feed_app, feed_origin):
-                    feed_ideas_smoke(browser, feed_app, feed_origin, browser_page)
+                if not args.core:
+                    with workspace() as (feed_app, feed_origin):
+                        feed_ideas_smoke(browser, feed_app, feed_origin, browser_page)
                 with workspace() as (thread_app, thread_origin):
                     thread_row_smoke(browser, thread_app, thread_origin)
                 with workspace() as (_, composer_origin):
@@ -1250,19 +1252,20 @@ def main():
                 thread_menu_smoke(browser, origin)
                 with workspace() as (combo_app, combo_origin):
                     combobox_smoke(browser, combo_app, combo_origin, browser_page)
-                with workspace() as (search_app, search_origin):
-                    chat_search_smoke(browser, search_app, search_origin, browser_page)
-                with workspace() as (list_app, list_origin):
-                    list_search_smoke(browser, list_app, list_origin, browser_page)
-                with workspace() as (_, motion_origin):
-                    motion_smoke(browser, motion_origin, browser_page)
+                if not args.core:
+                    with workspace() as (search_app, search_origin):
+                        chat_search_smoke(browser, search_app, search_origin, browser_page)
+                    with workspace() as (list_app, list_origin):
+                        list_search_smoke(browser, list_app, list_origin, browser_page)
+                    with workspace() as (_, motion_origin):
+                        motion_smoke(browser, motion_origin, browser_page)
                 stale_refresh(browser, origin)
                 self_update_smoke(browser, app, origin)
         finally:
             browser.close()
     check = ("stream disconnect" if args.disconnect else "Chat search" if args.chat_search
              else "list search" if args.list_search else "motion" if args.motion
-             else "Feed Ideas" if args.feed_ideas else "smoke")
+             else "Feed Ideas" if args.feed_ideas else "core smoke" if args.core else "smoke")
     print(f"Chromium {check} passed.")
 
 

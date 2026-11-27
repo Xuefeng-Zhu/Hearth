@@ -29,13 +29,14 @@ The test requirements include Playwright. Run these commands from the repository
 ```sh
 python -m playwright install --only-shell chromium
 PYTHONPATH=. python tests/browser-smoke.py
+PYTHONPATH=. python tests/browser-smoke.py --core
 PYTHONPATH=. python tests/browser-smoke.py --disconnect
 PYTHONPATH=. python tests/browser-smoke.py --chat-search
 PYTHONPATH=. python tests/browser-smoke.py --list-search
 PYTHONPATH=. python tests/browser-smoke.py --motion
 ```
 
-The default smoke uses temporary workspaces and offline fixtures, and runs the Settings, searchable combobox, Chat search, list search, and motion helpers. Use one flag per invocation. `--disconnect` checks stream recovery, `--chat-search` and `--list-search` add 390–1920 px overflow sweeps, and `--motion` isolates view transitions, reduced motion, and focus. The default and disconnect commands are the deploy gates. [Browser entry point](../tests/browser-smoke.py), [Chat search smoke](../tests/chat_search_smoke.py), [Settings smoke](../tests/settings_smoke.py), [Motion smoke](../tests/motion_smoke.py)
+The default smoke uses temporary workspaces and offline fixtures, and runs the Settings, searchable combobox, Chat search, list search, and motion helpers. Use one flag per invocation. `--disconnect` checks stream recovery, `--chat-search` and `--list-search` add 390–1920 px overflow sweeps, and `--motion` isolates view transitions, reduced motion, and focus. `--core` runs the default smoke without the Feed Ideas, Chat search, list search, and motion checks. CI runs `--core`, `--feed-ideas`, `--chat-search`, `--list-search`, `--motion`, and `--disconnect` as separate steps with a 180-second limit each, and they gate deploy. [Browser entry point](../tests/browser-smoke.py), [Chat search smoke](../tests/chat_search_smoke.py), [Settings smoke](../tests/settings_smoke.py), [Motion smoke](../tests/motion_smoke.py)
 
 ### WebKit and Firefox
 
