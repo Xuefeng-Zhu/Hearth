@@ -1,4 +1,5 @@
-import { createTimeline } from "./timeline.js";
+import { createTimeline } from "./timeline/workspace.js";
+import { mountTimeline } from "./timeline/view.js";
 import { createArtifacts } from "./artifacts/library.js";
 import { artifactFilterFromHash } from "./artifacts/format.js";
 import { mountArtifacts } from "./artifacts/view.js";
@@ -36,6 +37,7 @@ mountArtifacts(byId);
 mountTasks(byId);
 mountReminders(byId);
 mountHome(byId);
+mountTimeline(byId);
 mountIcons();
 setupSearchableSelects();
 
@@ -94,7 +96,7 @@ const { activateThread, openArtifactThread, openDemo, openMainChat, openPanelCha
   voiceSettings } = chatWorkspace;
 const timelineErrorRoute = "#timeline/errors";
 const timeline = createTimeline({
-  api, refreshAPI, approve, undo, gatewayResults, isBusy: () => chatWorkspace.busy,
+  refreshAPI, approve, undo, gatewayResults, isBusy: () => chatWorkspace.busy,
   onFilter() {
     if (location.hash === timelineErrorRoute) {
       history.replaceState({ hearthView: "timeline" }, "", location.pathname + location.search);

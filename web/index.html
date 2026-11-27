@@ -180,56 +180,7 @@
         <div id="inbox-search-empty" class="list-search-empty" hidden></div>
         <div id="inbox-content" class="list-search-results"></div>
       </section>
-      <section class="view panel" id="timeline-view" aria-labelledby="view-title" hidden>
-        <div class="section-intro timeline-intro">
-          <h2>Workspace activity</h2>
-          <p>See what Hearth did and undo changes.</p>
-        </div>
-        <section class="timeline-today" aria-labelledby="timeline-today-title">
-          <h3 id="timeline-today-title">Today at a glance</h3>
-          <dl id="timeline-summary" class="timeline-summary">
-            <div><dt>Turns</dt><dd id="timeline-turns">—</dd></div>
-            <div><dt>Memories</dt><dd id="timeline-memory">—</dd></div>
-            <div><dt>Actions</dt><dd id="timeline-actions">—</dd></div>
-            <div><dt>Connector calls</dt><dd id="timeline-connectors">—</dd></div>
-            <div><dt>Last undo</dt><dd id="timeline-last-undo">—</dd></div>
-          </dl>
-        </section>
-        <p class="timeline-compact-summary" id="timeline-compact-summary" aria-label="Today’s activity"></p>
-        <div class="timeline-controls">
-          <div id="timeline-filters" class="timeline-filters" role="group" aria-label="Activity type"></div>
-          <div class="timeline-fields">
-            <label class="visually-hidden" for="timeline-search">Search activity</label>
-            <input id="timeline-search" type="search" maxlength="240" placeholder="Search activity…">
-            <label class="visually-hidden" id="timeline-thread-label" for="timeline-thread">Thread</label>
-            <select id="timeline-thread"><option value="">All threads</option></select>
-            <label class="visually-hidden" id="timeline-category-label" for="timeline-category">Category</label>
-            <select id="timeline-category"><option value="">All categories</option></select>
-            <button class="timeline-mobile-filter" id="timeline-filter-open" type="button" aria-haspopup="dialog"
-              aria-controls="timeline-filter-sheet"><span data-icon="filter" data-icon-size="17"></span>Filter
-              <span id="timeline-error-count" class="timeline-error-count" hidden></span></button>
-          </div>
-        </div>
-        <div class="timeline-active-filter" id="timeline-active-filter" hidden>
-          <button id="timeline-filter-clear" type="button"><span id="timeline-filter-name"></span>
-            <span data-icon="x" data-icon-size="15"></span></button>
-        </div>
-        <dialog class="timeline-filter-sheet" id="timeline-filter-sheet" aria-labelledby="timeline-filter-title">
-          <header>
-            <h2 id="timeline-filter-title">Filter activity</h2>
-            <button type="button" id="timeline-filter-close" aria-label="Close filters"><span data-icon="x"></span></button>
-          </header>
-          <div id="timeline-filter-options"></div>
-          <div class="timeline-filter-thread" id="timeline-filter-thread"></div>
-          <footer>
-            <button type="button" id="timeline-filter-reset">Reset</button>
-            <button type="button" id="timeline-filter-apply">Apply</button>
-          </footer>
-        </dialog>
-        <p class="timeline-feedback meta" id="timeline-feedback" role="status">Loading activity…<span class="loading-skeleton" aria-hidden="true"></span></p>
-        <p class="visually-hidden" id="timeline-announcer" role="status"></p>
-        <div class="timeline" id="timeline"></div>
-      </section>
+      <section class="view panel" id="timeline-view" aria-labelledby="view-title" hidden></section>
       <section class="view panel" id="skills-view" aria-labelledby="view-title" hidden>
         <div class="section-intro split-heading">
           <div>
