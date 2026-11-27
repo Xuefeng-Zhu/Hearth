@@ -13,6 +13,7 @@ from playwright.sync_api import expect, sync_playwright
 
 from combobox_smoke import combobox_smoke
 from chat_search_smoke import chat_search_smoke
+from feed_ideas_smoke import feed_ideas_smoke
 from list_search_smoke import list_search_smoke
 from motion_smoke import motion_smoke
 from settings_smoke import settings_smoke
@@ -1154,6 +1155,7 @@ def main():
     parser.add_argument("--chat-search", action="store_true", help="Run only Chat search, including the width sweep.")
     parser.add_argument("--list-search", action="store_true", help="Run Reminders, Inbox, and Skills search with the width sweep.")
     parser.add_argument("--motion", action="store_true", help="Run only the motion and focus regression.")
+    parser.add_argument("--feed-ideas", action="store_true", help="Run only the Feed Ideas action regression.")
     args = parser.parse_args()
     expect.set_options(timeout=5_000)
     with workspace() as (app, origin), sync_playwright() as playwright:
@@ -1167,11 +1169,15 @@ def main():
                 list_search_smoke(browser, app, origin, browser_page, sweep=True)
             elif args.motion:
                 motion_smoke(browser, origin, browser_page)
+            elif args.feed_ideas:
+                feed_ideas_smoke(browser, app, origin, browser_page)
             else:
                 with workspace() as (layout_app, layout_origin):
                     layout_smoke(browser, layout_app, layout_origin)
                 with workspace() as (home_app, home_origin):
                     home_add_smoke(browser, home_app, home_origin)
+                with workspace() as (feed_app, feed_origin):
+                    feed_ideas_smoke(browser, feed_app, feed_origin, browser_page)
                 with workspace() as (thread_app, thread_origin):
                     thread_row_smoke(browser, thread_app, thread_origin)
                 with workspace() as (_, composer_origin):
@@ -1194,7 +1200,8 @@ def main():
         finally:
             browser.close()
     check = ("stream disconnect" if args.disconnect else "Chat search" if args.chat_search
-             else "list search" if args.list_search else "motion" if args.motion else "smoke")
+             else "list search" if args.list_search else "motion" if args.motion
+             else "Feed Ideas" if args.feed_ideas else "smoke")
     print(f"Chromium {check} passed.")
 
 

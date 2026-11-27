@@ -120,7 +120,7 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
       <div class="feed-actions">
         <${Button} text=${row.action_label} symbol=${symbol} className="feed-primary" action=${(event) => respond(event, "open")} />
         <${IconButton} label="Dismiss" symbol="x" action=${(event) => respond(event, "dismiss")} />
-        <${Button} text="Not interested" action=${(event) => respond(event, "not-interested")} />
+        <${IconButton} label="Not interested" symbol="thumbs-down" action=${(event) => respond(event, "not-interested")} />
       </div>
     </article>`;
   }
