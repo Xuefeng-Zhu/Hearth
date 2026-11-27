@@ -39,7 +39,7 @@ function Weather() {
   return html`
     <form id="weather-settings-form" class="card brain-form">
       <label for="weather-location">Weather location</label>
-      <input id="weather-location" name="location" type="text" placeholder="Redmond, WA" minlength="2" maxlength="120" required />
+      <input id="weather-location" name="location" type="text" placeholder="San Francisco, CA" minlength="2" maxlength="120" required />
       <p class="meta">Enter a city and region, or a postal code. The clock uses Pacific time.</p>
       <div class="action-row">
         <button type="submit" class="primary-setting" id="weather-location-save">Save location</button>

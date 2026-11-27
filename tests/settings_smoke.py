@@ -72,6 +72,11 @@ def settings_smoke(browser, app, origin, browser_page):
         page.locator('#search-settings-form button[type="submit"]').click()
         expect(page.locator("#search-feedback")).to_have_text("Settings saved.")
 
+        page.locator('[data-settings="home"]').click()
+        location = page.get_by_label("Weather location")
+        expect(location).to_have_attribute("placeholder", "San Francisco, CA")
+        expect(location).to_have_value("San Francisco, CA")
+
         page.locator('[data-settings="voice"]').click()
         page.locator("#voice-engine").select_option("browser")
         page.locator("#voice-length").fill("14")

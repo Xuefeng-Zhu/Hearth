@@ -19,8 +19,8 @@ from .storage import HearthError, iso, new_id, revision
 from .threads import MAIN, compact
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
-DEFAULT_LOCATION = "Redmond, WA"
-DEFAULT_PLACE = {"name": DEFAULT_LOCATION, "latitude": 47.674, "longitude": -122.1215}
+DEFAULT_LOCATION = "San Francisco, CA"
+DEFAULT_PLACE = {"name": DEFAULT_LOCATION, "latitude": 37.7749, "longitude": -122.4194}
 WEATHER_MINUTES = 30
 WEATHER_RETRY_MINUTES = 5
 ACTIVITY_SIZE = 5
@@ -43,8 +43,12 @@ class ActivitySource(IntEnum):
 
 
 def weather_state(state):
+    saved_weather = state.get("weather", {})
+    # An empty revision marks forecast data cached for the built-in default.
+    if saved_weather.get("revision") == "" and saved_weather.get("location") != DEFAULT_LOCATION:
+        saved_weather = {}
     return {"location": DEFAULT_LOCATION, "place": DEFAULT_PLACE, "value": None,
-            "updated_at": None, "attempted_at": None, "error": None, "revision": "", **state.get("weather", {})}
+            "updated_at": None, "attempted_at": None, "error": None, "revision": "", **saved_weather}
 
 
 def recent_artifacts(state):

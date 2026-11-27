@@ -197,7 +197,7 @@ def test_dashboard(page, base, mobile, label, shots, app):
     expect(page.locator("#home-grid h2").first).to_have_text(first)
 
     page.locator('[data-panel="weather"]').get_by_role("button", name="Weather settings").click()
-    expect(page.get_by_label("Weather location")).to_have_value("Redmond, WA")
+    expect(page.get_by_label("Weather location")).to_have_value("San Francisco, CA")
     page.get_by_label("Weather location").fill("Seattle, WA")
     page.get_by_role("button", name="Save location").click()
     expect(page.locator("#weather-settings-status")).to_contain_text("Location saved")

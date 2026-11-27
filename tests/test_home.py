@@ -290,14 +290,37 @@ class HomeTest(unittest.TestCase):
             self.assertTrue(self.app.home.refresh_weather(failed_at + timedelta(minutes=5), due=True))
         self.assertIsNone(self.app.home.settings()["error"])
 
+    def test_weather_default_replaces_old_default_cache(self):
+        self.assertEqual(self.app.home.settings()["location"], "San Francisco, CA")
+        with self.storage.lock():
+            state = self.storage.load()
+            state["weather"] = {"location": "Previous default", "revision": "",
+                                "place": {"name": "Previous default", "latitude": 45, "longitude": -120},
+                                "value": {"temperature": 48, "code": 3}, "updated_at": iso(STAMP),
+                                "attempted_at": iso(STAMP)}
+            self.storage.save(state)
+        weather = self.app.home.snapshot(STAMP)["builtin"]["weather"]
+        self.assertEqual(weather["location"], "San Francisco, CA")
+        self.assertIsNone(weather["value"])
+        forecast = {"current": {"temperature_2m": 55, "weather_code": 0}}
+        with patch("hearth.home.open_meteo", return_value=forecast) as meteo:
+            self.assertTrue(self.app.home.refresh_weather(STAMP, due=True))
+            meteo.assert_called_once_with("api", "forecast", {
+                "latitude": 37.7749, "longitude": -122.4194, "timezone": "America/Los_Angeles",
+                "current": "temperature_2m,weather_code", "temperature_unit": "fahrenheit", "forecast_days": 1,
+            })
+        self.assertEqual(self.storage.load()["weather"]["location"], "San Francisco, CA")
+
     def test_weather_location_persists_and_uses_pacific_clock(self):
         with patch.object(self.app.home, "kick"):
             self.app.home.save_settings({"location": "Seattle, WA"})
+        app = self.open_app()
+        self.assertEqual(app.home.settings()["location"], "Seattle, WA")
         matches = {"results": [{"name": "Seattle", "admin1": "Washington", "country": "United States",
                                 "latitude": 47.6, "longitude": -122.3}]}
         forecast = {"current": {"temperature_2m": 51.1, "weather_code": 2}}
         with patch("hearth.home.open_meteo", side_effect=[matches, forecast]) as meteo:
-            self.assertTrue(self.app.home.refresh_weather(STAMP))
+            self.assertTrue(app.home.refresh_weather(STAMP))
             self.assertEqual(meteo.call_args_list[0].args[2]["name"], "Seattle, WA")
             self.assertEqual(meteo.call_args_list[1].args[2]["timezone"], "America/Los_Angeles")
         snapshot = self.open_app().home.snapshot(STAMP)
