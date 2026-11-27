@@ -265,7 +265,7 @@ main { display: flex; flex-direction: column; min-width: 0; height: 100dvh; }
 .chat-markdown blockquote { border-inline-start: 2px solid var(--accent); padding-inline-start: 0.8em; }
 .chat-markdown pre { white-space: pre; overflow: auto; font: 13px/1.6 ui-monospace, monospace; }
 .chat-markdown pre code { padding: 0; }
-.chat-markdown > :is(p, ul, ol, blockquote) { max-inline-size: var(--reading-width); }
+p.chat-markdown, .chat-markdown > :is(p, ul, ol, blockquote) { max-inline-size: var(--reading-width); }
 .chat-markdown :is(code, pre) { background: var(--code-bg); border-radius: 4px; padding: 0.15em 0.3em; }
 .message.user { max-width: min(80%, 550px); justify-self: end; border-radius: 14px 14px 4px 14px; background: var(--accent-light); padding: var(--space-2) var(--space-3); }
 .message.assistant { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: var(--space-3); }

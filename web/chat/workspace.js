@@ -49,6 +49,7 @@ export function createChatWorkspace({
   let conversation = newConversation(store.state.currentThread);
   const localTurns = () => [...conversation.turns.values()];
   const turnBubbles = new Map();
+  let promptKeys = new Map();
   const stopping = new Set();
   let chatNoticeTurn;
   let sendingTestReminder = false;
@@ -64,7 +65,6 @@ export function createChatWorkspace({
   }
   let chatSignature;
   let chatRows = new Map();
-  let nextRowKey = 0;
   let chatMotion;
   const workerCards = new Map();
   let threadBusy = false;
@@ -166,13 +166,15 @@ export function createChatWorkspace({
     const active = store.state.threads.find((thread) => thread.id === store.state.currentThread) || { id: store.state.currentThread };
     const current = threadPose(active, now);
     setPose(store.state.avatarMode === "face" ? portraitMascot : headerMascot, current);
-    updateText(byId("avatar-caption"), current.pose === "idle" ? "" : poseLabel(current));
-    byId("avatar-caption").hidden = current.pose === "idle";
+    const caption = byId("avatar-caption");
+    const idle = current.pose === "idle";
+    updateText(caption, idle ? "" : poseLabel(current));
+    if (caption.hidden !== idle) caption.hidden = idle;
     updateText(byId("face-status"), poseLabel(current));
     updateText(byId("avatar-status"), announcePose(current));
     for (const turn of conversation.turns.values()) {
       const bubble = turnBubbles.get(turn.key);
-      if (turn.threadId === store.state.currentThread && bubble?.avatar && !turn.finished) {
+      if (turn.threadId === store.state.currentThread && bubble?.avatar && !turn.reply && !turn.finished) {
         setPose(bubble.avatar, current);
       }
     }
@@ -368,9 +370,8 @@ export function createChatWorkspace({
 
   function bindMessageMenu(item, message, content) {
     const threadId = store.state.currentThread;
-    item.tabIndex = 0;
-    item.setAttribute("aria-haspopup", "dialog");
-    item.setAttribute("aria-keyshortcuts", "Enter Space Shift+F10");
+    const controller = new AbortController();
+    const options = { signal: controller.signal };
     function open() {
       if (menu.open || !item.isConnected) return;
       const actions = byId("message-menu-actions");
@@ -403,38 +404,49 @@ export function createChatWorkspace({
       origin = { x: event.clientX, y: event.clientY };
       held = false;
       timer = setTimeout(() => { held = true; open(); }, 480);
-    });
+    }, options);
     item.addEventListener("pointermove", (event) => {
       if (origin && Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 10) cancel();
-    });
-    item.addEventListener("pointerup", cancel);
-    item.addEventListener("pointercancel", cancel);
+    }, options);
+    item.addEventListener("pointerup", cancel, options);
+    item.addEventListener("pointercancel", cancel, options);
     item.addEventListener("contextmenu", (event) => {
       if (interactive(event) || !getSelection()?.isCollapsed) return;
       event.preventDefault();
       cancel();
       open();
-    });
+    }, options);
     item.addEventListener("click", (event) => {
       if (!held && event.pointerType === "touch" && !interactive(event) && getSelection()?.isCollapsed) open();
       held = false;
-    });
+    }, options);
     item.addEventListener("keydown", (event) => {
       if (event.target !== item || !["Enter", " ", "ContextMenu"].includes(event.key) &&
           !(event.key === "F10" && event.shiftKey)) return;
       event.preventDefault();
       open();
-    });
+    }, options);
+    return () => {
+      cancel();
+      controller.abort();
+    };
+  }
+
+  function checkCollapsedReply(toggle) {
+    const text = toggle.previousElementSibling;
+    const expanded = toggle.getAttribute("aria-expanded") === "true";
+    const hidden = text.scrollHeight <= text.clientHeight + 1;
+    if (!expanded && toggle.hidden !== hidden) toggle.hidden = hidden;
+    const bottom = text.getBoundingClientRect().bottom;
+    for (const link of text.querySelectorAll("a")) {
+      const tabIndex = link.getBoundingClientRect().bottom > bottom ? -1 : 0;
+      if (link.tabIndex !== tabIndex) link.tabIndex = tabIndex;
+    }
   }
 
   function checkCollapsedReplies() {
     for (const toggle of transcript.querySelectorAll(".message-expand")) {
-      const text = toggle.previousElementSibling;
-      if (toggle.getAttribute("aria-expanded") === "true") continue;
-      toggle.hidden = text.scrollHeight <= text.clientHeight + 1;
-      for (const link of text.querySelectorAll("a")) {
-        link.tabIndex = link.getBoundingClientRect().bottom > text.getBoundingClientRect().bottom ? -1 : 0;
-      }
+      if (toggle.getAttribute("aria-expanded") !== "true") checkCollapsedReply(toggle);
     }
   }
   window.addEventListener("resize", checkCollapsedReplies);
@@ -442,11 +454,11 @@ export function createChatWorkspace({
   const messageActions = {
     votes: messageVotes, copy: copyMessage, restore: restorePrompt, date, bindMenu: bindMessageMenu,
     time: (value) => messageTime.format(new Date(value)),
-    showError: showConnectionGuidance, checkCollapsed: checkCollapsedReplies, scrollDown,
+    showError: showConnectionGuidance, checkCollapsed: checkCollapsedReply, scrollDown,
     isVisible: () => currentView() === "chat",
   };
 
-  function messageRow(role, content, { message, status, prompt, working, streaming = working, attachments = [],
+  function messageRow(role, content, { key = Symbol(), message, status, prompt, working, finished, streaming = working, attachments = [],
     skill = message?.skill, linkedArtifacts, uploadMetadata = serverState?.message_uploads, warnings = [], error, errorInNotice } = {}) {
     const extras = [];
     if (message?.file_answer) extras.push(fileAnswerSources(message.file_answer));
@@ -485,7 +497,7 @@ export function createChatWorkspace({
       if (message.browse_images?.length) extras.push(...message.browse_images.map(browseScreenshot));
     }
     const row = {
-      key: nextRowKey++, role, content, message, status, prompt, streaming, working, extras, warnings, error, errorInNotice,
+      key, role, content, message, status, prompt, streaming, working, finished, extras, warnings, error, errorInNotice,
       skill: skill && skillChip(skill), avatarLook: store.state.avatarLook, avatarColor: store.state.avatarColor,
       cards: [],
       bindItem(item) { row.item = item; },
@@ -683,7 +695,7 @@ export function createChatWorkspace({
         list.querySelector('[aria-current="true"]')?.focus({ preventScroll: true });
       }
     }
-    byId("thread-title").textContent = active?.title || (store.state.currentThread === mainThread.id ? "Main" : "Side chat");
+    updateText(byId("thread-title"), active?.title || (store.state.currentThread === mainThread.id ? "Main" : "Side chat"));
     const activity = byId("thread-activity");
     activity.hidden = store.state.avatarMode !== "off" || !active?.status || active.status === "Unread reply";
     updateText(activity, active?.status || "");
@@ -755,6 +767,9 @@ export function createChatWorkspace({
     conversation = result.state;
     const announcements = [];
     for (const { turn, reply } of result.completed) {
+      // A state refresh can see the saved reply before the stream delivers its receipt.
+      const bubble = turnBubbles.get(turn.key);
+      if (bubble) chatRows.set(reply.id, bubble);
       if (update.type !== "stream") {
         artifacts.endBrowse(turn.browse?.id);
         avatarSignal(turn.threadId, { type: "done", remembered: !!reply.remembered?.length });
@@ -800,6 +815,7 @@ export function createChatWorkspace({
     chatSignature = signature;
     const follow = !preserveScroll && nearBottom();
     const previousMotion = chatMotion?.thread === store.state.currentThread ? chatMotion : undefined;
+    const previousRows = previousMotion ? chatRows : new Map();
     const arrivals = [];
     const live = currentView() === "chat" && previousMotion && !preserveScroll && !conversation.snapshot?.around;
     const tail = previousMotion?.last ? messages.findIndex((message) => message.id === previousMotion.last) + 1 : 0;
@@ -811,8 +827,10 @@ export function createChatWorkspace({
     turnBubbles.clear();
     const rows = [];
     const nextRows = new Map();
-    byId("welcome").hidden = store.state.currentThread !== mainThread.id || !!(messages.length || local.length);
-    byId("side-welcome").hidden = store.state.currentThread === mainThread.id || !!(messages.length || local.length);
+    const nextPromptKeys = new Map();
+    const empty = conversation.snapshot && !messages.length && !local.length;
+    byId("welcome").toggleAttribute("hidden", !empty || store.state.currentThread !== mainThread.id);
+    byId("side-welcome").toggleAttribute("hidden", !empty || store.state.currentThread === mainThread.id);
     byId("side-skill").hidden = !thread?.skill;
     byId("side-skill").replaceChildren(...(thread?.skill ? [skillChip(thread.skill, "Skill ready")] : []));
     const context = history.previous_prompt;
@@ -827,10 +845,10 @@ export function createChatWorkspace({
         history.message_artifacts?.[message.id], attachments, serverState?.timezone, store.state.avatarLook, store.state.avatarColor,
         message.attachment_citations?.map((id) => history.message_uploads?.[id]),
         message.role === "assistant" ? previousPrompt : null]);
-      let row = chatRows.get(message.id);
+      let row = previousRows.get(message.id);
       if (row?.signature !== rowSignature) {
         row = messageRow(message.role, message.content, {
-          message, prompt: previousPrompt, attachments, linkedArtifacts: history.message_artifacts?.[message.id],
+          key: row?.key, message, prompt: previousPrompt, attachments, linkedArtifacts: history.message_artifacts?.[message.id],
           uploadMetadata: history.message_uploads, warnings: message.notices || [],
         });
         row.signature = rowSignature;
@@ -856,7 +874,7 @@ export function createChatWorkspace({
         arrivals.push(row);
       }
       if (workers.has(message.id) && !localPrompts.has(message.id) && !savedBatches.has(message.id)) {
-        const activity = messageRow("assistant", "");
+        const activity = messageRow("assistant", "", { key: `workers:${store.state.currentThread}:${message.id}` });
         activity.cards.push(workersCard(workers.get(message.id)));
         for (const action of actions.values()) {
           if (action.worker_turn_id === message.id) activity.cards.push(actionCard(action));
@@ -869,8 +887,11 @@ export function createChatWorkspace({
       const previousTurn = previousMotion?.turns.get(turn.key);
       if (turn.showPrompt) {
         const row = messageRow("user", turn.user?.content || turn.prompt, {
-          message: turn.user, status: turn.user ? undefined : "Queued", attachments: turn.attachments,
+          key: promptKeys.get(turn.key), message: turn.user,
+          status: turn.user ? undefined : "Queued", attachments: turn.attachments,
         });
+        nextPromptKeys.set(turn.key, row.key);
+        if (turn.user) nextRows.set(turn.user.id, row);
         rows.push(row);
         if (live && !previousTurn?.showPrompt) arrivals.push(row);
       }
@@ -879,10 +900,11 @@ export function createChatWorkspace({
         : turn.text || turn.error || (turn.stopped ? "Reply stopped." : turn.browse ? "" : turnProgress(turn));
       const streaming = !turn.reply && !turn.error && !turn.browse && !turn.stopped;
       const row = messageRow("assistant", content, {
-        message: turn.reply, skill: turn.skill, prompt: { text: turn.prompt, attachments: turn.attachments },
-        streaming, working: streaming && !turn.text, error: turn.error, errorInNotice: !!turn.text,
+        key: turn.key, message: turn.reply, skill: turn.skill, prompt: { text: turn.prompt, attachments: turn.attachments },
+        streaming, working: streaming && !turn.text, finished: turn.finished, error: turn.error, errorInNotice: !!turn.text,
         warnings: turn.stopped && turn.text ? [...turn.warnings, "Reply stopped."] : turn.warnings,
       });
+      if (turn.reply) nextRows.set(turn.reply.id, row);
       turnBubbles.set(turn.key, row);
       rows.push(row);
       if (live && !previousTurn?.showReply) arrivals.push(row);
@@ -898,7 +920,7 @@ export function createChatWorkspace({
         restorePrompt({ text: turn.user?.content || turn.prompt, attachments: turn.attachments })));
     }
     if ((remoteBrowse || remoteSkill) && !local.length) {
-      const activity = messageRow("assistant", "", { skill: remoteSkill });
+      const activity = messageRow("assistant", "", { key: `activity:${store.state.currentThread}`, skill: remoteSkill });
       if (remoteBrowse) activity.cards.push(browseCard(remoteBrowse));
       rows.push(activity);
     }
@@ -906,6 +928,7 @@ export function createChatWorkspace({
     arrive(arrivals.slice(-6).map((row) => row.item));
     checkCollapsedReplies();
     chatRows = nextRows;
+    promptKeys = nextPromptKeys;
     for (const id of workerCards.keys()) {
       if (!workers.has(id) && !localPrompts.has(id)) workerCards.delete(id);
     }
@@ -1080,7 +1103,8 @@ export function createChatWorkspace({
     aroundMessage = next.around;
     byId("chat-history-navigation").hidden = !aroundMessage;
     serverState = next;
-    updateConversation({ type: "snapshot", snapshot: next });
+    const retainWindow = currentView() === "chat" && chatScroll.clientHeight > 0 && !nearBottom();
+    updateConversation({ type: "snapshot", snapshot: next, retainWindow });
     setTimeZone(serverState.timezone);
     stateTag = response.headers.get("ETag");
     stateVariant = variant;
