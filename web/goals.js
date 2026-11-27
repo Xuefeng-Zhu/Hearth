@@ -237,16 +237,14 @@ export function createGoals({ api, approvalCard, reload }) {
   }
 
   return {
-    render(data, timezone, time) {
-      const body = node("div", "home-card-body goal-body");
+    render(data, timezone, time, body) {
       const add = button("New goal", "plus", (event) => editor(null, timezone, event.currentTarget));
       add.dataset.control = "new-goal";
       add.setAttribute("aria-haspopup", "dialog");
       const items = node("div", "goal-list");
       items.append(...data.items.map((row) => goalCard(row, timezone, time)));
-      body.append(add, status, approval, items);
+      body.replaceChildren(add, status, approval, items);
       if (!data.items.length) items.append(node("p", "home-meta", "No goals yet."));
-      return body;
     },
   };
 }

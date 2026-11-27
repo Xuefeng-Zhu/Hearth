@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { panelRequestFeedback, panelRequestPrompt } from "../web/home.js";
+import { panelRequestFeedback, panelRequestPrompt } from "../web/home/panel-request.js";
 
 test("the description is sent as one Home panel request and preserves line breaks", () => {
   const description = "A checklist for the camping trip\nPack a tent and flashlight.";

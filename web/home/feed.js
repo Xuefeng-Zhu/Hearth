@@ -1,6 +1,7 @@
-import { icon, iconButton } from "./icons.js";
-import { showLoading } from "./motion.js";
-import { timeFormatter } from "./time.js";
+import { render } from "preact";
+import { html, Icon } from "../chat/view.js";
+import { showLoading } from "../motion.js";
+import { timeFormatter } from "../time.js";
 
 const kinds = {
   read: ["Read", "book"], idea: ["Idea", "sparkle"], digest: ["Digest", "list"],
@@ -8,67 +9,58 @@ const kinds = {
   "memory-review": ["Memory", "book"], automation: ["Automation", "clock"],
 };
 
-function element(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text) node.textContent = text;
-  return node;
+function Button({ text, action, symbol, className = "" }) {
+  return html`<button type="button" class=${`feed-button ${className}`} onClick=${action}>
+    ${symbol && html`<${Icon} name=${symbol} size=${16} />`}${text}
+  </button>`;
 }
 
-function button(label, callback, symbol, className = "") {
-  const control = element("button", `feed-button ${className}`);
-  control.type = "button";
-  if (symbol) control.append(icon(symbol, 16));
-  control.append(document.createTextNode(label));
-  control.addEventListener("click", callback);
-  return control;
+function IconButton({ label, symbol, action, pressed }) {
+  return html`<button type="button" class="feed-icon" title=${label} aria-label=${label} aria-pressed=${pressed} onClick=${action}>
+    <${Icon} name=${symbol} size=${18} />
+  </button>`;
 }
 
 const date = timeFormatter({ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 export function createFeed({ api, runSuggestion, openChat, openSource, openSettings, openReview, approvalCard, refreshHome }) {
-  const root = element("div", "feed-widget");
-  const toolbar = element("div", "feed-toolbar");
-  const refreshButton = button("Refresh", refresh, "refresh");
-  const savedButton = button("Saved", () => switchList(!saved), "bookmark");
-  const settingsButton = iconButton("settings", "Feed settings", openSettings, "feed-icon");
-  toolbar.append(refreshButton, savedButton, settingsButton);
-  const steeringForm = element("form", "feed-steering");
-  const label = element("label", "", "Steer your Feed");
-  label.htmlFor = "home-feed-steering";
-  const steering = element("textarea");
-  steering.id = label.htmlFor;
-  steering.rows = 2;
-  steering.maxLength = 600;
-  steering.placeholder = "AI news in the morning, family ideas on Fridays";
-  const steerSave = button("Save steering", () => {}, null, "feed-primary");
-  steerSave.type = "submit";
-  steerSave.hidden = true;
-  steeringForm.append(label, steering, steerSave);
-
-  const status = element("p", "feed-status");
-  status.setAttribute("role", "status");
-  status.tabIndex = -1;
-  const scroll = element("div", "feed-scroll");
-  scroll.tabIndex = 0;
-  scroll.setAttribute("role", "region");
-  scroll.setAttribute("aria-label", "Feed cards");
-  const list = element("div", "feed-list");
-  const more = button("Show more", () => load(true));
-  more.hidden = true;
-  scroll.append(list, more);
-  const strip = element("section", "idea-strip");
-  const ideaHeading = element("h3", "", "Ideas");
-  ideaHeading.id = "feed-ideas-heading";
-  strip.setAttribute("aria-labelledby", ideaHeading.id);
-  const ideaList = element("div", "idea-list");
-  const ideaStatus = element("p", "feed-status");
-  ideaStatus.tabIndex = -1;
-  ideaStatus.setAttribute("role", "status");
-  const ideaApproval = element("div", "idea-approval");
-  strip.append(ideaHeading, ideaList, ideaStatus, ideaApproval);
-  strip.hidden = true;
-  root.append(strip, toolbar, steeringForm, status, scroll);
+  const root = document.createElement("div");
+  root.className = "feed-widget";
+  render(html`
+    <section class="idea-strip" aria-labelledby="feed-ideas-heading" hidden>
+      <h3 id="feed-ideas-heading">Ideas</h3>
+      <div class="idea-list"></div>
+      <p class="feed-status" role="status" tabindex="-1"></p>
+      <div class="idea-approval"></div>
+    </section>
+    <div class="feed-toolbar">
+      <${Button} text="Refresh" symbol="refresh" action=${refresh} />
+      <${Button} text="Saved" symbol="bookmark" action=${() => switchList(!saved)} />
+      <${IconButton} label="Feed settings" symbol="settings" action=${openSettings} />
+    </div>
+    <form class="feed-steering">
+      <label for="home-feed-steering">Steer your Feed</label>
+      <textarea id="home-feed-steering" rows="2" maxlength="600" placeholder="AI news in the morning, family ideas on Fridays"></textarea>
+      <button type="submit" class="feed-button feed-primary" hidden>Save steering</button>
+    </form>
+    <p class="feed-status" role="status" tabindex="-1"></p>
+    <div class="feed-scroll" tabindex="0" role="region" aria-label="Feed cards">
+      <div class="feed-list"></div>
+      <button type="button" class="feed-button " hidden onClick=${() => load(true)}>Show more</button>
+    </div>
+  `, root);
+  const [refreshButton, savedButton] = root.querySelectorAll(".feed-toolbar button");
+  const steeringForm = root.querySelector(".feed-steering");
+  const steering = steeringForm.querySelector("textarea");
+  const steerSave = steeringForm.querySelector("button");
+  const status = root.querySelector(":scope > .feed-status");
+  const scroll = root.querySelector(".feed-scroll");
+  const list = scroll.querySelector(".feed-list");
+  const more = scroll.querySelector("button");
+  const strip = root.querySelector(".idea-strip");
+  const ideaList = strip.querySelector(".idea-list");
+  const ideaStatus = strip.querySelector(".feed-status");
+  const ideaApproval = strip.querySelector(".idea-approval");
   const observer = new IntersectionObserver(([entry]) => {
     if (entry.isIntersecting && !more.hidden) load(true);
   }, { root: scroll });
@@ -93,22 +85,15 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
 
   function renderIdeas() {
     strip.hidden = !enabled || saved || !(ideas.length || ideaApproval.childElementCount || ideaStatus.textContent);
-    ideaList.replaceChildren(...ideas.map(ideaCard));
+    render(ideas.map((row) => html`<${IdeaCard} key=${row.id} row=${row} />`), ideaList);
   }
 
-  function ideaCard(row) {
-    const card = element("article", "feed-card idea-card");
-    const heading = element("h4", "", row.title);
-    heading.id = `idea-${row.id}`;
-    card.setAttribute("aria-labelledby", heading.id);
-    const controls = element("div", "feed-actions");
+  function IdeaCard({ row }) {
+    const id = `idea-${row.id}`;
     const symbol = { chat: "message", slides: "slides", reminder: "bell", automation: "clock", watcher: "monitor" }[row.kind];
-    controls.append(button(row.action_label, () => respond("open"), symbol, "feed-primary"),
-      iconButton("x", "Dismiss", () => respond("dismiss"), "feed-icon"),
-      button("Not interested", () => respond("not-interested")));
 
-    async function respond(operation) {
-      const buttons = [...controls.querySelectorAll("button")];
+    async function respond(event, operation) {
+      const buttons = event.currentTarget.parentElement.querySelectorAll("button");
       buttons.forEach((control) => { control.disabled = true; });
       ideaStatus.textContent = "";
       try {
@@ -130,129 +115,126 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
       }
     }
 
-    card.append(heading, element("p", "home-meta", row.detail), controls);
-    return card;
+    return html`<article class="feed-card idea-card" aria-labelledby=${id}>
+      <h4 id=${id}>${row.title}</h4><p class="home-meta">${row.detail}</p>
+      <div class="feed-actions">
+        <${Button} text=${row.action_label} symbol=${symbol} className="feed-primary" action=${(event) => respond(event, "open")} />
+        <${IconButton} label="Dismiss" symbol="x" action=${(event) => respond(event, "dismiss")} />
+        <${Button} text="Not interested" action=${(event) => respond(event, "not-interested")} />
+      </div>
+    </article>`;
   }
 
-  function sourceLink(source) {
-    const link = element("a", "feed-source", source.label);
-    if (source.kind === "web") {
-      link.href = source.url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.title = source.title;
-      link.setAttribute("aria-label", `${source.label} · ${source.title}`);
-    } else {
-      const views = { memory: "memory", reminder: "reminders", chat: "chat", inbox: "inbox",
-        task: "reminders", page: "artifacts", artifact: "artifacts" };
-      link.href = `#${views[source.kind]}`;
-      link.addEventListener("click", (event) => {
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        event.preventDefault();
-        openSource(source).catch((error) => { status.textContent = error.message; });
-      });
-    }
-    return link;
+  function Source({ source }) {
+    const { label, title, kind } = source;
+    if (kind === "web") return html`<a class="feed-source" href=${source.url} target="_blank" rel="noopener noreferrer"
+      title=${title} aria-label=${`${label} · ${title}`}>${label}</a>`;
+    const views = { memory: "memory", reminder: "reminders", chat: "chat", inbox: "inbox",
+      task: "reminders", page: "artifacts", artifact: "artifacts" };
+    return html`<a class="feed-source" href=${`#${views[kind]}`} onClick=${(event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      openSource(source).catch((error) => { status.textContent = error.message; });
+    }}>${label}</a>`;
   }
 
-  function card(row) {
-    const article = element("article", "feed-card");
+  function renderCards() {
+    render(rows.map((row) => html`<${Card} key=${row.id} row=${row} />`), list);
+  }
+
+  function Card({ row }) {
+    const id = `feed-card-${row.id}`;
     const [name, symbol] = kinds[row.kind];
-    const meta = element("div", "feed-meta");
-    const kind = element("span", "feed-kind", name);
-    kind.prepend(icon(symbol, 15));
-    const time = element("time", "", date.format(new Date(row.at)));
-    time.dateTime = row.at;
-    meta.append(kind, time);
-    const title = element("h3", "", row.title);
-    title.id = `feed-card-${row.id}`;
-    article.setAttribute("aria-labelledby", title.id);
-    if (row.kind === "memory-review") {
-      const actions = element("div", "feed-actions");
-      const review = button("Review proposals", () => perform(review, () => openReview(row.id)), "list", "feed-primary");
-      actions.append(review);
-      article.append(meta, title, element("p", "feed-copy", row.body), actions);
-      return article;
-    }
-    const sources = element("div", "feed-sources");
-    sources.append(...row.links.map(sourceLink));
-    const actions = element("div", "feed-actions");
-    const feedbackRow = element("div", "feed-feedback-actions");
-    const update = async (control, operation) => {
-      await perform(control, async () => {
+    const isReview = row.kind === "memory-review";
+    const update = (event, operation) => {
+      const control = event.currentTarget;
+      const article = control.closest("article");
+      const wasSaved = saved;
+      return perform(control, async () => {
         const next = await api("/api/feed/feedback", { id: row.id, operation });
+        if (saved !== wasSaved) {
+          await load(false, true);
+          return;
+        }
         const hiddenFromFeed = !saved && ["dismiss", "less"].includes(operation);
         const removedBookmark = saved && operation === "save" && !next.saved;
         if (hiddenFromFeed || removedBookmark) {
-          rows = rows.filter((item) => item.id !== row.id);
           const adjacent = article.nextElementSibling || article.previousElementSibling;
-          article.remove();
+          rows = rows.filter((item) => item.id !== row.id);
+          renderCards();
           if (!rows.length && cursor) load(true);
           const focus = adjacent?.querySelector(".feed-icon") || status;
           status.textContent = operation === "less" ? "You’ll see less on this topic."
             : operation === "dismiss" ? "Card dismissed." : "Removed from Saved.";
           focus.focus({ preventScroll: true });
         } else {
-          if (operation === "like") row.liked = next.liked;
-          if (operation === "save") row.saved = next.saved;
-          like.setAttribute("aria-pressed", String(row.liked));
-          save.setAttribute("aria-pressed", String(row.saved));
+          const current = rows.find((item) => item.id === row.id);
+          if (current && operation === "like") current.liked = next.liked;
+          if (current && operation === "save") current.saved = next.saved;
+          renderCards();
           status.textContent = {
-            save: row.saved ? "Saved to your Feed." : "Removed from Saved.",
-            like: row.liked ? "You’ll see more on this topic." : "Like removed.",
+            save: next.saved ? "Saved to your Feed." : "Removed from Saved.",
+            like: next.liked ? "You’ll see more on this topic." : "Like removed.",
             less: "You’ll see less on this topic.",
             dismiss: "Card dismissed from your Feed.",
           }[operation];
         }
       });
     };
-    const like = iconButton("thumbs-up", "Like", () => update(like, "like"), "feed-icon");
-    const less = iconButton("thumbs-down", "Less like this", () => update(less, "less"), "feed-icon");
-    const save = iconButton("bookmark", "Save", () => update(save, "save"), "feed-icon");
-    const dismiss = iconButton("x", "Dismiss", () => update(dismiss, "dismiss"), "feed-icon");
-    like.setAttribute("aria-pressed", String(row.liked));
-    save.setAttribute("aria-pressed", String(row.saved));
-    feedbackRow.append(like, less, save, dismiss);
-    const ask = button("Ask about this", () => perform(ask, async () => {
+    const ask = (event) => perform(event.currentTarget, async () => {
       const result = await api("/api/feed/chat", { id: row.id });
       await openChat(result.thread, result.draft);
-    }), "message");
-    if (row.action_label) {
-      const primary = button(row.action_label, () => perform(primary, async () => {
-        await runSuggestion(row.id);
-        await load();
-      }), null, "feed-primary");
-      actions.append(primary);
-    }
-    actions.append(ask);
-    article.append(meta, title, element("p", "feed-copy", row.body), element("p", "feed-why", row.why),
-      sources, actions, feedbackRow);
-    if (row.action_label) {
-      const options = element("details", "feed-options");
-      const menu = element("summary", "", "Suggestion options");
-      options.addEventListener("keydown", (event) => {
-        if (event.key !== "Escape" || !options.open) return;
-        event.preventDefault();
-        options.open = false;
-        menu.focus();
-      });
-      const controls = element("div", "feed-actions");
-      for (const [caption, operation, extra] of [
-        ["Snooze 1 day", "snooze", { days: 1 }], ["Snooze 1 week", "snooze", { days: 7 }],
-        ["Mute category", "block", {}],
-      ]) {
-        const control = button(caption, () => perform(control, async () => {
-          await api(`/api/proactivity/${operation}`, { id: row.id, ...extra });
-          await load();
-          status.textContent = operation === "snooze" ? "Suggestion snoozed." : "Suggestion category muted.";
-          status.focus({ preventScroll: true });
-        }));
-        controls.append(control);
-      }
-      options.append(menu, controls);
-      article.append(options);
-    }
-    return article;
+    });
+    const run = (event) => perform(event.currentTarget, async () => {
+      await runSuggestion(row.id);
+      await load();
+    });
+    const suggestionOptions = [
+      ["Snooze 1 day", "snooze", { days: 1 }], ["Snooze 1 week", "snooze", { days: 7 }], ["Mute category", "block", {}],
+    ];
+    const dismissOptions = (event) => {
+      const options = event.currentTarget;
+      if (event.key !== "Escape" || !options.open) return;
+      event.preventDefault();
+      options.open = false;
+      options.firstElementChild.focus();
+    };
+    return html`<article class="feed-card" aria-labelledby=${id}>
+      <div class="feed-meta">
+        <span class="feed-kind"><${Icon} name=${symbol} size=${15} />${name}</span>
+        <time datetime=${row.at}>${date.format(new Date(row.at))}</time>
+      </div>
+      <h3 id=${id}>${row.title}</h3>
+      <p class="feed-copy">${row.body}</p>
+      ${isReview ? html`<div class="feed-actions">
+        <${Button} text="Review proposals" symbol="list" className="feed-primary"
+          action=${(event) => perform(event.currentTarget, () => openReview(row.id))} />
+      </div>` : html`
+        <p class="feed-why">${row.why}</p>
+        <div class="feed-sources">${row.links.map((source) => html`<${Source} source=${source} />`)}</div>
+        <div class="feed-actions">
+          ${row.action_label && html`<${Button} text=${row.action_label} action=${run} className="feed-primary" />`}
+          <${Button} text="Ask about this" symbol="message" action=${ask} />
+        </div>
+        <div class="feed-feedback-actions">
+          <${IconButton} label="Like" symbol="thumbs-up" pressed=${String(row.liked)} action=${(event) => update(event, "like")} />
+          <${IconButton} label="Less like this" symbol="thumbs-down" action=${(event) => update(event, "less")} />
+          <${IconButton} label="Save" symbol="bookmark" pressed=${String(row.saved)} action=${(event) => update(event, "save")} />
+          <${IconButton} label="Dismiss" symbol="x" action=${(event) => update(event, "dismiss")} />
+        </div>
+        ${row.action_label && html`<details class="feed-options" onKeyDown=${dismissOptions}>
+          <summary>Suggestion options</summary>
+          <div class="feed-actions">${suggestionOptions.map(([text, operation, extra]) => html`
+            <${Button} text=${text} action=${(event) => perform(event.currentTarget, async () => {
+              await api(`/api/proactivity/${operation}`, { id: row.id, ...extra });
+              await load();
+              status.textContent = operation === "snooze" ? "Suggestion snoozed." : "Suggestion category muted.";
+              status.focus({ preventScroll: true });
+            })} />`)}
+          </div>
+        </details>`}
+      `}
+    </article>`;
   }
 
   async function perform(control, callback) {
@@ -301,12 +283,9 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
       savedButton.setAttribute("aria-pressed", String(saved));
       const existing = new Set(rows.map((row) => row.id));
       const incoming = append ? page.cards.filter((row) => !existing.has(row.id)) : page.cards;
-      if (append) {
-        rows.push(...incoming);
-        list.append(...incoming.map(card));
-      } else if (JSON.stringify(rows) !== JSON.stringify(incoming)) {
-        rows = incoming;
-        list.replaceChildren(...rows.map(card));
+      if (append ? incoming.length : JSON.stringify(rows) !== JSON.stringify(incoming)) {
+        rows = append ? [...rows, ...incoming] : incoming;
+        renderCards();
       }
       cursor = page.next_cursor;
       more.hidden = !cursor;
@@ -333,7 +312,7 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
     rows = [];
     cursor = null;
     scroll.scrollTop = 0;
-    list.replaceChildren();
+    renderCards();
     more.hidden = true;
     load();
   }
@@ -390,9 +369,9 @@ export function createFeed({ api, runSuggestion, openChat, openSource, openSetti
     form.elements.frequency.value = config.frequency;
     form.elements.steering.value = config.steering;
     for (const key of ["follow", "mute"]) form.elements[key].value = config[key].join("\n");
-    profile.replaceChildren(...config.interests.map((item) =>
-      element("li", "", `${item.topic} · ${item.weight > 0 ? "+" : ""}${item.weight}${item.followed ? " · Followed" : ""}`)));
-    if (!profile.children.length) profile.append(element("li", "", "Your interests will appear after a Feed refresh."));
+    render(config.interests.length ? config.interests.map((item) => html`<li>
+      ${item.topic} · ${item.weight > 0 ? "+" : ""}${item.weight}${item.followed ? " · Followed" : ""}
+    </li>`) : html`<li>Your interests will appear after a Feed refresh.</li>`, profile);
     updateSteering(config.steering);
   }
 

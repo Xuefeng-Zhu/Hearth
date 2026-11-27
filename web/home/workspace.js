@@ -1,7 +1,10 @@
-import { icon, iconButton } from "./icons.js";
-import { createGoals } from "./goals.js";
-import { threadMenuPosition } from "./thread-menu.js";
-import { anchorOrigin, arrive, fixedBounds, freezeAnchor, prepareListMotion } from "./motion.js";
+import { render as paint } from "preact";
+import { html, Icon } from "../chat/view.js";
+import { Control, DetailLink, IconControl, Rows } from "./view.js";
+import { panelRequestPrompt, panelRequestFeedback } from "./panel-request.js";
+import { createGoals } from "../goals.js";
+import { threadMenuPosition } from "../thread-menu.js";
+import { anchorOrigin, arrive, fixedBounds, freezeAnchor, prepareListMotion } from "../motion.js";
 
 const get = (id) => document.getElementById(id);
 const demoPrompt = "Create the Thanksgiving countdown and shopping list Home panels";
@@ -33,51 +36,16 @@ const dailyDate = (zone) => new Intl.DateTimeFormat("en-CA", {
   timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit",
 });
 
-function node(tag, className, text) {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  if (text !== undefined) element.textContent = text;
-  return element;
+function Metric({ count, singular, plural = `${singular}s` }) {
+  return html`<p class="home-metric"><strong>${number.format(count)}</strong><span>${count === 1 ? singular : plural}</span></p>`;
 }
 
-function control(label, handler, symbol, className = "home-link") {
-  const element = node("button", className);
-  element.type = "button";
-  if (symbol) element.append(icon(symbol, 15));
-  element.append(node("span", "", label));
-  element.addEventListener("click", handler);
-  return element;
+function Time({ at, formatter }) {
+  return html`<time datetime=${at}>${formatter.format(new Date(at))}</time>`;
 }
 
-function timeElement(value, text) {
-  const element = node("time", "", text);
-  element.dateTime = value;
-  return element;
-}
-
-function labelCount(count, singular, plural = `${singular}s`) {
-  const row = node("p", "home-metric");
-  row.append(node("strong", "", number.format(count)), node("span", "", count === 1 ? singular : plural));
-  return row;
-}
-
-function rows(items, empty, render) {
-  if (!items.length) return node("p", "home-meta", empty);
-  const list = node("ul", "home-rows");
-  for (const item of items) {
-    const row = node("li");
-    row.append(...render(item));
-    list.append(row);
-  }
-  return list;
-}
-
-function detailLink(label, href) {
-  const link = node("a", "home-link", label);
-  link.href = href;
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  return link;
+function Dot({ label, state, title }) {
+  return html`<span class=${`home-status is-${state}`} title=${title}><span class="home-dot"></span><span>${label}</span></span>`;
 }
 
 function weatherLabel(code) {
@@ -100,24 +68,6 @@ function updatedLabel(value) {
   if (minutes < 1440) return `Updated ${Math.floor(minutes / 60)} hr ago`;
   const days = Math.floor(minutes / 1440);
   return `Updated ${days} ${days === 1 ? "day" : "days"} ago`;
-}
-
-export function panelRequestPrompt(description) {
-  const text = description.trim();
-  return text ? `Create one Home panel from this description. Ask me in Chat for any required details.\n\n${text}` : "";
-}
-
-export function panelRequestFeedback(turn) {
-  const actions = [...(turn?.actions?.values() || [])].filter((action) => action.kind === "panel");
-  const titles = actions.filter((action) => action.status === "complete").flatMap((action) => action.panel_titles || []);
-  if (titles.length === 1) return { message: `${titles[0]} added to Home.` };
-  if (titles.length) return { message: `${titles.length} panels added to Home.` };
-  if (turn?.error) return { message: turn.error };
-  if (turn?.stopped) return { message: "Panel request stopped." };
-  if (actions.some((action) => action.status === "pending")) {
-    return { message: "Review the panel request in Chat.", openChat: true };
-  }
-  return { message: "Continue the panel request in Chat.", openChat: true };
 }
 
 export function createHome({ api, refreshAPI, openView, openWeatherSettings, openConnections, openFile, openPanelChat,
@@ -157,22 +107,15 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
   const titleFor = (id) => builtIns[id]?.title || snapshot.panels[id]?.title;
   const visible = () => snapshot.layout.order.filter((id) => !snapshot.layout.hidden.includes(id));
   function setFeedback(message = "", openChat = false) {
-    feedback.textContent = message;
-    if (openChat) feedback.append(" ", control("Open Chat", openMainChat));
+    paint(html`${message}${openChat ? html`${" "}<${Control} label="Open Chat" action=${openMainChat} />` : null}`, feedback);
     if (message) arrive([feedback]);
   }
 
-  const add = control("Add panel", () => addPopover.hidden ? openAdd() : closeAdd(), null, "home-card home-add-card");
-  const addIcon = node("span", "home-card-icon");
-  addIcon.append(icon("plus", 22));
-  add.prepend(addIcon);
-  add.id = "home-add";
-  add.setAttribute("aria-haspopup", "dialog");
-  add.setAttribute("aria-controls", addPopover.id);
-  add.setAttribute("aria-expanded", "false");
+  let add;
+  const addRef = (node) => { add = node; };
 
   function positionAdd() {
-    if (addPopover.hidden) return;
+    if (addPopover.hidden || !add) return;
     const left = viewport?.offsetLeft ?? 0;
     const top = viewport?.offsetTop ?? 0;
     const width = viewport?.width ?? document.documentElement.clientWidth;
@@ -207,23 +150,21 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     if (nativePopover) addPopover.hidePopover();
     addPopover.hidden = true;
     addPopover.inert = true;
-    add.setAttribute("aria-expanded", "false");
-    if (restoreFocus) add.focus({ preventScroll: true });
+    add?.setAttribute("aria-expanded", "false");
+    if (restoreFocus) add?.focus({ preventScroll: true });
   }
 
   function openAdd() {
     const hidden = snapshot.layout.hidden;
-    restoreItems.replaceChildren(...hidden.map((id) => {
-      const row = node("li", "home-add-restore-row");
-      const restore = control("Restore", () => {
-        if (moving) return;
-        closeAdd();
-        adjust(id, "restore");
-      }, "plus", "home-add-action");
-      restore.setAttribute("aria-label", `Restore ${titleFor(id)}`);
-      row.append(node("span", "", titleFor(id)), restore);
-      return row;
-    }));
+    paint(hidden.map((id) => html`<li class="home-add-restore-row" key=${id}>
+      <span>${titleFor(id)}</span>
+      <${Control} label="Restore" symbol="plus" className="home-add-action" accessibleName=${`Restore ${titleFor(id)}`}
+        action=${() => {
+          if (moving) return;
+          closeAdd();
+          adjust(id, "restore");
+        }} />
+    </li>`), restoreItems);
     get("home-add-restore-empty").hidden = !!hidden.length;
     add.setAttribute("aria-expanded", "true");
     addPopover.hidden = false;
@@ -238,7 +179,7 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     if (sendingPanel || !prompt) return;
     closeAdd();
     sendingPanel = true;
-    add.setAttribute("aria-busy", "true");
+    add?.setAttribute("aria-busy", "true");
     setFeedback("Sending panel request to Chat…");
     try {
       const result = panelRequestFeedback(await sendPanelPrompt(prompt));
@@ -247,15 +188,15 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
       setFeedback(error.message);
     } finally {
       sendingPanel = false;
-      add.removeAttribute("aria-busy");
+      add?.removeAttribute("aria-busy");
     }
   }
 
-  for (const [kind, instruction] of Object.entries(quickPanels)) {
-    const label = kind === "web-summary" ? "Web summary" : kind[0].toUpperCase() + kind.slice(1);
-    get("home-add-kinds").append(control(label, () => requestPanel(`Create a starter ${kind} Home panel. ${instruction}`),
-      kindIcons[kind], "home-add-action"));
-  }
+  paint(Object.entries(quickPanels).map(([kind, instruction]) => html`
+    <${Control} key=${kind} label=${kind === "web-summary" ? "Web summary" : kind[0].toUpperCase() + kind.slice(1)}
+      action=${() => requestPanel(`Create a starter ${kind} Home panel. ${instruction}`)}
+      symbol=${kindIcons[kind]} className="home-add-action" />
+  `), get("home-add-kinds"));
   get("home-add-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const prompt = panelRequestPrompt(description.value);
@@ -265,7 +206,7 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
   });
   get("home-add-close").addEventListener("click", () => closeAdd());
   document.addEventListener("click", (event) => {
-    if (addPopover.hidden || addPopover.contains(event.target) || add.contains(event.target)) return;
+    if (addPopover.hidden || addPopover.contains(event.target) || add?.contains(event.target)) return;
     if (sheet.matches) {
       event.preventDefault();
       event.stopPropagation();
@@ -314,140 +255,95 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
 
   const wallClock = new Intl.DateTimeFormat(undefined, { ...standardTime, timeZone: "UTC" });
   const quietTime = (value) => wallClock.format(new Date(`2000-01-01T${value}:00Z`));
-  const pendingTime = (value) => timeElement(value, dateTimeFormat.format(new Date(value)));
-  const reminderTime = (value) => {
-    const stamp = new Date(value);
-    const formatter = dateKey.format(stamp) === dateKey.format(new Date()) ? timeFormat : compactDateTime;
-    return timeElement(value, formatter.format(stamp));
-  };
-  const activityTime = (value) => {
-    const stamp = new Date(value);
-    const label = dateKey.format(stamp) === dateKey.format(new Date()) ? timeFormat.format(stamp)
-      : new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: snapshot.timezone }).format(stamp);
-    return timeElement(value, label);
-  };
-
-  function dotLabel(label, state) {
-    const badge = node("span", `home-status is-${state}`);
-    badge.append(node("span", "home-dot"), node("span", "", label));
-    return badge;
-  }
-
-  function builtinBody(id, data) {
-    const body = node("div", "home-card-body");
+  function BuiltinBody({ id, data }) {
+    let content;
     if (id === "today") {
-      const quiet = node("div", "home-quiet");
       const title = data.quiet_until ? "Quiet hours active" : data.quiet_enabled ? "Quiet hours off now" : "Quiet hours disabled";
-      quiet.append(icon("moon", 18), node("strong", "", title));
-      if (data.quiet_until) quiet.append(node("span", "", `Until ${timeFormat.format(new Date(data.quiet_until))}`));
-      else if (data.quiet_enabled) quiet.append(node("span", "", `${quietTime(data.quiet_start)}–${quietTime(data.quiet_end)}`));
-      body.append(quiet, node("p", "home-list-heading", "Next reminders"),
-        rows(data.jobs, "No upcoming reminders.", (item) => [reminderTime(item.at), node("span", "", item.message)]));
+      const quiet = data.quiet_until ? `Until ${timeFormat.format(new Date(data.quiet_until))}`
+        : data.quiet_enabled ? `${quietTime(data.quiet_start)}–${quietTime(data.quiet_end)}` : "";
+      content = html`
+        <div class="home-quiet"><${Icon} name="moon" size=${18} /><strong>${title}</strong>${quiet && html`<span>${quiet}</span>`}</div>
+        <p class="home-list-heading">Next reminders</p>
+        <${Rows} items=${data.jobs} empty="No upcoming reminders." children=${(item) => html`
+          <${Time} at=${item.at} formatter=${dateKey.format(new Date(item.at)) === dateKey.format(new Date()) ? timeFormat : compactDateTime} />
+          <span>${item.message}</span>`} />
+      `;
     } else if (id === "inbox") {
-      body.append(labelCount(data.count, "item to review", "items to review"),
-        rows(data.items, "You’re caught up.", (item) => [node("span", "home-bullet"), node("span", "", item.title)]));
+      content = html`<${Metric} count=${data.count} singular="item to review" plural="items to review" />
+        <${Rows} items=${data.items} empty="You’re caught up."
+          children=${(item) => html`<span class="home-bullet"></span><span>${item.title}</span>`} />`;
     } else if (id === "files") {
-      body.append(rows(data.items, "No files saved yet.", (item) => {
-        const open = node("button", "home-file");
-        open.type = "button";
-        open.setAttribute("aria-haspopup", "dialog");
-        open.dataset.control = `file-${item.id}`;
-        open.dataset.artifactId = item.id;
-        open.append(node("span", "home-format", item.kind === "page" ? "Page" : item.format.toUpperCase()),
-          node("span", "", item.title));
-        open.addEventListener("click", () => openFile(item, open));
-        return [open];
-      }));
+      content = html`<${Rows} items=${data.items} empty="No files saved yet." children=${(item) => html`
+        <button type="button" class="home-file" aria-haspopup="dialog" data-control=${`file-${item.id}`}
+          data-artifact-id=${item.id} onClick=${(event) => openFile(item, event.currentTarget)}>
+          <span class="home-format">${item.kind === "page" ? "Page" : item.format.toUpperCase()}</span><span>${item.title}</span>
+        </button>`} />`;
     } else if (id === "memory") {
-      body.append(labelCount(data.count, "saved note"));
-      const status = node("p", "home-detail");
-      const pinecone = data.pinecone;
-      const tone = /error|failed|unavailable/i.test(pinecone) ? "error" : /^(ready|connected|synced)$/i.test(pinecone) ? "ok" : "neutral";
-      status.append(node("span", "", "Pinecone"), dotLabel(pinecone, tone));
-      body.append(status);
-      if (data.record_count != null) {
-        const records = node("p", "home-detail");
-        records.append(node("span", "", "Indexed chunks"), node("span", "", number.format(data.record_count)));
-        body.append(records);
-      }
-      const sync = node("p", "home-detail");
-      sync.append(node("span", "", "Last synced"), data.last_sync ? pendingTime(data.last_sync) : node("span", "", "Never"));
-      body.append(sync);
+      const tone = /error|failed|unavailable/i.test(data.pinecone) ? "error"
+        : /^(ready|connected|synced)$/i.test(data.pinecone) ? "ok" : "neutral";
+      content = html`
+        <${Metric} count=${data.count} singular="saved note" />
+        <p class="home-detail"><span>Pinecone</span><${Dot} label=${data.pinecone} state=${tone} /></p>
+        ${data.record_count != null && html`<p class="home-detail"><span>Indexed chunks</span><span>${number.format(data.record_count)}</span></p>`}
+        <p class="home-detail"><span>Last synced</span>${data.last_sync
+          ? html`<${Time} at=${data.last_sync} formatter=${dateTimeFormat} />` : html`<span>Never</span>`}</p>`;
     } else if (id === "activity") {
-      body.append(labelCount(data.count, "event today", "events today"));
-      if (data.errors) {
-        const link = node("a", "home-link home-error",
-          `${data.errors} ${data.errors === 1 ? "error" : "errors"} today`);
-        link.href = "#timeline/errors";
-        body.append(link);
-      }
-      body.append(rows(data.items, "No activity yet.", (item) => [activityTime(item.at), node("span", "", item.title)]));
+      const dateOnly = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: snapshot.timezone });
+      content = html`
+        <${Metric} count=${data.count} singular="event today" plural="events today" />
+        ${data.errors ? html`<a class="home-link home-error" href="#timeline/errors">
+          ${data.errors} ${data.errors === 1 ? "error" : "errors"} today</a>` : null}
+        <${Rows} items=${data.items} empty="No activity yet." children=${(item) => html`
+          <${Time} at=${item.at} formatter=${dateKey.format(new Date(item.at)) === dateKey.format(new Date()) ? timeFormat : dateOnly} />
+          <span>${item.title}</span>`} />
+      `;
     } else if (id === "connections") {
-      if (data.error) body.append(node("p", "home-error", data.error));
-      body.append(rows(data.items, "No configured connectors.", (item) => {
-        const label = { ok: "OK", error: "Error", not_connected: "Not connected" }[item.status];
-        const badge = dotLabel(label, item.status === "not_connected" ? "neutral" : item.status);
-        badge.title = item.detail;
-        return [node("span", "", item.name), badge];
-      }));
+      content = html`${data.error && html`<p class="home-error">${data.error}</p>`}
+        <${Rows} items=${data.items} empty="No configured connectors." children=${(item) => html`
+          <span>${item.name}</span><${Dot} label=${{ ok: "OK", error: "Error", not_connected: "Not connected" }[item.status]}
+            state=${item.status === "not_connected" ? "neutral" : item.status} title=${item.detail} />`} />`;
     } else if (id === "weather") {
-      const pair = node("div", "home-weather");
-      const clock = node("div", "");
-      const now = node("time", "home-weather-value");
-      now.id = "home-clock";
-      clock.append(now, node("p", "home-meta", "Pacific time"));
-      const forecast = node("div", "");
-      forecast.append(node("p", "home-location", data.name));
-      if (data.value) forecast.append(node("p", "home-weather-value", `${data.value.temperature}°F`),
-        node("p", "home-meta", weatherLabel(data.value.code)));
-      else forecast.append(node("p", "home-meta", data.error ? "No weather data" : "Fetching weather…"));
-      pair.append(clock, forecast);
-      body.append(pair);
+      content = html`<div class="home-weather">
+        <div><time class="home-weather-value" id="home-clock"></time><p class="home-meta">Pacific time</p></div>
+        <div>
+          <p class="home-location">${data.name}</p>
+          ${data.value ? html`<p class="home-weather-value">${data.value.temperature}°F</p>
+            <p class="home-meta">${weatherLabel(data.value.code)}</p>`
+            : html`<p class="home-meta">${data.error ? "No weather data" : "Fetching weather…"}</p>`}
+        </div>
+      </div>`;
     }
-    return body;
+    return html`<div class="home-card-body">${content}</div>`;
   }
 
-  function checklist(row) {
-    const canCheck = row.source.type === "static";
-    return rows(row.value, "No items yet.", (item) => {
-      const label = node("label", "home-check");
-      const check = node("input");
-      const index = row.value.indexOf(item);
-      check.type = "checkbox";
-      check.checked = item.checked;
-      check.disabled = !canCheck;
-      check.dataset.control = `check-${index}`;
-      check.addEventListener("click", (event) => {
-        if (pending.has(row.id)) event.preventDefault();
-      });
-      check.addEventListener("change", () => {
-        mutate(row.id, "checklist", { index, checked: check.checked, revision: row.revision }, check);
-      });
-      label.append(check, node("span", "", item.text));
-      return [label];
-    });
-  }
-
-  function customBody(row) {
-    const body = node("div", "home-card-body");
+  function CustomBody({ row }) {
+    let content;
     if (row.value === null) {
-      body.append(node("p", "home-meta", row.error ? "No saved value." : "Waiting for the first refresh…"));
+      content = html`<p class="home-meta">${row.error ? "No saved value." : "Waiting for the first refresh…"}</p>`;
     } else if (row.kind === "stat") {
-      body.append(node("p", "home-stat", typeof row.value === "number" ? number.format(row.value) : row.value));
+      content = html`<p class="home-stat">${typeof row.value === "number" ? number.format(row.value) : row.value}</p>`;
     } else if (row.kind === "countdown") {
-      const timer = node("p", "home-stat");
-      timer.dataset.countdown = row.value;
-      body.append(timer, node("p", "home-meta", row.value.length === 10
-        ? new Intl.DateTimeFormat(undefined, { ...calendar, timeZone: "UTC" }).format(new Date(row.value))
-        : dateTimeFormat.format(new Date(row.value))));
+      const formatter = row.value.length === 10
+        ? new Intl.DateTimeFormat(undefined, { ...calendar, timeZone: "UTC" }) : dateTimeFormat;
+      content = html`<p class="home-stat" data-countdown=${row.value}></p><p class="home-meta">${formatter.format(new Date(row.value))}</p>`;
     } else if (row.kind === "checklist") {
-      body.append(checklist(row));
+      content = html`<${Rows} items=${row.value} empty="No items yet." children=${(item, index) => html`
+        <label class="home-check">
+          <input type="checkbox" checked=${item.checked} disabled=${row.source.type !== "static"} data-control=${`check-${index}`}
+            onClick=${(event) => { if (pending.has(row.id)) event.preventDefault(); }}
+            onChange=${(event) => {
+              const check = event.currentTarget;
+              mutate(row.id, "checklist", { index, checked: check.checked, revision: row.revision }, check);
+            }} />
+          <span>${item.text}</span>
+        </label>`} />`;
     } else if (row.kind === "list") {
-      body.append(rows(row.value, "No items yet.", (item) => [node("span", "home-bullet"), node("span", "", item)]));
+      content = html`<${Rows} items=${row.value} empty="No items yet."
+        children=${(item) => html`<span class="home-bullet"></span><span>${item}</span>`} />`;
     } else {
-      body.append(node("p", "home-note", row.value));
+      content = html`<p class="home-note">${row.value}</p>`;
     }
-    return body;
+    return html`<div class="home-card-body">${content}</div>`;
   }
 
   function updateClocks() {
@@ -479,80 +375,63 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     }
   }
 
-  function sourceFooter(id, row, kind) {
-    const footer = node("footer", "home-footer");
-    if (row.error && (id === "weather" || !kind)) {
-      footer.append(node("p", "home-error", row.value === null ? row.error : `Showing last value. ${row.error}`));
-    }
-    const links = node("div", "home-card-links");
+  function SourceFooter({ id, row, kind }) {
+    let link;
     if (id === "connections" || (!kind && row.source.type === "connector")) {
-      links.append(control("Open Connections", openConnections));
+      link = html`<${Control} label="Open Connections" action=${openConnections} />`;
     } else if (kind) {
-      links.append(control(kind.link, () => kind.page === "weather" ? openWeatherSettings() : openView(kind.page)));
+      link = html`<${Control} label=${kind.link} action=${() => kind.page === "weather" ? openWeatherSettings() : openView(kind.page)} />`;
     } else if (row.source.type === "url" && /^https?:\/\//.test(row.source.url)) {
-      links.append(detailLink("Open source", row.source.url));
+      link = html`<${DetailLink} label="Open source" href=${row.source.url} />`;
     }
-    const ask = control("Ask about this", async () => {
-      ask.disabled = true;
+    async function ask(event) {
+      const button = event.currentTarget;
+      button.disabled = true;
       try { await openPanelChat(id); }
       catch (error) { setFeedback(error.message); }
-      finally { ask.disabled = false; }
-    }, "message");
-    ask.dataset.control = "ask";
-    links.append(ask);
-    footer.append(links);
-    if (id === "weather" || !kind) {
-      const status = node("div", "home-refresh-row");
-      const stamp = row.updated_at ? timeElement(row.updated_at, updatedLabel(row.updated_at))
-        : node("span", "", row.error ? "Refresh failed" : "Waiting for update");
-      if (row.updated_at) {
-        stamp.dataset.updated = "";
-        stamp.title = dateTimeFormat.format(new Date(row.updated_at));
-      }
-      const refresh = iconButton("refresh", `Refresh ${titleFor(id)}`, () => mutate(id, "refresh", {}, refresh), "home-icon-button");
-      refresh.dataset.control = "refresh";
-      refresh.disabled = pending.has(id);
-      status.append(stamp);
-      if (id === "weather") status.append(detailLink("Open-Meteo", "https://open-meteo.com/"));
-      status.append(refresh);
-      footer.append(status);
+      finally { button.disabled = false; }
     }
-    return footer;
+    return html`<footer class="home-footer">
+      ${row.error && (id === "weather" || !kind) && html`<p class="home-error">
+        ${row.value === null ? row.error : `Showing last value. ${row.error}`}</p>`}
+      <div class="home-card-links">${link}<${Control} label="Ask about this" symbol="message" control="ask" action=${ask} /></div>
+      ${(id === "weather" || !kind) && html`<div class="home-refresh-row">
+        ${row.updated_at ? html`<time datetime=${row.updated_at} data-updated="" title=${dateTimeFormat.format(new Date(row.updated_at))}>
+          ${updatedLabel(row.updated_at)}</time>` : html`<span>${row.error ? "Refresh failed" : "Waiting for update"}</span>`}
+        ${id === "weather" && html`<${DetailLink} label="Open-Meteo" href="https://open-meteo.com/" />`}
+        <${IconControl} label=${`Refresh ${titleFor(id)}`} symbol="refresh" control="refresh" disabled=${pending.has(id)}
+          action=${(event) => mutate(id, "refresh", {}, event.currentTarget)} />
+      </div>`}
+    </footer>`;
   }
 
-  function dragHandle(id, card) {
-    const handle = node("span", "home-grip");
-    handle.append(icon("grip", 19));
-    handle.draggable = true;
-    handle.title = `Drag ${titleFor(id)} to reorder`;
-    handle.setAttribute("aria-hidden", "true");
-    handle.addEventListener("dragstart", (event) => {
-      if (moving) return event.preventDefault();
-      dragged = id;
-      card.classList.add("is-dragging");
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", id);
-    });
-    handle.addEventListener("dragend", clearDrag);
-    card.addEventListener("dragover", (event) => {
-      if (!dragged || dragged === id) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-      if (hovered !== card) {
-        hovered?.classList.remove("is-drop-target");
-        hovered = card;
-        card.classList.add("is-drop-target");
-      }
-    });
-    card.addEventListener("drop", (event) => {
-      if (!dragged || dragged === id) return;
-      event.preventDefault();
-      const source = dragged;
-      const order = visible();
-      clearDrag();
-      adjust(source, "move", { target: id, position: order.indexOf(source) < order.indexOf(id) ? "after" : "before" });
-    });
-    return handle;
+  function startDrag(id, event) {
+    if (moving) return event.preventDefault();
+    dragged = id;
+    event.currentTarget.closest("[data-panel]").classList.add("is-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+  }
+
+  function dragOver(id, event) {
+    if (!dragged || dragged === id) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const card = event.currentTarget;
+    if (hovered !== card) {
+      hovered?.classList.remove("is-drop-target");
+      hovered = card;
+      card.classList.add("is-drop-target");
+    }
+  }
+
+  function drop(id, event) {
+    if (!dragged || dragged === id) return;
+    event.preventDefault();
+    const source = dragged;
+    const order = visible();
+    clearDrag();
+    adjust(source, "move", { target: id, position: order.indexOf(source) < order.indexOf(id) ? "after" : "before" });
   }
 
   function clearDrag() {
@@ -562,47 +441,43 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     dragged = undefined;
   }
 
-  function layoutTools(id, order) {
-    const tools = node("div", "home-order-tools");
+  function LayoutTools({ id, order }) {
     const at = order.indexOf(id);
-    for (const [direction, offset, position] of [["up", -1, "before"], ["down", 1, "after"]]) {
-      const target = order[at + offset];
-      const move = iconButton(`arrow-${direction}`, `Move ${titleFor(id)} ${direction}`,
-        () => adjust(id, "move", { target, position }, direction), "home-icon-button");
-      move.dataset.control = direction;
-      move.disabled = !target;
-      tools.append(move);
-    }
-    const remove = iconButton("x", `Remove ${titleFor(id)} from Home`, () => adjust(id, "hide"), "home-icon-button");
-    tools.append(remove);
-    return tools;
+    const title = titleFor(id);
+    return html`<div class="home-order-tools">
+      ${[["up", -1, "before"], ["down", 1, "after"]].map(([direction, offset, position]) => {
+        const target = order[at + offset];
+        return html`<${IconControl} key=${direction} label=${`Move ${title} ${direction}`} symbol=${`arrow-${direction}`}
+          control=${direction} disabled=${!target} action=${() => adjust(id, "move", { target, position }, direction)} />`;
+      })}
+      <${IconControl} label=${`Remove ${title} from Home`} symbol="x" action=${() => adjust(id, "hide")} />
+    </div>`;
   }
 
-  function card(id, order) {
+  function attachFeed(node) {
+    if (node && feed.root.parentNode !== node) node.append(feed.root);
+  }
+
+  function Panel({ id, order }) {
     const kind = builtIns[id];
     const row = kind ? snapshot.builtin[id] : snapshot.panels[id];
-    const element = node("article", `home-card home-card-${kind ? id : row.kind}`);
-    element.dataset.panel = id;
-    element.dataset.motionKey = id;
-    const header = node("header", "home-card-header");
-    const mark = node("span", "home-card-icon");
-    mark.append(icon(kind?.icon || kindIcons[row.kind], 19));
-    const heading = node("h2", "", titleFor(id));
-    heading.id = `home-panel-${id}`;
-    element.setAttribute("aria-labelledby", heading.id);
-    header.append(mark, heading);
-    if (editing) header.append(layoutTools(id, order));
-    if (desktop.matches) header.append(dragHandle(id, element));
-    element.append(header);
-    if (id === "feed") {
-      element.append(feed.root);
-      feed.show();
-    } else if (id === "goals") {
-      element.append(goals.render(row, snapshot.timezone, dateTimeFormat));
-    } else {
-      element.append(kind ? builtinBody(id, row) : customBody(row), sourceFooter(id, row, kind));
-    }
-    return element;
+    const title = titleFor(id);
+    return html`<article class=${`home-card home-card-${kind ? id : row.kind}`} data-panel=${id} data-motion-key=${id}
+      aria-labelledby=${`home-panel-${id}`} ref=${id === "feed" ? attachFeed : undefined}
+      onDragOver=${desktop.matches ? (event) => dragOver(id, event) : undefined}
+      onDrop=${desktop.matches ? (event) => drop(id, event) : undefined}>
+      <header class="home-card-header">
+        <span class="home-card-icon"><${Icon} name=${kind?.icon || kindIcons[row.kind]} size=${19} /></span>
+        <h2 id=${`home-panel-${id}`}>${title}</h2>
+        ${editing && html`<${LayoutTools} ...${{ id, order }} />`}
+        ${desktop.matches && html`<span class="home-grip" draggable="true" aria-hidden="true" title=${`Drag ${title} to reorder`}
+          onDragStart=${(event) => startDrag(id, event)} onDragEnd=${clearDrag}><${Icon} name="grip" size=${19} /></span>`}
+      </header>
+      ${id === "feed" ? null : id === "goals" ? html`<div class="home-card-body goal-body"
+        ref=${(node) => { if (node) goals.render(row, snapshot.timezone, dateTimeFormat, node); }}></div>` : html`
+        ${kind ? html`<${BuiltinBody} id=${id} data=${row} />` : html`<${CustomBody} row=${row} />`}
+        <${SourceFooter} ...${{ id, row, kind }} />`}
+    </article>`;
   }
 
   function render() {
@@ -612,10 +487,17 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     const key = active.dataset.control;
     const order = visible();
     const play = prepareListMotion(grid, order, { stagger: !presented });
-    const cards = order.map((id) => card(id, order));
-    if (editing) cards.push(add);
-    else closeAdd({ restoreFocus: false });
-    grid.replaceChildren(...cards);
+    if (!editing) closeAdd({ restoreFocus: false });
+    const addFocused = active === add;
+    paint(html`
+      ${order.map((id) => html`<${Panel} key=${id} ...${{ id, order }} />`)}
+      ${editing && html`<button type="button" class="home-card home-add-card" id="home-add" ref=${addRef} aria-haspopup="dialog"
+        aria-controls=${addPopover.id} aria-expanded=${String(!addPopover.hidden)}
+        aria-busy=${sendingPanel ? "true" : undefined} onClick=${() => addPopover.hidden ? openAdd() : closeAdd()}>
+        <span class="home-card-icon"><${Icon} name="plus" size=${22} /></span><span>Add panel</span>
+      </button>`}
+    `, grid);
+    if (feed.root.isConnected) feed.show();
     grid.classList.toggle("is-editing", editing);
     get("home-loading").hidden = true;
     get("home-empty").hidden = editing || order.length > 0;
@@ -625,7 +507,7 @@ export function createHome({ api, refreshAPI, openView, openWeatherSettings, ope
     get("home-edit-label").textContent = editing ? "Done" : "Edit layout";
     presented = true;
     play();
-    if (editing && active === add) add.focus({ preventScroll: true });
+    if (editing && addFocused) add.focus({ preventScroll: true });
     if (panel && key) grid.querySelector(`[data-panel="${CSS.escape(panel)}"] [data-control="${CSS.escape(key)}"]`)?.focus();
     positionAdd();
     updateClocks();
