@@ -138,6 +138,19 @@ test("paged rows merge by ID and refresh without losing history as the latest wi
   assert.deepEqual(f.view().transcript.messages, [fourth]);
 });
 
+test("a reader above the latest reply retains the first page when the transcript window rolls over", () => {
+  const f = fixture();
+  const first = user("first"), second = user("second"), third = user("third");
+  f.poll([first, second], { before: "older" });
+  f.apply({ type: "snapshot", snapshot: snapshot([second, third], { before: "next" }), retainWindow: true });
+  assert.deepEqual(f.view().transcript.messages, [first, second, third]);
+  f.apply({ type: "page", previous: f.state.pages[0], page: snapshot([first], { before: "archive" }) });
+  assert.equal(f.state.pages[0].before, "older");
+  const earlier = user("earlier");
+  f.apply({ type: "page", page: snapshot([earlier]), cursor: "older" });
+  assert.deepEqual(f.view().transcript.messages, [earlier, first, second, third]);
+});
+
 test("a proposal keeps its card and accepts status changes on an older transcript page", () => {
   const f = fixture();
   const message = { ...reply("proposal-message", user("request")), self_update_id: "proposal" };

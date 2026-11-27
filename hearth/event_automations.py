@@ -569,10 +569,9 @@ class Runner:
         agent = self.app.agent
         instruction = action.get("prompt", "Summarize this event.")
         thread = action.get("thread_id")
-        history = [] if thread in (None, "new") else [
-            {"role": row["role"], "content": compact(row["content"], 650)}
-            for row in self.app.threads.messages(thread, limit=12, dialogue_only=True)
-        ]
+        rows = [] if thread in (None, "new") else self.app.threads.messages(thread, limit=12, dialogue_only=True)
+        history = [{"role": row["role"], "content": compact(row["content"], 650)}
+                   for row in self.app.threads.model_history(rows)]
         event = {key: run["event"][key] for key in ("type", "at", "sender", "subject", "topic", "title", "body")
                  if key in run["event"]}
         if run["trigger"] == "schedule":

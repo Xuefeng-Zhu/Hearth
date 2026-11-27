@@ -34,14 +34,15 @@ function mergeTranscript(pages, snapshot) {
     message_artifacts, message_uploads, previous_prompt: pages[0].previous_prompt };
 }
 
-function advancePages(state, next) {
-  if (!state.pages.length || next.history_revision !== state.snapshot.history_revision ||
-      next.around !== state.snapshot.around) return [];
+function advancePages(state, next, retainWindow) {
+  const { snapshot, pages } = state;
+  if (!snapshot || (!pages.length && !retainWindow) ||
+      next.history_revision !== snapshot.history_revision || next.around !== snapshot.around) return [];
   const oldest = next.messages[0]?.id;
-  const overlap = state.snapshot.messages.findIndex((message) => message.id === oldest);
+  const overlap = snapshot.messages.findIndex((message) => message.id === oldest);
   if (overlap < 0) return [];
-  if (overlap === 0) return state.pages;
-  return [...state.pages, { ...state.snapshot, messages: state.snapshot.messages.slice(0, overlap),
+  if (overlap === 0) return pages;
+  return [...pages, { ...snapshot, messages: snapshot.messages.slice(0, overlap),
     cursor: next.before, archived: true }];
 }
 
@@ -112,7 +113,7 @@ export function reconcile(state, update) {
     case "snapshot": {
       const snapshot = update.snapshot;
       if (snapshot.thread_id !== state.threadId) return unchanged;
-      const pages = advancePages(state, snapshot);
+      const pages = advancePages(state, snapshot, update.retainWindow);
       next = { ...state, snapshot, pages, transcript: mergeTranscript(pages, snapshot) };
       break;
     }
@@ -124,7 +125,7 @@ export function reconcile(state, update) {
       if (previous) {
         if (!state.pages.includes(previous)) return unchanged;
         pages = state.pages.map((old) => old !== previous ? old : { ...old, ...page, ...(old.archived ? {
-          messages: old.messages, previous_prompt: old.previous_prompt,
+          messages: old.messages, before: old.before, previous_prompt: old.previous_prompt,
         } : {}) });
       } else {
         if (!cursor || cursor !== (state.pages[0] || state.snapshot).before) return unchanged;

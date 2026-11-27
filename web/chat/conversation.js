@@ -1,7 +1,7 @@
 import { render } from "preact";
-import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { markdown } from "../artifacts/format.js";
-import { mascot } from "../avatar.js";
+import { mascot, setLook, setPose } from "../avatar.js";
 import { reconcileChildren } from "../dom.js";
 import { arrive, confirmControl } from "../motion.js";
 import { callDuration } from "../time.js";
@@ -62,68 +62,103 @@ function CallMessage({ row }) {
 }
 
 function Message({ row, actions }) {
-  const { role, message, content, status, prompt, streaming, working, skill, extras, warnings, error, errorInNotice, searchHit } = row;
+  const { role, message, content, status, prompt, streaming, working, finished, skill, extras, warnings, error, errorInNotice, searchHit } = row;
   const assistant = role === "assistant";
   const saved = !!message?.id;
   const expandable = assistant && saved && !!content;
   const formatted = assistant && saved && !message.file_answer;
+  const rendered = useMemo(() => {
+    if (!formatted) return null;
+    const blocks = markdown(content);
+    const paragraph = blocks.childNodes.length === 1 && blocks.firstChild.nodeName === "P"
+      ? blocks.firstChild : null;
+    const plain = !!paragraph && !paragraph.childElementCount;
+    return { host: plain ? paragraph : blocks, plain };
+  }, [formatted, content]);
   const [expanded, setExpanded] = useState(false);
-  const [stream, setStream] = useState(null);
+  const [partial, setPartial] = useState(null);
+  const stream = partial?.row === row ? partial : null;
   const wasWorking = useRef(working);
+  const wasExpanded = useRef(expanded);
+  const avatar = useRef(null);
   const body = useRef(null), text = useRef(null), notices = useRef(null), toggle = useRef(null);
   const visibleText = stream?.content ?? content;
   const thinking = stream?.working ?? working;
-  row.setStream = setStream;
+  row.setStream = (update) => setPartial({ ...update, row });
 
-  // These existing widgets own their DOM and keep the surrounding message markup intact.
   useLayoutEffect(() => {
-    if (assistant) {
-      const avatar = mascot(row.avatarLook, row.avatarColor);
-      if (!working) avatar.dataset.still = "";
-      row.avatar = avatar;
-      row.item.prepend(avatar);
+    if (!assistant) return;
+    if (avatar.current) {
+      setLook(avatar.current, row.avatarLook, row.avatarColor);
+    } else {
+      avatar.current = mascot(row.avatarLook, row.avatarColor);
+      row.item.prepend(avatar.current);
     }
+  }, [row.avatarLook, row.avatarColor]);
+
+  useLayoutEffect(() => {
+    if (!avatar.current) return;
+    avatar.current.toggleAttribute("data-still", !working);
+    if (saved || finished) setPose(avatar.current, { pose: "idle" });
+  }, [working, saved, finished]);
+
+  // The skill and attachment widgets supply DOM nodes directly.
+  useLayoutEffect(() => {
+    row.avatar = avatar.current;
     if (skill) body.current.prepend(skill);
     body.current.append(...extras);
-    if (formatted) text.current.replaceChildren(...markdown(content).childNodes);
-    if (error) actions.showError(errorInNotice ? notices.current.lastElementChild : text.current, error);
-    if (saved) actions.bindMenu(row.item, message, content);
+    return () => {
+      skill?.remove();
+      for (const extra of extras) extra.remove();
+    };
   }, [row]);
+
+  useLayoutEffect(() => {
+    if (rendered && !rendered.plain) text.current.replaceChildren(...rendered.host.childNodes);
+  }, [rendered]);
+
+  useLayoutEffect(() => {
+    if (error) actions.showError(errorInNotice ? notices.current.lastElementChild : text.current, error);
+  }, [error, errorInNotice]);
+
+  useLayoutEffect(() => {
+    if (saved) return actions.bindMenu(row.item, message, content);
+  }, [message?.id, message?.at, content]);
 
   useLayoutEffect(() => {
     reconcileChildren(row.cardsElement, row.cards);
   }, [row.cards]);
 
   useLayoutEffect(() => {
-    if (!stream) return;
-    if (wasWorking.current && !thinking && actions.isVisible()) arrive([text.current]);
+    if (stream && wasWorking.current && !thinking && actions.isVisible()) arrive([text.current]);
     wasWorking.current = thinking;
-    if (stream.follow) actions.scrollDown();
-  }, [stream]);
+    if (stream?.follow) actions.scrollDown();
+  }, [thinking, stream]);
 
   useLayoutEffect(() => {
-    if (expanded) {
-      toggle.current.scrollIntoView({ block: "nearest" });
-      actions.checkCollapsed();
-    } else if (expandable) {
-      actions.checkCollapsed();
-    }
+    if (wasExpanded.current === expanded || !toggle.current) return;
+    wasExpanded.current = expanded;
+    if (expanded) toggle.current.scrollIntoView({ block: "nearest" });
+    actions.checkCollapsed(toggle.current);
   }, [expanded]);
 
   const textClass = formatted ? "chat-markdown" : message?.file_answer ? "file-answer-text" : "";
-  const TextTag = formatted ? "div" : "p";
+  const TextTag = rendered?.host.localName || "p";
+  const textKey = rendered && !rendered.plain ? "markdown" : error && !errorInNotice ? "error" : "text";
+  const textContent = rendered?.plain ? rendered.host.textContent : !rendered && textKey !== "error" ? visibleText : null;
   return html`
     <article class=${`message ${role}${searchHit ? " chat-search-hit" : ""}`}
-      data-message-id=${message?.id} ref=${row.bindItem}>
+      data-message-id=${message?.id} ref=${row.bindItem} tabIndex=${saved ? 0 : null}
+      aria-haspopup=${saved ? "dialog" : null} aria-keyshortcuts=${saved ? "Enter Space Shift+F10" : null}>
       <div class=${thinking ? "message-body message-working" : "message-body"} ref=${body}>
         <div role="status" ref=${notices}>
           ${status && html`<p class="queued-label">${status}</p>`}
           ${warnings.map((warning) => html`<p class="model-warning">${warning}</p>`)}
           ${error && errorInNotice && html`<p class="model-warning"></p>`}
         </div>
-        <${TextTag} ref=${text} hidden=${!visibleText} role=${working ? "status" : null}
+        <${TextTag} key=${textKey} ref=${text} hidden=${!visibleText} role=${working ? "status" : null}
           class=${[textClass, expandable && !expanded && "message-clamped"].filter(Boolean).join(" ") || null}>
-          ${!formatted && (!error || errorInNotice) ? visibleText : null}
+          ${textContent}
         </${TextTag}>
         ${streaming && html`<span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>`}
         ${expandable && html`

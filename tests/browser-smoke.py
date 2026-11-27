@@ -1022,6 +1022,75 @@ def stale_refresh(browser, origin):
         recover(304)
 
 
+def chat_continuity_smoke(browser, app, origin):
+    with browser_page(browser, origin, viewport={"width": 1440, "height": 900}) as page:
+        page.clock.install()
+        open_chat(page)
+        expect(page.locator("#welcome")).to_be_visible()
+        page.evaluate("""() => {
+          const view = document.querySelector("#chat-view");
+          const transcript = document.querySelector("#transcript");
+          const loader = document.querySelector("#view-loading");
+          const removed = [];
+          let flashes = 0;
+          new MutationObserver(records => {
+            for (const { removedNodes } of records) {
+              for (const node of removedNodes) removed.push(node.className);
+            }
+          }).observe(transcript, { childList: true });
+          new MutationObserver(records => {
+            for (const [i, record] of records.entries()) {
+              const next = i + 1 < records.length ? records[i + 1].oldValue : loader.getAttribute("hidden");
+              if (record.oldValue !== null && next === null) flashes++;
+            }
+          }).observe(loader, { attributes: true, attributeOldValue: true, attributeFilter: ["hidden"] });
+          window.chatContinuity = {
+            capture() {
+              this.reply = transcript.lastElementChild;
+              this.body = this.reply.querySelector(".message-body");
+              this.text = this.body.querySelector("p:not([hidden])");
+            },
+            read() {
+              return {
+                removed, flashes,
+                sameView: view === document.querySelector("#chat-view") &&
+                  transcript === document.querySelector("#transcript"),
+                sameReply: this.reply === transcript.lastElementChild &&
+                  this.body === this.reply.querySelector(".message-body") &&
+                  this.text === this.body.querySelector(".chat-markdown"),
+              };
+            },
+          };
+        }""")
+        prompt = "Nebulaquill continuity fixture"
+        with hold_after_first_token(prompt) as release:
+            send(page, prompt)
+            await_partial_reply(page)
+            page.evaluate("window.chatContinuity.capture()")
+            release.set()
+        expect(page.locator("#transcript .assistant[data-message-id]")).to_contain_text(MOCK_REPLY)
+
+        def poll(status):
+            with page.expect_response(lambda response: "/api/state?" in response.url
+                                      and response.status == status):
+                page.clock.fast_forward(12_001)
+
+        poll(304)
+        with app.storage.lock():
+            side = next(thread for thread in app.threads.list() if thread["title"] == "Smoke side chat")
+            app.threads.append(side["id"], "user", "Update another thread during idle Chat.")
+        poll(200)
+        poll(304)
+
+        nav = page.locator(".sidebar")
+        nav.get_by_role("button", name="Home", exact=True).click()
+        expect(page.locator("#home-view")).to_be_visible()
+        nav.get_by_role("button", name="Chat", exact=True).click()
+        expect(page.locator("#chat-view")).to_be_visible()
+        result = page.evaluate("window.chatContinuity.read()")
+        assert result == {"removed": [], "flashes": 0, "sameView": True, "sameReply": True}, result
+
+
 def disconnect(browser, app, origin):
     with browser_page(browser, origin) as page:
         page.add_init_script("""(() => {
@@ -1056,7 +1125,7 @@ def disconnect(browser, app, origin):
         expect(final).to_have_attribute("data-message-id", persisted[-1]["id"])
         expect(transcript.locator(".message.user")).to_have_count(1)
         expect(transcript.locator(".message.assistant"),
-               "The persisted reply should replace the interrupted partial reply").to_have_count(1)
+               "The persisted reply should finalize the interrupted partial reply").to_have_count(1)
         expect(page.locator("#notice")).to_be_hidden()
         expect_announcements(page, 1)
         with page.expect_response(lambda response: "/api/state?" in response.url):
@@ -1248,6 +1317,8 @@ def main():
                 with workspace() as (settings_app, settings_origin):
                     settings_smoke(browser, settings_app, settings_origin, browser_page)
                 smoke(browser, origin)
+                with workspace() as (chat_app, chat_origin):
+                    chat_continuity_smoke(browser, chat_app, chat_origin)
                 mobile_thread_menu_smoke(browser, origin)
                 thread_menu_smoke(browser, origin)
                 with workspace() as (combo_app, combo_origin):

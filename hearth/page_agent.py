@@ -102,13 +102,13 @@ def model_candidates(agent):
     return [row for row in agent.models if row["provider"] != "mock"]
 
 
-def plan(agent, model, name, history, context, recent, asked):
+def plan(agent, model, name, history, context, recent, asked, guidance):
     reference = json.loads(context)
     reference["Workspace memory"] = agent.memory_context()
     payload = {"requested_tool": name, "latest_user_message": history[-1]["content"],
                "chat": [{"role": row["role"], "content": row["content"]} for row in history[:-1]],
                "reference_data": reference, "latest_page": recent, "already_asked": asked}
-    messages = completion_messages(PLANNER, payload)
+    messages = completion_messages(PLANNER + guidance, payload)
     result = agent.model_completion(model, messages, [tool_schema(name)], lambda _: None)
     calls = result.get("tool_calls", [])
     if calls:
@@ -187,7 +187,7 @@ def mock_page(prompt, name, recent, agent):
     return None
 
 
-def generate(agent, name, history, context, recent, sources, origin, emit):
+def generate(agent, name, history, context, recent, sources, origin, emit, *, guidance=""):
     prompt = history[-1]["content"]
     asked = bool(len(history) > 1 and history[-2].get("page_question"))
     chinese = bool(QA_CHINESE.search(prompt))
@@ -216,7 +216,7 @@ def generate(agent, name, history, context, recent, sources, origin, emit):
             for planner in candidates:
                 try:
                     planner = with_model(agent.tools.gateway, planner)
-                    value, answer = plan(agent, planner, name, history, context, recent, asked)
+                    value, answer = plan(agent, planner, name, history, context, recent, asked, guidance)
                 except (HearthError, ValueError, TypeError, KeyError):
                     continue
                 if not value:
