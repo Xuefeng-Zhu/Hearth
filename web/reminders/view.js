@@ -1,5 +1,6 @@
 import { render } from "preact";
 import { html, Icon } from "../chat/view.js";
+import { highlighted, ListSearchExcerpt } from "../list-search-view.js";
 import { timeFormatter } from "../time.js";
 
 const channels = { app: "In app", email: "Email", both: "Both" };
@@ -32,19 +33,11 @@ export function mountReminders(byId) {
   `, byId("reminders-panel"));
 }
 
-function highlighted(parts, fallback) {
-  return parts ? parts.map(({ text, match }) => match ? html`<mark>${text}</mark>` : text) : fallback;
-}
-
 export function ChannelChip({ channel = "app", status, matches }) {
   return html`<span class=${`delivery-chip${status ? ` delivery-${status}` : ""}`}>
     ${icons[channel].map((name) => html`<${Icon} name=${name} size=${14} />`)}
     <span>${highlighted(matches, channels[channel])}${status ? ` · ${statuses[status]}` : ""}</span>
   </span>`;
-}
-
-function Excerpt({ matches }) {
-  return matches?.excerpt ? html`<p class="list-search-excerpt">${highlighted(matches.excerpt)}</p>` : null;
 }
 
 function Reminder({ row, name, cancelReminder }) {
@@ -61,7 +54,7 @@ function Reminder({ row, name, cancelReminder }) {
     <div class="delivery-chips">${deliveries.map(([channel, delivery]) =>
       html`<${ChannelChip} channel=${channel} status=${delivery.status} matches=${matches?.[channel]} />`)}</div>
     ${row.note && html`<p class="delivery-note">${highlighted(matches?.note, row.note)}</p>`}
-    <${Excerpt} matches=${matches} />
+    <${ListSearchExcerpt} matches=${matches} />
     ${deliveries.map(([channel, delivery]) => (delivery.reason || delivery.sending) && html`<p class="meta">
       ${channels[channel]} · ${delivery.sending ? "Sending reminder" : delivery.reason}
       ${delivery.next_at && delivery.status === "queued" && !delivery.sending
@@ -80,7 +73,7 @@ function Outbox({ row }) {
       ${highlighted(matches?.title, row.subject)}
     </a>
     <p class="meta">${highlighted(matches?.due, row.due_text ?? formatDate(row.created_at))}${" · Demo copy"}</p>
-    <${Excerpt} matches=${matches} />
+    <${ListSearchExcerpt} matches=${matches} />
   </article>`;
 }
 

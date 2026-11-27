@@ -5,6 +5,7 @@ import { artifactFilterFromHash } from "./artifacts/format.js";
 import { mountArtifacts } from "./artifacts/view.js";
 import { createReminders } from "./reminders/workspace.js";
 import { mountReminders } from "./reminders/view.js";
+import { createInbox, mountInbox } from "./inbox/workspace.js";
 import { slashSearchShortcut, updateText } from "./dom.js";
 import { confirmControl, moveNavHighlight, transitionView } from "./motion.js";
 import { setupSearchableSelects } from "./combobox.js";
@@ -40,6 +41,7 @@ mountReminders(byId);
 mountHome(byId);
 mountTimeline(byId);
 mountSkills(byId);
+mountInbox();
 mountIcons();
 setupSearchableSelects();
 
@@ -70,7 +72,7 @@ const connections = createConnections({
     voiceSettings.showEngine();
     voiceSettings.refreshCall();
   },
-  loadMail: () => delivery.connections(), pollMail: () => delivery.poll(),
+  loadMail: () => delivery.connections(), pollMail: () => inbox.poll(),
 });
 const brain = createBrain({
   byId, api, date, updateConnections: connections.update, renderBrain: workspaceStatus.updateModel,
@@ -184,10 +186,14 @@ const homePage = createHome({
   },
 });
 const delivery = createReminders({
-  api, refreshAPI, openView, openSettings: openSettingsSection, onInbox: automation.inbox, currentView: () => view, currentSettings: () => settings.section,
-  reminderSearch: listSearches.reminders, inboxSearch: listSearches.inbox,
+  api, refreshAPI, openView, openSettings: openSettingsSection, currentView: () => view, currentSettings: () => settings.section,
+  reminderSearch: listSearches.reminders,
   startSending: () => chatWorkspace.reminderSending(true),
   stopSending: () => chatWorkspace.reminderSending(false),
+});
+const inbox = createInbox({
+  api, refreshAPI, search: listSearches.inbox, currentView: () => view, currentSettings: () => settings.section,
+  delivery, onInbox: automation.inbox,
 });
 function showNotice(message = "") {
   chatWorkspace.clearNoticeTurn();
@@ -361,7 +367,7 @@ async function refreshView(options) {
   if (view === "artifacts") return artifactLibrary.show();
   if (view === "skills") return skills.load();
   if (view === "reminders") return automation.tasksActive() ? automation.loadTasks(options) : delivery.reminders(options);
-  if (view === "inbox") return delivery.inbox(options);
+  if (view === "inbox") return inbox.load(options);
   if (isSetting("automations")) return automation.eventSettings(options);
   if (!await refreshState()) return;
   if (view === "chat") {
@@ -435,7 +441,7 @@ async function openView(nextView, updateHistory = true, section, focusSection = 
     if (view === "reminders" && !updateHistory && searchRoute?.query && automation.tasksActive()) {
       await automation.openReminders();
     } else await refreshView();
-    if (view === "inbox") delivery.poll();
+    if (view === "inbox") inbox.poll();
   } else if (!chatWorkspace.busy) {
     try {
       await refreshView();
@@ -599,7 +605,7 @@ document.addEventListener("visibilitychange", () => {
     chatWorkspace.cancelVoice({ releaseKey: true });
     if (view === "timeline") timeline.hide();
   }
-  if (!document.hidden) delivery.poll();
+  if (!document.hidden) inbox.poll();
   schedulePoll(true);
 });
 let polling = false, pollTimer, pollDelay, resumePoll = false;
@@ -660,10 +666,10 @@ function updateConnectivity() {
 }
 window.addEventListener("offline", updateConnectivity);
 window.addEventListener("online", updateConnectivity);
-setInterval(() => { if (!document.hidden) delivery.poll(); }, 60_000);
+setInterval(() => { if (!document.hidden) inbox.poll(); }, 60_000);
 chatWorkspace.applyAppearance();
 workspaceStatus.paint();
 syncWorkspaceRoute();
 schedulePoll();
-if (!document.hidden) delivery.poll();
+if (!document.hidden) inbox.poll();
 if (!isSetting("connections")) connections.update("rescan");

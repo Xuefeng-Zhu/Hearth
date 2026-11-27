@@ -10,21 +10,6 @@ export function reconcileChildren(parent, children) {
   }
 }
 
-export function appendHighlighted(target, parts, fallback = "") {
-  if (!parts) {
-    target.append(fallback);
-    return target;
-  }
-  for (const { text, match } of parts) {
-    if (match) {
-      const mark = document.createElement("mark");
-      mark.textContent = text;
-      target.append(mark);
-    } else target.append(text);
-  }
-  return target;
-}
-
 export function slashSearchShortcut(event) {
   return event.key === "/" && !event.defaultPrevented && !event.repeat && !event.isComposing
     && !event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey

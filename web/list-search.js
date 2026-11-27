@@ -1,4 +1,3 @@
-import { appendHighlighted } from "./dom.js";
 import { icon } from "./icons.js";
 import { showLoading } from "./motion.js";
 
@@ -124,11 +123,4 @@ export function createListSearch(view, onChange) {
       if (status.textContent === "Searching…") status.textContent = "";
     },
   };
-}
-
-export function listSearchExcerpt(matches) {
-  if (!matches?.excerpt) return undefined;
-  const excerpt = document.createElement("p");
-  excerpt.className = "list-search-excerpt";
-  return appendHighlighted(excerpt, matches.excerpt);
 }
