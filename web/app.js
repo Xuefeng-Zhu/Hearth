@@ -12,7 +12,8 @@ import { setTimeZone, timeFormatter } from "./time.js";
 import { createFeed } from "./feed.js";
 import { createHome } from "./home.js";
 import { createProactivity } from "./proactivity.js";
-import { createAutomation } from "./automation.js";
+import { createAutomation } from "./automation/workspace.js";
+import { mountTasks } from "./automation/view.js";
 import { createSkills } from "./skills.js";
 import { createWorkersCard } from "./workers.js";
 import { createMemory } from "./memory.js";
@@ -30,6 +31,7 @@ const byId = (id) => document.getElementById(id);
 const settings = createSettings(openSettingsSection, { api, renderRefreshStatus });
 mountSupportingSections(byId);
 mountArtifacts(byId);
+mountTasks(byId);
 mountIcons();
 setupSearchableSelects();
 

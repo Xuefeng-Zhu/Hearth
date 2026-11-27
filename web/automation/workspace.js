@@ -1,5 +1,8 @@
-import { icon, iconButton } from "./icons.js";
-import { DEFAULT_TIME_ZONE, timeFormatter } from "./time.js";
+import { render } from "preact";
+import { html, Icon } from "../chat/view.js";
+import { node as el } from "../dom.js";
+import { iconButton } from "../icons.js";
+import { DEFAULT_TIME_ZONE, timeFormatter } from "../time.js";
 
 const get = (id) => document.getElementById(id);
 const policyOptions = [["ask", "Always ask"], ["allow", "Allow without asking"]];
@@ -22,11 +25,27 @@ const feedKinds = { read: "Read", idea: "Idea", digest: "Digest", "reminder-cont
 const actionLabel = (type) => actionTypes.find(([key]) => type === key)?.[1] || type;
 const editLabels = { subject: "Subject", text: "Message", body: "Request body (JSON)" };
 
-function el(tag, className = "", content) {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  if (content !== undefined) element.textContent = content;
-  return element;
+function Button({ text, glyph, action, className = "", label = text, disabled, pressed, children }) {
+  return html`<button type="button" class=${`automation-button ${className}`} title=${text} aria-label=${label}
+    disabled=${disabled} aria-pressed=${pressed} onClick=${action}>
+    <${Icon} name=${glyph} size=${18} /><span>${text}</span>${children}
+  </button>`;
+}
+
+function Pill({ status, text = statuses[status] || status }) {
+  return html`<span class=${`automation-state automation-state-${status}`}>${text}</span>`;
+}
+
+function Heading({ title, glyph, status, text }) {
+  return html`<div class="automation-card-heading">
+    <span class="automation-mark"><${Icon} name=${glyph} size=${19} /></span>
+    <h3>${title}</h3><${Pill} ...${{ status, text }} />
+  </div>`;
+}
+
+function Fields({ entries }) {
+  const visible = entries.filter(([, value]) => value != null && value !== "");
+  return visible.length ? html`<dl class="automation-fields">${visible.map(([name, value]) => html`<dt>${name}</dt><dd>${value}</dd>`)}</dl>` : null;
 }
 
 function button(label, glyph, handler, className = "") {
@@ -84,33 +103,10 @@ function dateInput(value, zone) {
   return `${pieces.year}-${pieces.month}-${pieces.day}T${pieces.hour}:${pieces.minute}`;
 }
 
-function times(values, zone) {
-  const list = el("ol", "automation-times");
-  for (const value of values) {
-    const time = el("time", "", date(value, zone));
-    time.dateTime = value;
-    const item = el("li");
-    item.append(time);
-    list.append(item);
-  }
-  return list;
-}
-
-function dataField(list, name, value) {
-  if (value === null || value === undefined || value === "") return;
-  list.append(el("dt", "", name), el("dd", "", value));
-}
-
-function pill(status, text = statuses[status] || status) {
-  return el("span", `automation-state automation-state-${status}`, text);
-}
-
-function summary(title, glyph, status) {
-  const head = el("div", "automation-card-heading");
-  const mark = el("span", "automation-mark");
-  mark.append(icon(glyph, 19));
-  head.append(mark, el("h3", "", title), status);
-  return head;
+function Times({ values, zone }) {
+  return html`<ol class="automation-times">${values.map((value) => html`
+    <li><time datetime=${value}>${date(value, zone)}</time></li>`)}
+  </ol>`;
 }
 
 export function createAutomation({ api, refreshAPI, refresh, openThread, openInbox, undo }) {
@@ -130,16 +126,22 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
     else if (!get("settings-automations").hidden) get("new-event-automation").focus();
     else if (get("new-task").checkVisibility()) get("new-task").focus();
     dialogTrigger = undefined;
+    render(null, dialog);
   });
 
-  function openDialog(title, trigger) {
+  function openDialog(title, trigger, body) {
     dialogTrigger = trigger;
-    const head = el("header", "automation-dialog-header");
-    const heading = el("h2", "", title);
-    heading.id = "automation-dialog-title";
-    head.append(heading, iconButton("x", "Close", () => dialog.close()));
-    dialog.replaceChildren(head);
+    render(html`
+      <header class="automation-dialog-header">
+        <h2 id="automation-dialog-title">${title}</h2>
+        <button type="button" class="icon-button" aria-label="Close" title="Close" onClick=${() => dialog.close()}>
+          <${Icon} name="x" size=${18} />
+        </button>
+      </header>
+      ${body}
+    `, dialog);
     dialog.showModal();
+    return dialog.querySelector("form");
   }
 
   async function decision(row, verb, card, changes) {
@@ -166,20 +168,17 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
   }
 
   function edit(row, card, trigger) {
-    openDialog("Edit approval", trigger);
-    const form = el("form", "automation-editor");
-    const feedback = el("p", "meta", "");
-    feedback.setAttribute("role", "status");
-    for (const [key, value] of Object.entries(row.editable)) {
-      const field = key === "subject" ? input(key, "text", value, 240) : el("textarea");
-      field.name = key;
-      field.value = value;
-      field.required = true;
-      form.append(label(editLabels[key], field));
-    }
-    const save = el("button", "primary-setting", "Save changes");
-    save.type = "submit";
-    form.append(save, feedback);
+    const captions = Object.entries(row.editable).map(([key, value]) => {
+      const id = `automation-label-${++labelId}`;
+      return html`<label><span id=${id}>${editLabels[key]}</span>${key === "subject"
+        ? html`<input name=${key} type="text" defaultValue=${value} maxlength="240" aria-labelledby=${id} required />`
+        : html`<textarea name=${key} defaultValue=${value} aria-labelledby=${id} required></textarea>`}</label>`;
+    });
+    const form = openDialog("Edit approval", trigger, html`<form class="automation-editor">
+      ${captions}<button class="primary-setting" type="submit">Save changes</button><p class="meta" role="status"></p>
+    </form>`);
+    const save = form.querySelector("[type=submit]");
+    const feedback = form.querySelector("[role=status]");
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       save.disabled = true;
@@ -191,7 +190,6 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
         save.disabled = false;
       }
     });
-    dialog.append(form);
     form.elements[0].focus();
   }
 
@@ -204,89 +202,73 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
     const confirmation = eventConfirmation || taskConfirmation;
     const status = row.status === "pending" && Date.parse(row.expires_at) <= Date.now() ? "expired" : row.status;
     const category = row.categories[0];
-    article.append(summary(row.title, confirmation ? "clock" : marks[category] || "shield",
-      pill(status, status === "pending" && confirmation ? (eventConfirmation ? "Confirm automation" : "Confirm schedule") : undefined)));
-    if (row.worker_title) article.append(el("p", "thread-source", `Worker · ${row.worker_title}`));
-    const fields = el("dl", "automation-fields");
-    if (row.email) {
-      dataField(fields, "To", row.email.to.join(", "));
-      dataField(fields, "Subject", row.email.subject);
-      dataField(fields, "Message", row.email.text);
-    } else if (!confirmation) {
-      dataField(fields, "Target", row.target);
-      if (row.categories.includes("spend")) dataField(fields, "Estimated cost", row.amount);
-      if (row.attachment_names?.length) dataField(fields, "Attachments", row.attachment_names.join("\n"));
-      if (row.steps?.length) dataField(fields, "Steps", row.steps.map(({ action, target, text }) =>
-        [action, target, text].filter(Boolean).join(" ")).join("\n"));
-      if (row.request?.body != null) dataField(fields, "Request", JSON.stringify(row.request.body, null, 2));
+    const fields = [];
+    if (row.email) fields.push(["To", row.email.to.join(", ")], ["Subject", row.email.subject], ["Message", row.email.text]);
+    else if (!confirmation) {
+      fields.push(["Target", row.target]);
+      if (row.categories.includes("spend")) fields.push(["Estimated cost", row.amount]);
+      if (row.attachment_names?.length) fields.push(["Attachments", row.attachment_names.join("\n")]);
+      if (row.steps?.length) fields.push(["Steps", row.steps.map(({ action, target, text }) =>
+        [action, target, text].filter(Boolean).join(" ")).join("\n")]);
+      if (row.request?.body != null) fields.push(["Request", JSON.stringify(row.request.body, null, 2)]);
     }
     if (row.goal_preview) {
-      dataField(fields, "Target date", row.goal_preview.target_date);
+      fields.push(["Target date", row.goal_preview.target_date]);
       const checkin = row.goal_preview.checkin;
-      if (checkin) dataField(fields, "Check-in", `${checkin.cadence === "daily" ? "Daily" :
-        ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][checkin.day]} at ${checkin.time}`);
-      if (row.goal_preview.links.length) dataField(fields, "Linked items", String(row.goal_preview.links.length));
-    }
-    if (fields.childElementCount) article.append(fields);
-    if (row.upcoming?.length && !taskConfirmation) {
-      article.append(el("p", "automation-label", row.tool === "create_watcher" ? "Upcoming checks" : "Reminder time"),
-        times(row.upcoming, row.args.task?.timezone));
-    }
-    if (category === "skills" && row.args?.markdown) {
-      const details = el("details", "automation-result-details");
-      details.append(el("summary", "", "Review proposed Markdown"), el("pre", "", row.args.markdown));
-      article.append(details);
-    }
-    if (eventConfirmation) article.append(eventDetails(row.args, row.automation_context || eventData));
-    if (taskConfirmation) {
-      article.append(el("p", "automation-instruction", row.args.instruction),
-        el("p", "automation-label", "Upcoming runs"), times(row.upcoming, row.args.timezone));
+      if (checkin) fields.push(["Check-in", `${checkin.cadence === "daily" ? "Daily" :
+        ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][checkin.day]} at ${checkin.time}`]);
+      if (row.goal_preview.links.length) fields.push(["Linked items", String(row.goal_preview.links.length)]);
     }
     const result = row.result;
-    if (result?.message || result?.error) article.append(el("p", "automation-result", result.message || result.error));
-    if (result?.response || result?.message_id || result?.text) {
-      const details = el("details", "automation-result-details");
-      details.append(el("summary", "", "Tool result"), el("pre", "", result.response ?
-        JSON.stringify(result.response, null, 2) : result.text || result.message_id));
-      article.append(details);
-    }
-    const footer = el("div", "automation-card-footer");
-    footer.append(el("span", "meta", status === "pending" ? `Expires ${date(row.expires_at)}` : ""));
-    const controls = el("div", "automation-controls");
-    if (status === "pending") {
-      controls.append(button(confirmation ? "Confirm" : "Approve", "check",
-        () => decision(row, "approve", article).catch(() => {}), "primary-setting"));
-      if (Object.keys(row.editable || {}).length) {
-        controls.append(button("Edit", "edit", (event) => edit(row, article, event.currentTarget)));
-      }
-      controls.append(button("Decline", "x", () => decision(row, "decline", article).catch(() => {})));
-    }
-    if ((row.undo_task || row.undo_automation) && !row.undone) controls.append(button("Undo", "history", () => undo(row)));
-    if (row.effect_action && ["memory_write", "delete_memory"].includes(row.tool) && !row.effect_undone) {
-      controls.append(button("Undo", "history", () => undo({ id: row.effect_action, memory_change: true })));
-    }
-    if (!["chat", "idea", "goal"].includes(surface) && row.thread_id) {
-      controls.append(button("Open chat", "message", () => openThread(row.thread_id)));
-    }
-    footer.append(controls);
-    article.append(footer);
-    const feedback = el("p", "meta automation-feedback", "");
-    feedback.setAttribute("role", "status");
-    article.append(feedback);
+    const act = (verb) => decision(row, verb, article).catch(() => {});
+    render(html`
+      <${Heading} title=${row.title} glyph=${confirmation ? "clock" : marks[category] || "shield"} status=${status}
+        text=${status === "pending" && confirmation ? (eventConfirmation ? "Confirm automation" : "Confirm schedule") : undefined} />
+      ${row.worker_title && html`<p class="thread-source">Worker · ${row.worker_title}</p>`}
+      <${Fields} entries=${fields} />
+      ${row.upcoming?.length && !taskConfirmation ? html`
+        <p class="automation-label">${row.tool === "create_watcher" ? "Upcoming checks" : "Reminder time"}</p>
+        <${Times} values=${row.upcoming} zone=${row.args.task?.timezone} />` : null}
+      ${category === "skills" && row.args?.markdown && html`<details class="automation-result-details">
+        <summary>Review proposed Markdown</summary><pre>${row.args.markdown}</pre>
+      </details>`}
+      ${eventConfirmation && html`<${EventDetails} rule=${row.args} data=${row.automation_context || eventData} />`}
+      ${taskConfirmation && html`<p class="automation-instruction">${row.args.instruction}</p>
+        <p class="automation-label">Upcoming runs</p><${Times} values=${row.upcoming} zone=${row.args.timezone} />`}
+      ${(result?.message || result?.error) && html`<p class="automation-result">${result.message || result.error}</p>`}
+      ${(result?.response || result?.message_id || result?.text) && html`<details class="automation-result-details">
+        <summary>Tool result</summary><pre>${result.response ? JSON.stringify(result.response, null, 2) : result.text || result.message_id}</pre>
+      </details>`}
+      <div class="automation-card-footer">
+        <span class="meta">${status === "pending" ? `Expires ${date(row.expires_at)}` : ""}</span>
+        <div class="automation-controls">
+          ${status === "pending" && html`
+            <${Button} text=${confirmation ? "Confirm" : "Approve"} glyph="check" className="primary-setting" action=${() => act("approve")} />
+            ${Object.keys(row.editable || {}).length ? html`<${Button} text="Edit" glyph="edit"
+              action=${(event) => edit(row, article, event.currentTarget)} />` : null}
+            <${Button} text="Decline" glyph="x" action=${() => act("decline")} />`}
+          ${(row.undo_task || row.undo_automation) && !row.undone &&
+            html`<${Button} text="Undo" glyph="history" action=${() => undo(row)} />`}
+          ${row.effect_action && ["memory_write", "delete_memory"].includes(row.tool) && !row.effect_undone &&
+            html`<${Button} text="Undo" glyph="history" action=${() => undo({ id: row.effect_action, memory_change: true })} />`}
+          ${!["chat", "idea", "goal"].includes(surface) && row.thread_id &&
+            html`<${Button} text="Open chat" glyph="message" action=${() => openThread(row.thread_id)} />`}
+        </div>
+      </div>
+      <p class="meta automation-feedback" role="status"></p>
+    `, article);
     return article;
   }
 
   function approvalGroup(target, items, surface) {
     target.hidden = !items.length;
-    target.replaceChildren();
-    if (!items.length) return;
-    const count = items.filter((item) => item.status === "pending").length;
-    const title = el("div", "automation-section-heading");
-    title.append(icon("shield", 20), el("h2", "", surface === "home" ? "Pending approvals" : "Approvals"), pill("pending", String(count)));
-    target.append(title);
-    const list = el("div", "automation-approval-list");
-    list.append(...items.map((row) => approvalCard(row, surface)));
-    target.append(list);
+    render(items.length ? html`
+      <div class="automation-section-heading"><${Icon} name="shield" />
+        <h2>${surface === "home" ? "Pending approvals" : "Approvals"}</h2>
+        <${Pill} status="pending" text=${items.filter((item) => item.status === "pending").length} />
+      </div>
+      <div class="automation-approval-list" ref=${(host) => host?.replaceChildren(...items.map((row) => approvalCard(row, surface)))}></div>
+    ` : null, target);
   }
 
   function home(items) {
@@ -303,20 +285,15 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
     approvalGroup(get("inbox-approvals"), approvals, "inbox");
     const target = get("inbox-runs");
     target.hidden = !items.length;
-    target.replaceChildren();
-    if (!items.length) return;
-    const title = el("div", "automation-section-heading");
-    title.append(icon("clock", 20), el("h2", "", "Recurring task updates"));
-    const list = el("div", "automation-approval-list");
-    for (const row of items) {
-      const card = el("article", "card automation-approval");
-      card.append(summary(row.title, "clock", pill(row.status)), el("p", "automation-result", row.text),
-        el("p", "meta", date(row.created_at)));
-      if (row.email_state === "failed") card.append(el("p", "meta", row.email_reason));
-      card.append(button("Open chat", "message", () => openThread(row.thread_id)));
-      list.append(card);
-    }
-    target.append(title, list);
+    render(items.length ? html`
+      <div class="automation-section-heading"><${Icon} name="clock" /><h2>Recurring task updates</h2></div>
+      <div class="automation-approval-list">${items.map((row) => html`<article class="card automation-approval">
+        <${Heading} title=${row.title} glyph="clock" status=${row.status} />
+        <p class="automation-result">${row.text}</p><p class="meta">${date(row.created_at)}</p>
+        ${row.email_state === "failed" && html`<p class="meta">${row.email_reason}</p>`}
+        <${Button} text="Open chat" glyph="message" action=${() => openThread(row.thread_id)} />
+      </article>`)}</div>
+    ` : null, target);
   }
 
   const policies = get("approval-policies");
@@ -396,49 +373,47 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
   }
 
   function editor(task, trigger) {
-    openDialog(task?.watch ? "Edit watcher" : task ? "Edit recurring task" : "New recurring task", trigger);
-    const form = el("form", "automation-editor");
-    const name = input("name", "text", task?.name || "", 80);
-    name.required = true;
-    const instruction = el("textarea");
-    instruction.name = "instruction";
-    instruction.value = task?.instruction || "";
-    instruction.maxLength = 4000;
-    instruction.required = true;
     const scheduleUI = scheduleEditor(task?.schedule, task?.timezone);
-    const channel = select("delivery", delivery, task?.delivery || "app");
-    const enabled = input("enabled", "checkbox", "true");
-    enabled.checked = task?.enabled ?? true;
-    const preview = el("div", "automation-preview");
-    const feedback = el("p", "meta");
-    feedback.setAttribute("role", "status");
-    const controls = el("div", "automation-controls");
-    const submit = el("button", "primary-setting", "Preview schedule");
-    submit.type = "submit";
-    controls.append(submit);
+    scheduleUI.fields.append(label("Delivery", select("delivery", delivery, task?.delivery || "app")));
+    const [nameId, instructionId, enabledId] = Array.from({ length: task?.watch ? 2 : 3 }, () => `automation-label-${++labelId}`);
+    const form = openDialog(task?.watch ? "Edit watcher" : task ? "Edit recurring task" : "New recurring task", trigger, html`
+      <form class="automation-editor">
+        <label><span id=${nameId}>Name</span><input name="name" type="text" defaultValue=${task?.name || ""}
+          maxlength="80" required aria-labelledby=${nameId} /></label>
+        ${task?.watch ? html`<p class="meta">${task.watch.url}</p>` : html`<label><span id=${instructionId}>Instruction</span>
+          <textarea name="instruction" defaultValue=${task?.instruction || ""} maxlength="4000" required aria-labelledby=${instructionId}></textarea>
+        </label>`}
+        <div class="automation-editor-fields" ref=${(host) => host?.replaceChildren(...scheduleUI.fields.childNodes)}></div>
+        <label class="automation-enabled"><span id=${enabledId || instructionId}>Enabled</span>
+          <input name="enabled" type="checkbox" value="true" defaultChecked=${task?.enabled ?? true}
+            aria-labelledby=${enabledId || instructionId} />
+        </label>
+        <div class="automation-preview"></div>
+        <div class="automation-controls"><button class="primary-setting" type="submit">Preview schedule</button></div>
+        <p class="meta" role="status"></p>
+      </form>`);
+    const { name, instruction, delivery: channel, enabled } = form.elements;
+    const preview = form.querySelector(".automation-preview");
+    const feedback = form.querySelector("[role=status]");
+    const submit = form.querySelector("[type=submit]");
     let reviewed = false;
     form.addEventListener("input", () => {
       reviewed = false;
-      preview.replaceChildren();
+      render(null, preview);
       feedback.textContent = "";
       submit.textContent = "Preview schedule";
     });
-    scheduleUI.fields.append(label("Delivery", channel));
-    form.append(label("Name", name), task?.watch ? el("p", "meta", task.watch.url) : label("Instruction", instruction),
-      scheduleUI.fields, label("Enabled", enabled, "automation-enabled"),
-      preview, controls, feedback);
-    dialog.append(form);
     name.focus();
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const data = { ...(task ? { id: task.id } : {}), name: name.value, instruction: instruction.value,
+      const data = { ...(task ? { id: task.id } : {}), name: name.value, instruction: instruction?.value ?? task?.instruction ?? "",
         enabled: enabled.checked, delivery: channel.value, ...scheduleUI.value() };
       submit.disabled = true;
       try {
         if (!reviewed) {
           const result = await api("/api/tasks/preview", data);
-          preview.replaceChildren(el("p", "automation-label", "Upcoming runs"),
-            result.upcoming.length ? times(result.upcoming, result.timezone) : el("p", "meta", "No upcoming runs."));
+          render(html`<p class="automation-label">Upcoming runs</p>${result.upcoming.length
+            ? html`<${Times} values=${result.upcoming} zone=${result.timezone} />` : html`<p class="meta">No upcoming runs.</p>`}`, preview);
           reviewed = true;
           submit.textContent = "Save task";
         } else {
@@ -462,9 +437,8 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
   let eventDeletion;
   let eventRequest = 0;
 
-  function eventDetails(rule, data = eventData) {
+  function EventDetails({ rule, data = eventData }) {
     const { trigger, actions } = rule;
-    const fields = el("dl", "automation-fields");
     let when = triggerTypes.find(([key]) => key === trigger.type)?.[1];
     if (trigger.type === "email") {
       const filters = [trigger.sender, trigger.subject && `Subject contains “${trigger.subject}”`,
@@ -478,8 +452,7 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
       when = trigger.schedule.type === "once" ? date(trigger.schedule.at, trigger.timezone)
         : `${scheduleText(trigger.schedule)} · ${trigger.timezone}`;
     }
-    dataField(fields, "When", when);
-    dataField(fields, "Then", actions.map((action) => {
+    const then = actions.map((action) => {
       const target = action.thread_id === "new" ? "New side chat" : action.thread_id === "main" ? "Main chat"
         : data?.threads.find(({ id }) => id === action.thread_id)?.title || action.thread_id;
       const detail = {
@@ -490,18 +463,32 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
         email_summary: "Reminder address",
       }[action.type];
       return [actionLabel(action.type), detail].filter(Boolean).join(" · ");
-    }).join("\n"));
-    return fields;
+    }).join("\n");
+    return html`<${Fields} entries=${[["When", when], ["Then", then]]} />`;
   }
 
   function eventEditor(rule, trigger) {
-    openDialog(rule ? "Edit automation" : "New automation", trigger);
-    const form = el("form", "automation-editor event-automation-editor");
-    const name = input("name", "text", rule?.name || "", 80);
-    name.required = true;
-    const when = select("when", triggerTypes, rule?.trigger.type || "email");
-    const options = el("div", "event-trigger-fields");
-    const actionList = el("div", "event-action-fields");
+    const form = openDialog(rule ? "Edit automation" : "New automation", trigger, html`
+      <form class="automation-editor event-automation-editor">
+        <label><span>Name</span><input name="name" type="text"
+          defaultValue=${rule?.name || ""} maxlength="80" required /></label>
+        <label><span>When</span><select name="when" value=${rule?.trigger.type || "email"}>
+          ${triggerTypes.map(([key, text]) => html`<option value=${key}>${text}</option>`)}
+        </select></label>
+        <div class="event-trigger-fields"></div>
+        <div class="event-action-fields"></div>
+        <div class="action-row">
+          <${Button} text="Add action" glyph="plus" action=${() => addAction().focus()} />
+          <button type="submit" class="primary-setting automation-button">Save automation</button>
+        </div>
+        <p class="meta" role="status"></p>
+      </form>`);
+    const { name, when } = form.elements;
+    const options = form.querySelector(".event-trigger-fields");
+    const actionList = form.querySelector(".event-action-fields");
+    const add = form.querySelector(".action-row button");
+    const submit = form.querySelector("[type=submit]");
+    const feedback = form.querySelector("[role=status]");
     const actionReaders = new Map();
     const availableActions = () => actionTypes.filter(([key]) => key !== "save_attachments" || when.value === "email");
     let readTrigger;
@@ -603,11 +590,6 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
         item.remove.hidden = size <= 1;
       }
     }
-    const add = button("Add action", "plus", () => addAction().focus());
-    const submit = el("button", "primary-setting automation-button", "Save automation");
-    submit.type = "submit";
-    const feedback = el("p", "meta");
-    feedback.setAttribute("role", "status");
     when.addEventListener("change", () => {
       displayTrigger();
       for (const { selectType } of actionReaders.values()) {
@@ -628,10 +610,11 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
     });
     displayTrigger(rule?.trigger);
     for (const action of rule?.actions || [{ type: "prompt" }]) addAction(action);
-    const controls = el("div", "action-row");
-    controls.append(add, submit);
-    form.append(label("Name", name), label("When", when), options, actionList, controls, feedback);
-    dialog.append(form);
+    for (const control of [name, when]) {
+      const id = `automation-label-${++labelId}`;
+      control.closest("label").firstElementChild.id = id;
+      control.setAttribute("aria-labelledby", id);
+    }
     name.focus();
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -652,48 +635,36 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
     });
   }
 
-  function eventCard(rule, expanded) {
-    const card = el("article", "card automation-approval event-automation-card");
-    const controls = el("div", "automation-controls");
+  function EventCard({ rule, expanded }) {
     const last = rule.runs[0];
-    const toggle = button(rule.enabled ? "Pause" : "Enable", rule.enabled ? "pause" : "play",
-      (event) => eventAction(rule, "update", event.currentTarget, { enabled: !rule.enabled }));
-    toggle.setAttribute("aria-label", `${toggle.textContent} ${rule.name}`);
-    controls.append(toggle, button("Edit", "edit", (event) => eventEditor(rule, event.currentTarget)),
-      button("Delete", "trash", (event) => eventAction(rule, "delete", event.currentTarget)));
-    card.append(summary(rule.name, "clock", pill(rule.enabled ? "complete" : "changing", rule.enabled ? "Enabled" : "Paused")),
-      eventDetails(rule));
-    const state = el("p", "event-last-run");
-    state.append(el("strong", "", "Last run "), last ? pill(last.status) : el("span", "meta", "No runs yet"));
-    if (last) state.append(el("span", "meta", date(last.at)));
-    card.append(state);
-    if (rule.next_at) card.append(el("p", "meta", `Next run ${date(rule.next_at, rule.trigger.timezone)}`));
-    card.append(controls);
-    const history = el("details", "event-run-history");
-    history.dataset.automationHistory = rule.id;
-    history.open = expanded.has(rule.id);
-    history.append(el("summary", "", "Run history"));
-    const list = el("ul", "event-run-list");
-    for (const run of rule.runs) {
-      const item = el("li");
-      item.append(el("span", "meta", date(run.at)), pill(run.status));
-      if (run.steps.length) {
-        const steps = el("ol");
-        for (const step of run.steps) {
-          const detail = step.message || step.error || statuses[step.status] || step.status;
-          steps.append(el("li", "", `${actionLabel(step.type)} · ${detail}`));
-        }
-        item.append(steps);
-      }
-      if (run.thread_id !== "main") item.append(button("Open chat", "message", () => openThread(run.thread_id)));
-      if (run.status === "approval_needed") {
-        item.append(button("Open Inbox approvals", "shield", openInbox));
-      }
-      list.append(item);
-    }
-    history.append(rule.runs.length ? list : el("p", "meta", "No runs yet."));
-    card.append(history);
-    return card;
+    const toggle = rule.enabled ? "Pause" : "Enable";
+    return html`<article class="card automation-approval event-automation-card">
+      <${Heading} title=${rule.name} glyph="clock" status=${rule.enabled ? "complete" : "changing"}
+        text=${rule.enabled ? "Enabled" : "Paused"} />
+      <${EventDetails} rule=${rule} />
+      <p class="event-last-run"><strong>Last run </strong>
+        ${last ? html`<${Pill} status=${last.status} /><span class="meta">${date(last.at)}</span>`
+          : html`<span class="meta">No runs yet</span>`}
+      </p>
+      ${rule.next_at && html`<p class="meta">Next run ${date(rule.next_at, rule.trigger.timezone)}</p>`}
+      <div class="automation-controls">
+        <${Button} text=${toggle} label=${`${toggle} ${rule.name}`} glyph=${rule.enabled ? "pause" : "play"}
+          action=${(event) => eventAction(rule, "update", event.currentTarget, { enabled: !rule.enabled })} />
+        <${Button} text="Edit" glyph="edit" action=${(event) => eventEditor(rule, event.currentTarget)} />
+        <${Button} text="Delete" glyph="trash" action=${(event) => eventAction(rule, "delete", event.currentTarget)} />
+      </div>
+      <details class="event-run-history" data-automation-history=${rule.id} open=${expanded.has(rule.id)}>
+        <summary>Run history</summary>
+        ${rule.runs.length ? html`<ul class="event-run-list">${rule.runs.map((run) => html`<li>
+          <span class="meta">${date(run.at)}</span><${Pill} status=${run.status} />
+          ${run.steps.length ? html`<ol>${run.steps.map((step) => html`<li>
+            ${actionLabel(step.type)} · ${step.message || step.error || statuses[step.status] || step.status}
+          </li>`)}</ol>` : null}
+          ${run.thread_id !== "main" && html`<${Button} text="Open chat" glyph="message" action=${() => openThread(run.thread_id)} />`}
+          ${run.status === "approval_needed" && html`<${Button} text="Open Inbox approvals" glyph="shield" action=${openInbox} />`}
+        </li>`)}</ul>` : html`<p class="meta">No runs yet.</p>`}
+      </details>
+    </article>`;
   }
 
   async function eventAction(rule, operation, control, extra = {}) {
@@ -730,8 +701,8 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
       if (eventSignature === signature) return;
       eventSignature = signature;
       const expanded = new Set([...eventList.querySelectorAll("details[open]")].map((row) => row.dataset.automationHistory));
-      eventList.replaceChildren(...data.automations.map((row) => eventCard(row, expanded)));
-      if (!data.automations.length) eventList.append(el("p", "meta", "No automations yet."));
+      render(data.automations.length ? data.automations.map((rule) => html`<${EventCard} key=${rule.id} ...${{ rule, expanded }} />`)
+        : html`<p class="meta">No automations yet.</p>`, eventList);
     } catch (error) {
       if (!background && request === eventRequest) eventStatus.textContent = error.message;
     }
@@ -739,47 +710,46 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
 
   get("new-event-automation").addEventListener("click", (event) => eventEditor(null, event.currentTarget));
 
-  function taskDetail(task) {
-    const article = el("article", "card automation-task-detail");
+  function TaskRun({ run, zone, expanded }) {
+    const time = date(run.started_at, zone);
+    const metadata = [run.duration_ms !== undefined ? `${(run.duration_ms / 1000).toFixed(1)} s` : "",
+      `${run.attempts} attempt${run.attempts === 1 ? "" : "s"}`].filter(Boolean);
+    return html`<details class="automation-run" open=${expanded.has(time)}>
+      <summary><${Icon} name="chevron" size=${15} /><span class="automation-run-time">${time}</span><${Pill} status=${run.status} /></summary>
+      <div class="automation-run-body">
+        ${run.output && html`<p class="automation-result">${run.output}</p>`}
+        ${run.reason && html`<p class="automation-result">${run.reason}</p>`}
+        <p class="meta">${metadata.join(" · ")}</p>
+        ${run.tools?.length ? html`<p class="meta">${run.tools.map((tool) => `${tool.tool} · ${statuses[tool.status]}`).join(", ")}</p>` : null}
+      </div>
+    </details>`;
+  }
+
+  function TaskDetail({ task, expanded }) {
     const running = task.manual_due || task.runs.some((run) => ["running", "retrying"].includes(run.status));
-    const controls = el("div", "automation-controls automation-task-controls");
-    const run = button("Run now", "play", () => taskAction(task, "run"), "primary-setting");
-    run.disabled = !!running;
-    controls.append(run, button(task.enabled ? "Pause" : "Resume", task.enabled ? "pause" : "play",
-      () => taskAction(task, task.enabled ? "pause" : "update", task.enabled ? {} : { enabled: true })),
-    button("Edit", "edit", (event) => editor(task, event.currentTarget)),
-    button("Delete", "trash", () => taskAction(task, "delete")));
-    article.append(summary(task.name, "clock", pill(task.enabled ? "complete" : "changing", task.enabled ? "Enabled" : "Paused")),
-      el("p", "automation-instruction", task.instruction), controls);
-    const fields = el("dl", "automation-fields");
-    if (task.watch) dataField(fields, "Watches", task.watch.url);
-    dataField(fields, "Schedule", scheduleText(task.schedule));
-    dataField(fields, "Next run", task.next_run ? date(task.next_run, task.timezone) : "—");
-    dataField(fields, "Time zone", task.timezone);
-    dataField(fields, "Delivery", delivery.find(([key]) => key === task.delivery)?.[1]);
-    article.append(fields);
-    const history = el("div", "automation-history");
-    const header = el("div", "automation-section-heading");
-    header.append(el("h4", "", "Run history"));
-    if (task.chat_id) header.append(button("Open chat", "message", () => openThread(task.chat_id)));
-    history.append(header);
-    if (task.runs.length === 0) history.append(el("p", "meta", running ? "Run queued." : "No runs yet."));
-    for (const run of task.runs) {
-      const item = el("details", "automation-run");
-      const heading = el("summary");
-      heading.append(icon("chevron", 15), el("span", "automation-run-time", date(run.started_at, task.timezone)), pill(run.status));
-      const details = el("div", "automation-run-body");
-      if (run.output) details.append(el("p", "automation-result", run.output));
-      if (run.reason) details.append(el("p", "automation-result", run.reason));
-      const metadata = [run.duration_ms !== undefined ? `${(run.duration_ms / 1000).toFixed(1)} s` : "",
-        `${run.attempts} attempt${run.attempts === 1 ? "" : "s"}`].filter(Boolean);
-      details.append(el("p", "meta", metadata.join(" · ")));
-      if (run.tools?.length) details.append(el("p", "meta", run.tools.map((tool) => `${tool.tool} · ${statuses[tool.status]}`).join(", ")));
-      item.append(heading, details);
-      history.append(item);
-    }
-    article.append(history);
-    return article;
+    const entries = [["Watches", task.watch?.url], ["Schedule", scheduleText(task.schedule)],
+      ["Next run", task.next_run ? date(task.next_run, task.timezone) : "—"], ["Time zone", task.timezone],
+      ["Delivery", delivery.find(([key]) => key === task.delivery)?.[1]]];
+    return html`<article class="card automation-task-detail">
+      <${Heading} title=${task.name} glyph="clock" status=${task.enabled ? "complete" : "changing"}
+        text=${task.enabled ? "Enabled" : "Paused"} />
+      <p class="automation-instruction">${task.instruction}</p>
+      <div class="automation-controls automation-task-controls">
+        <${Button} text="Run now" glyph="play" className="primary-setting" disabled=${!!running} action=${() => taskAction(task, "run")} />
+        <${Button} text=${task.enabled ? "Pause" : "Resume"} glyph=${task.enabled ? "pause" : "play"}
+          action=${() => task.enabled ? taskAction(task, "pause") : taskAction(task, "update", { enabled: true })} />
+        <${Button} text="Edit" glyph="edit" action=${(event) => editor(task, event.currentTarget)} />
+        <${Button} text="Delete" glyph="trash" action=${() => taskAction(task, "delete")} />
+      </div>
+      <${Fields} entries=${entries} />
+      <div class="automation-history">
+        <div class="automation-section-heading"><h4>Run history</h4>
+          ${task.chat_id && html`<${Button} text="Open chat" glyph="message" action=${() => openThread(task.chat_id)} />`}
+        </div>
+        ${task.runs.length ? task.runs.map((run) => html`<${TaskRun} key=${run.id} run=${run} zone=${task.timezone} expanded=${expanded} />`)
+          : html`<p class="meta">${running ? "Run queued." : "No runs yet."}</p>`}
+      </div>
+    </article>`;
   }
 
   async function taskAction(task, verb, extra = {}) {
@@ -813,19 +783,15 @@ export function createAutomation({ api, refreshAPI, refresh, openThread, openInb
       taskSignature = signature;
       const host = get("tasks-content");
       const expanded = new Set([...host.querySelectorAll(".automation-run[open] .automation-run-time")].map((row) => row.textContent));
-      const list = el("div", "automation-task-list");
-      for (const row of result.tasks) {
-        const entry = button(row.name, "clock", () => { selected = row.id; loadTasks(); }, "automation-task-selector");
-        entry.setAttribute("aria-pressed", String(row.id === selected));
-        entry.append(el("small", "meta", row.enabled ? scheduleText(row.schedule) : "Paused"));
-        list.append(entry);
-      }
-      host.replaceChildren(list);
-      if (task) host.append(taskDetail(task));
-      else host.append(el("p", "meta", "No recurring tasks yet."));
-      for (const row of host.querySelectorAll(".automation-run")) {
-        row.open = expanded.has(row.querySelector(".automation-run-time").textContent);
-      }
+      render(html`
+        <div class="automation-task-list">${result.tasks.map((row) => html`
+          <${Button} key=${row.id} text=${row.name} glyph="clock" className="automation-task-selector"
+            pressed=${String(row.id === selected)} action=${() => { selected = row.id; loadTasks(); }}>
+            <small class="meta">${row.enabled ? scheduleText(row.schedule) : "Paused"}</small>
+          </${Button}>`)}
+        </div>
+        ${task ? html`<${TaskDetail} key=${task.id} ...${{ task, expanded }} />` : html`<p class="meta">No recurring tasks yet.</p>`}
+      `, host);
     } catch (error) {
       if (!background && request === taskRequest) get("tasks-feedback").textContent = error.message;
     }
