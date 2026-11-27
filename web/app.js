@@ -1,5 +1,7 @@
 import { createTimeline } from "./timeline.js";
-import { artifactFilterFromHash, createArtifacts } from "./artifacts.js";
+import { createArtifacts } from "./artifacts/library.js";
+import { artifactFilterFromHash } from "./artifacts/format.js";
+import { mountArtifacts } from "./artifacts/view.js";
 import { createReminders } from "./reminders.js";
 import { button, node, slashSearchShortcut, updateText } from "./dom.js";
 import { confirmControl, moveNavHighlight, showLoading, transitionView } from "./motion.js";
@@ -27,6 +29,7 @@ import { createChatWorkspace, mainThread } from "./chat/workspace.js";
 const byId = (id) => document.getElementById(id);
 const settings = createSettings(openSettingsSection, { api, renderRefreshStatus });
 mountSupportingSections(byId);
+mountArtifacts(byId);
 mountIcons();
 setupSearchableSelects();
 

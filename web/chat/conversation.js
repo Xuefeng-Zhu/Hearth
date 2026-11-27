@@ -1,6 +1,6 @@
 import { render } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
-import { markdown } from "../artifacts.js";
+import { markdown } from "../artifacts/format.js";
 import { mascot } from "../avatar.js";
 import { reconcileChildren } from "../dom.js";
 import { arrive, confirmControl } from "../motion.js";

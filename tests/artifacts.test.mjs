@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { artifactFilterFromHash, csvRows } from "../web/artifacts.js";
+import { artifactFilterFromHash, csvRows } from "../web/artifacts/format.js";
 import { fileAnswerSources } from "../web/file-questions.js";
 
 test("artifact route accepts type filters and the legacy Pages hash", () => {

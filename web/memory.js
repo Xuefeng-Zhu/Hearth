@@ -1,5 +1,5 @@
 import { icon } from "./icons.js";
-import { markdown } from "./artifacts.js";
+import { markdown } from "./artifacts/format.js";
 import { showLoading } from "./motion.js";
 
 const areas = [

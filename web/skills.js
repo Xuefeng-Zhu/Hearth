@@ -1,4 +1,4 @@
-import { markdown } from "./artifacts.js";
+import { markdown } from "./artifacts/format.js";
 import { appendHighlighted } from "./dom.js";
 import { icon } from "./icons.js";
 import { listSearchExcerpt, listSearchPath } from "./list-search.js";

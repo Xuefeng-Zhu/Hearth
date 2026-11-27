@@ -1,200 +1,29 @@
-import { fileGlyph, uploadURL } from "./attachments.js";
-import { icon, iconButton } from "./icons.js";
-import { showLoading } from "./motion.js";
-import { createPageDetail } from "./pages.js";
-import { createFileQuestions } from "./file-questions.js";
-import { setTimeZone, timeFormatter } from "./time.js";
+import { render as paint } from "preact";
+import { html, Icon } from "../chat/view.js";
+import { node as element } from "../dom.js";
+import { csvRows, filterParts, formatFilters, isKindFilter, kinds, markdown } from "./format.js";
+import { fileGlyph, uploadURL } from "../attachments.js";
+import { icon, iconButton } from "../icons.js";
+import { showLoading } from "../motion.js";
+import { createPageDetail } from "../pages.js";
+import { createFileQuestions } from "../file-questions.js";
+import { setTimeZone, timeFormatter } from "../time.js";
 
 const get = (id) => document.getElementById(id);
-const kinds = {
-  plan: ["Plan", "file-text"], list: ["List", "list"], note: ["Note", "file-text"],
-  transcript: ["Transcript", "mic"], export: ["Export", "download"],
-  page: ["Page", "page"],
-};
 const fileTypes = {
   docx: ["DOCX", "file-text"], pdf: ["PDF", "files"], xlsx: ["XLSX", "sheet"], pptx: ["PPTX", "slides"],
 };
 const legacyTypes = { md: "MD", txt: "TXT", csv: "CSV", json: "JSON" };
-const formatFilters = { documents: ["docx", "md", "txt"], pdfs: ["pdf"], sheets: ["xlsx", "csv"], slides: ["pptx"] };
-
-export function artifactFilterFromHash(hash) {
-  if (hash === "#artifacts") return "all";
-  if (hash === "#pages") return "pages";
-  const [, format, kind] = hash.match(/^#artifacts\/([a-z]+)(?:\/([a-z]+))?$/) || [];
-  if (kind) return Object.hasOwn(formatFilters, format) && isKindFilter(kind) ? `${format}/${kind}` : undefined;
-  if (format === "pages" || Object.hasOwn(formatFilters, format) || isKindFilter(format)) return format;
-}
-
-function isKindFilter(value) {
-  return value !== "page" && Object.hasOwn(kinds, value);
-}
-
-function filterParts(value) {
-  const [format, kind] = value.split("/");
-  return isKindFilter(format) ? ["all", format] : [format, kind];
-}
-
 const sizeFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 const statuses = { synced: "Synced to Box", saving: "Saving…", local: "Local only", error: "Sync error" };
 const updated = timeFormatter({ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const updatedDay = timeFormatter({ month: "short", day: "numeric" });
-
-function element(tag, className, text) {
-  const item = document.createElement(tag);
-  if (className) item.className = className;
-  if (text !== undefined) item.textContent = text;
-  return item;
-}
 
 function control(label, action, className = "artifact-control") {
   const button = element("button", className, label);
   button.type = "button";
   button.addEventListener("click", action);
   return button;
-}
-
-function badge(text, style) {
-  return element("span", `artifact-badge ${style || ""}`, text);
-}
-
-function clock(at, dateOnly = false) {
-  const timestamp = Date.parse(at);
-  const valid = Number.isFinite(timestamp);
-  const full = valid ? updated.format(timestamp) : "Date unavailable";
-  const time = element("time", "", dateOnly ? (valid ? updatedDay.format(timestamp) : "—") : full);
-  if (dateOnly) time.setAttribute("aria-label", full);
-  time.title = full;
-  if (Number.isFinite(timestamp)) time.dateTime = at;
-  return time;
-}
-
-export function csvRows(text) {
-  const rows = [];
-  let row = [];
-  let value = "";
-  let quoted = false;
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index];
-    if (char === '"') {
-      if (quoted && text[index + 1] === '"') {
-        value += '"';
-        index++;
-      } else if (quoted || !value) {
-        quoted = !quoted;
-      } else {
-        value += char;
-      }
-    } else if (!quoted && (char === "," || char === "\n" || char === "\r")) {
-      row.push(value);
-      value = "";
-      if (char === ",") continue;
-      if (char === "\r" && text[index + 1] === "\n") index++;
-      rows.push(row);
-      row = [];
-    } else {
-      value += char;
-    }
-  }
-  if (value || row.length || /"$/.test(text)) rows.push([...row, value]);
-  return rows;
-}
-
-function inlineMarkdown(target, text) {
-  const tokens = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>]+[^\s<>.,!?;:)\]])/g;
-  let end = 0;
-  for (const match of text.matchAll(tokens)) {
-    target.append(text.slice(end, match.index));
-    const token = match[0];
-    if (token.startsWith("[")) {
-      const split = token.indexOf("](");
-      const link = element("a", "", token.slice(1, split));
-      link.href = token.slice(split + 2, -1);
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      target.append(link);
-    } else if (token.startsWith("http")) {
-      const link = element("a", "", token);
-      link.href = token;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      target.append(link);
-    } else if (token.startsWith("**")) {
-      target.append(element("strong", "", token.slice(2, -2)));
-    } else {
-      target.append(element(token.startsWith("`") ? "code" : "em", "", token.slice(1, -1)));
-    }
-    end = match.index + token.length;
-  }
-  target.append(text.slice(end));
-}
-
-export function markdown(text, className = "artifact-markdown") {
-  const content = element("div", className);
-  const lines = text.split(/\r?\n/);
-  const cells = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((value) => value.trim());
-  let block, code;
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index];
-    if (line.startsWith("```")) {
-      if (!code) {
-        code = element("pre");
-        content.append(code);
-      } else {
-        code = undefined;
-      }
-      block = undefined;
-    } else if (code) {
-      code.append(line + "\n");
-    } else if (line.includes("|") && lines[index + 1]?.includes("|")
-               && cells(lines[index + 1]).every((cell) => /^:?-{3,}:?$/.test(cell))) {
-      const wrap = element("div", "artifact-table");
-      const table = element("table");
-      const head = table.createTHead().insertRow();
-      const headers = cells(line);
-      for (const label of headers) {
-        const cell = element("th");
-        cell.scope = "col";
-        inlineMarkdown(cell, label);
-        head.append(cell);
-      }
-      const body = table.createTBody();
-      index += 2;
-      while (lines[index]?.includes("|")) {
-        const values = cells(lines[index++]);
-        const row = body.insertRow();
-        headers.forEach((_, column) => inlineMarkdown(row.insertCell(), values[column] || ""));
-      }
-      index--;
-      wrap.append(table);
-      content.append(wrap);
-      block = undefined;
-    } else if (!line.trim()) {
-      block = undefined;
-    } else if (/^#{1,6} /.test(line)) {
-      const level = line.indexOf(" ");
-      const heading = element(`h${Math.min(level + 2, 6)}`);
-      inlineMarkdown(heading, line.slice(level + 1));
-      content.append(heading);
-      block = undefined;
-    } else {
-      const item = /^(?:[-*+] |\d+\. )/.exec(line);
-      const quote = line.startsWith("> ");
-      const tag = item ? (/^\d/.test(line) ? "OL" : "UL") : quote ? "BLOCKQUOTE" : "P";
-      if (block?.tagName !== tag) {
-        block = element(tag.toLowerCase());
-        content.append(block);
-      }
-      if (item) {
-        const bullet = element("li");
-        inlineMarkdown(bullet, line.slice(item[0].length));
-        block.append(bullet);
-      } else {
-        if (block.childNodes.length) block.append(" ");
-        inlineMarkdown(block, quote ? line.slice(2) : line);
-      }
-    }
-  }
-  return content;
 }
 
 function fileURL(item, inline = false) {
@@ -235,99 +64,161 @@ function fileLink(item, box = false, compactClass) {
   return link;
 }
 
-function tablePreview(rows) {
-  const wrap = element("div", "artifact-table");
-  const table = element("table");
-  for (const [index, row] of rows.entries()) {
-    const section = index ? (table.tBodies[0] || table.createTBody()) : table.createTHead();
-    const tr = section.insertRow();
-    for (const value of row) {
-      const cell = element(index ? "td" : "th", "", value ?? "");
-      if (!index) cell.scope = "col";
-      tr.append(cell);
-    }
-  }
-  wrap.append(table);
-  return wrap;
+function Clock({ at, dateOnly = false }) {
+  const timestamp = Date.parse(at);
+  const valid = Number.isFinite(timestamp);
+  const full = valid ? updated.format(timestamp) : "Date unavailable";
+  return html`<time title=${full} datetime=${valid ? at : undefined} aria-label=${dateOnly ? full : undefined}>
+    ${dateOnly ? (valid ? updatedDay.format(timestamp) : "—") : full}
+  </time>`;
 }
 
-function bullets(lines) {
-  const list = element("ul");
-  list.append(...lines.map((line) => element("li", "", line)));
-  return list;
+function KindIcon({ item }) {
+  const type = fileTypes[item.format];
+  return html`<span class=${`artifact-kind-icon ${type || item.kind === "page" ? `is-${item.format}` : ""}`} aria-hidden="true">
+    <${Icon} name=${item.mime ? fileGlyph(item) : type?.[1] || kinds[item.kind]?.[1] || "file"} size=${21} />
+  </span>`;
 }
 
-function preview(artifact) {
-  if (artifact.image_url) {
-    const image = element("img", "attachment-preview");
-    image.alt = artifact.filename;
-    image.src = artifact.image_url;
-    return image;
+function Badge({ text, style = "" }) {
+  return html`<span class=${`artifact-badge ${style}`}>${text}</span>`;
+}
+
+function Chips({ item }) {
+  if (item.kind === "page") return html`<${Badge} text="HTML / Page" style="is-page" /><${Badge} text=${`v${item.version_number}`} />`;
+  const type = fileTypes[item.format];
+  return html`
+    <${Badge} text=${type?.[0] || legacyTypes[item.format] || item.format?.toUpperCase() || "File"}
+      style=${type ? `is-${item.format}` : ""} />
+    <${Badge} text=${kinds[item.kind]?.[0] || "File"} style=${`is-${item.kind}`} />
+    ${item.version_number ? html`<${Badge} text=${`v${item.version_number}`} />` : null}
+    ${item.legacy ? html`<${Badge} text="Legacy text" />` : null}
+  `;
+}
+
+function Sync({ item, saving, role }) {
+  const state = saving ? "saving" : item.sync;
+  const text = item.kind === "page" && state === "synced" ? "Saved to Box" : statuses[state];
+  return html`<span class=${`artifact-sync is-${state}`} role=${role}
+    title=${item.sync_message ? `${text} · ${item.sync_message}` : text ?? ""}>
+    <span class="artifact-sync-label">${text}</span>
+  </span>`;
+}
+
+function FileLink({ item, box = false, compact = false }) {
+  const label = box ? "Open in Box" : "Download";
+  const className = compact ? "artifact-row-action" : box ? "artifact-control artifact-box-link" : "artifact-control";
+  return html`<a class=${className} title=${label} aria-label=${label} href=${box ? item.box_url : fileURL(item)}
+    target=${box ? "_blank" : undefined} rel=${box ? "noopener noreferrer" : undefined}
+    download=${box ? undefined : item.filename}>
+    ${compact ? null : label + " "}<${Icon} name=${box ? "external" : "download"} size=${compact ? 18 : 15} />
+  </a>`;
+}
+
+function ArtifactCard({ item, list, saving, connected, open, retry }) {
+  const page = item.kind === "page";
+  const role = list ? "cell" : undefined;
+  const foot = html`
+    <${Sync} ...${{ item, saving, role }} />
+    <div class="artifact-modified" role=${role}>
+      <${Clock} at=${item.updated_at} dateOnly=${!list} />
+      ${list && html`<${Clock} at=${item.updated_at} dateOnly />`}
+    </div>
+    <div class="artifact-card-links" role=${role}>
+      ${item.box_url && html`<${FileLink} item=${item} box compact />`}
+      ${!page && item.sync === "error" && connected && !saving && html`
+        <button type="button" class="artifact-row-action" aria-label="Retry sync" title="Retry sync" onClick=${() => retry(item)}>
+          <${Icon} name="retry" size=${18} />
+        </button>`}
+      ${(page || fileTypes[item.format] || item.format === "file" || item.legacy) && html`<${FileLink} item=${item} compact />`}
+    </div>`;
+  const openCard = (event) => {
+    if (!event.target.closest("button, a")) event.currentTarget.querySelector(".artifact-card-title").click();
+  };
+  return html`
+    <article class="artifact-card" data-kind=${item.kind} data-id=${item.id} role=${list ? "row" : undefined}
+      onClick=${page ? openCard : undefined}>
+      <div class="artifact-card-icon" role=${role}><${KindIcon} item=${item} /></div>
+      <div class="artifact-card-header" role=${role}>
+        <h3><button type="button" class="artifact-card-title" title=${item.title} data-artifact-id=${item.id} aria-haspopup="dialog"
+          onClick=${(event) => open(item.id, event.currentTarget, { kind: item.kind })}><span>${item.title}</span></button></h3>
+        <div class="artifact-card-meta"><${Chips} item=${item} />${item.size != null && html`
+          <span class="artifact-card-size">${fileSize(item.size)}</span>`}</div>
+      </div>
+      ${list ? foot : html`<div class="artifact-card-foot">${foot}</div>`}
+    </article>`;
+}
+
+function TablePreview({ rows, label, warning }) {
+  const [headers, ...body] = rows;
+  return html`<div class="artifact-table" tabindex=${label ? 0 : undefined} role=${label ? "region" : undefined} aria-label=${label}>
+    <table>
+      ${headers && html`<thead><tr>${headers.map((value) => html`<th scope="col">${value ?? ""}</th>`)}</tr></thead>`}
+      ${body.length ? html`<tbody>${body.map((row) => html`<tr>${row.map((value) => html`<td>${value ?? ""}</td>`)}</tr>`)}</tbody>` : null}
+    </table>
+    ${warning && html`<p class="meta">${warning}</p>`}
+  </div>`;
+}
+
+function DocumentPreview({ blocks }) {
+  const groups = [];
+  for (const block of blocks) {
+    if (block.type === "bullet" && Array.isArray(groups.at(-1))) groups.at(-1).push(block.text);
+    else groups.push(block.type === "bullet" ? [block.text] : block);
   }
-  if (artifact.audio_url) {
-    const audio = element("audio", "attachment-audio");
-    audio.src = artifact.audio_url;
-    audio.controls = true;
-    audio.preload = "metadata";
-    return audio;
+  return html`<div class="artifact-document">${groups.map((block) => {
+    if (Array.isArray(block)) return html`<ul>${block.map((text) => html`<li>${text}</li>`)}</ul>`;
+    if (block.type === "table") return html`<${TablePreview} rows=${block.rows} />`;
+    return block.type === "heading" ? html`<h4>${block.text}</h4>` : html`<p>${block.text}</p>`;
+  })}</div>`;
+}
+
+function Preview({ item }) {
+  if (item.image_url) return html`<img class="attachment-preview" alt=${item.filename} src=${item.image_url} />`;
+  if (item.audio_url) return html`<audio class="attachment-audio" src=${item.audio_url} controls preload="metadata"></audio>`;
+  if (item.inline_pdf) return html`<iframe class="artifact-pdf" title=${`${item.title} PDF preview`}
+    src=${fileURL(item, true) + "#toolbar=0&view=FitH"}></iframe>`;
+  const data = item.preview;
+  if (item.format === "xlsx" && data) return html`<div class="artifact-sheet">
+    <h4>${data.sheet}</h4><${TablePreview} rows=${data.rows} label=${data.sheet + " spreadsheet"} />
+    ${data.truncated && html`<p class="meta">Preview shows up to 200 rows and 50 columns.</p>`}
+  </div>`;
+  if (item.format === "pptx" && data) return html`<ol class="artifact-slides">${data.slides.map((slide) => html`<li>
+    ${slide.title && html`<h4>${slide.title}</h4>`}
+    ${slide.bullets.length ? html`<ul>${slide.bullets.map((line) => html`<li>${line}</li>`)}</ul>` : null}
+  </li>`)}</ol>`;
+  if (item.format === "docx" && data) return html`<${DocumentPreview} blocks=${data.blocks} />`;
+  if (item.format === "md" && Object.hasOwn(item, "content")) return html`<div class="artifact-markdown"
+    ref=${(node) => node?.replaceChildren(...markdown(item.content).childNodes)}></div>`;
+  if (item.format === "csv" && Object.hasOwn(item, "content")) {
+    const rows = csvRows(item.content);
+    const truncated = rows.length > 201 || rows.some((row) => row.length > 60);
+    return html`<${TablePreview} rows=${rows.slice(0, 201).map((row) => row.slice(0, 60))}
+      warning=${truncated ? "Preview shows up to 200 rows and 60 columns." : undefined} />`;
   }
-  if (artifact.inline_pdf) {
-    const frame = element("iframe", "artifact-pdf");
-    frame.title = `${artifact.title} PDF preview`;
-    frame.src = fileURL(artifact, true) + "#toolbar=0&view=FitH";
-    return frame;
-  }
-  const data = artifact.preview;
-  if (artifact.format === "xlsx" && data) {
-    const sheet = element("div", "artifact-sheet");
-    const grid = tablePreview(data.rows);
-    grid.tabIndex = 0;
-    grid.setAttribute("role", "region");
-    grid.setAttribute("aria-label", data.sheet + " spreadsheet");
-    sheet.append(element("h4", "", data.sheet), grid);
-    if (data.truncated) sheet.append(element("p", "meta", "Preview shows up to 200 rows and 50 columns."));
-    return sheet;
-  }
-  if (artifact.format === "pptx" && data) {
-    const deck = element("ol", "artifact-slides");
-    for (const slide of data.slides) {
-      const page = element("li");
-      if (slide.title) page.append(element("h4", "", slide.title));
-      if (slide.bullets.length) page.append(bullets(slide.bullets));
-      deck.append(page);
-    }
-    return deck;
-  }
-  if (artifact.format === "docx" && data) {
-    const doc = element("div", "artifact-document");
-    let list;
-    for (const block of data.blocks) {
-      if (block.type === "bullet") {
-        if (!list) {
-          list = element("ul");
-          doc.append(list);
-        }
-        list.append(element("li", "", block.text));
-      } else {
-        list = undefined;
-        doc.append(block.type === "table" ? tablePreview(block.rows)
-          : element(block.type === "heading" ? "h4" : "p", "", block.text));
-      }
-    }
-    return doc;
-  }
-  if (artifact.format === "md" && Object.hasOwn(artifact, "content")) return markdown(artifact.content);
-  if (artifact.format === "csv" && Object.hasOwn(artifact, "content")) {
-    const rows = csvRows(artifact.content);
-    const wrap = tablePreview(rows.slice(0, 201).map((row) => row.slice(0, 60)));
-    if (rows.length > 201 || rows.some((row) => row.length > 60)) {
-      wrap.append(element("p", "meta", "Preview shows up to 200 rows and 60 columns."));
-    }
-    return wrap;
-  }
-  if (Object.hasOwn(artifact, "content")) return element("pre", "artifact-plain", artifact.content);
-  return element("p", "artifact-no-preview", artifact.download_available
-    ? "Download this file to view it." : "Open this file in Box to view it.");
+  if (Object.hasOwn(item, "content")) return html`<pre class="artifact-plain">${item.content}</pre>`;
+  return html`<p class="artifact-no-preview">${item.download_available
+    ? "Download this file to view it." : "Open this file in Box to view it."}</p>`;
+}
+
+function Paper({ item, editHint }) {
+  return html`<section class="artifact-paper"><h3 class="artifact-section-label">Preview</h3><${Preview} item=${item} />
+    ${editHint && html`<p class="artifact-edit-hint meta">Ask Hearth to edit this file and save a new version.</p>`}
+  </section>`;
+}
+
+function VersionHistory({ item }) {
+  const hearth = item.version_source === "hearth";
+  return html`<section class="artifact-versions">
+    <h3>${hearth ? "Hearth version history" : "Version history"}</h3>
+    ${item.versions?.length ? html`<ol>${item.versions.map((version) => html`<li>
+      <strong>${version.number ? `Version ${version.number}` : "Box version"}</strong>
+      ${version.current && html`<${Badge} text="Current" style="is-box" />`}
+      ${version.at && html`<${Clock} at=${version.at} />`}
+    </li>`)}</ol>` : !item.warnings?.length && html`<p class="meta">${hearth
+      ? "Hearth has no saved versions for this file." : "Box will show the available version history."}</p>`}
+    ${item.warnings?.map((warning) => html`<p class="meta">${warning}</p>`)}
+  </section>`;
 }
 
 export function createArtifacts({ api, openThread, showNotice, refreshChat, onFilter }) {
@@ -348,15 +239,6 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
   let activeFilter = "all";
   let snapshot, selected, request, refreshTimer, detailRequest, opener, liveBrowse, confirming = false;
   const questions = createFileQuestions(api);
-  const listHead = element("div", "artifact-list-head");
-  listHead.setAttribute("role", "row");
-  ["", "Name", "Status", "Modified", "Actions"].forEach((label) => {
-    const heading = element("span", "", label);
-    heading.setAttribute("role", "columnheader");
-    if (!label || label === "Actions") heading.classList.add("visually-hidden");
-    listHead.append(heading);
-  });
-
   function connection(info) {
     const { connected, box_error: error, box_status: freshness, settings } = info;
     const status = get("artifact-box-status");
@@ -366,83 +248,6 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     status.dataset.connected = String(connected && !error);
     get("artifact-connection").hidden = connected && !error;
     get("artifact-connection-copy").textContent = error || "Connect Box to sync the artifacts you save here.";
-  }
-
-  function syncLabel(item) {
-    const state = pending.has(item.id) ? "saving" : item.sync;
-    const text = item.kind === "page" && state === "synced" ? "Saved to Box" : statuses[state];
-    const label = element("span", `artifact-sync is-${state}`);
-    label.append(element("span", "artifact-sync-label", text));
-    label.title = item.sync_message ? `${text} · ${item.sync_message}` : text;
-    return label;
-  }
-
-  function chips(item) {
-    if (item.kind === "page") return [badge("HTML / Page", "is-page"), badge(`v${item.version_number}`)];
-    const format = fileTypes[item.format]?.[0] || legacyTypes[item.format] || item.format?.toUpperCase() || "File";
-    const labels = [badge(format, fileTypes[item.format] ? `is-${item.format}` : ""),
-      badge(kinds[item.kind]?.[0] || "File", `is-${item.kind}`)];
-    if (item.version_number) labels.push(badge(`v${item.version_number}`));
-    if (item.legacy) labels.push(badge("Legacy text"));
-    return labels;
-  }
-
-  function threadLink(item) {
-    const link = element("a", "artifact-thread");
-    link.append(icon("external", 14), " ", item.thread_title || "Source chat");
-    link.href = "#chat";
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      if (drawer.open) drawer.close();
-      openThread(item.thread_id, item.message_id);
-    });
-    return link;
-  }
-
-  function card(item) {
-    const panel = element("article", "artifact-card");
-    panel.dataset.kind = item.kind;
-    panel.dataset.id = item.id;
-    const page = item.kind === "page";
-    const thumbnail = element("div", "artifact-card-icon");
-    thumbnail.append(fileIcon(item));
-    const header = element("div", "artifact-card-header");
-    const meta = element("div", "artifact-card-meta");
-    const heading = element("h3");
-    const title = control("", (event) => open(item.id, event.currentTarget, { kind: item.kind }), "artifact-card-title");
-    title.append(element("span", "", item.title));
-    title.title = item.title;
-    title.dataset.artifactId = item.id;
-    title.setAttribute("aria-haspopup", "dialog");
-    if (page) panel.addEventListener("click", (event) => {
-      if (!event.target.closest("button, a")) title.click();
-    });
-    heading.append(title);
-    meta.append(...chips(item));
-    if (item.size != null) meta.append(element("span", "artifact-card-size", fileSize(item.size)));
-    header.append(heading, meta);
-    const timestamp = element("div", "artifact-modified");
-    timestamp.append(clock(item.updated_at, layout === "grid"), ...(layout === "list" ? [clock(item.updated_at, true)] : []));
-    const sync = syncLabel(item);
-    const actions = element("div", "artifact-card-links");
-    const iconClass = "artifact-row-action";
-    if (item.box_url) actions.append(fileLink(item, true, iconClass));
-    if (!page && item.sync === "error" && snapshot.connected && !pending.has(item.id)) {
-      actions.append(iconButton("retry", "Retry sync", () => retry(item), iconClass));
-    }
-    if (page || fileTypes[item.format] || item.format === "file" || item.legacy) {
-      actions.append(fileLink(item, false, iconClass));
-    }
-    if (layout === "list") {
-      panel.setAttribute("role", "row");
-      for (const cell of [thumbnail, header, sync, timestamp, actions]) cell.setAttribute("role", "cell");
-      panel.append(thumbnail, header, sync, timestamp, actions);
-    } else {
-      const foot = element("div", "artifact-card-foot");
-      foot.append(sync, timestamp, actions);
-      panel.append(thumbnail, header, foot);
-    }
-    return panel;
   }
 
   function render() {
@@ -479,7 +284,15 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
       collection.removeAttribute("role");
       collection.removeAttribute("aria-label");
     }
-    collection.replaceChildren(...(list ? [listHead] : []), ...rows.map(card));
+    paint(html`
+      ${list ? html`<div class="artifact-list-head" role="row">
+        ${["", "Name", "Status", "Modified", "Actions"].map((label) => html`
+          <span role="columnheader" class=${!label || label === "Actions" ? "visually-hidden" : undefined}>${label}</span>`)}
+      </div>` : null}
+      ${rows.map((item) => html`<${ArtifactCard} key=${item.id} ...${{
+        item, list: layout === "list", saving: pending.has(item.id), connected: snapshot.connected, open, retry,
+      }} />`)}
+    `, collection);
     if (focusedId) {
       const replacement = [...collection.querySelectorAll("button[data-artifact-id]")]
         .find((button) => button.dataset.artifactId === focusedId);
@@ -545,75 +358,60 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     return request;
   }
 
+  const detailMeta = get("artifact-detail-meta");
+  const actions = get("artifact-actions");
+
+  function clearDrawer() {
+    for (const host of [detailMeta, actions, detailBody]) {
+      paint(null, host);
+      host.replaceChildren();
+    }
+  }
+
+  function renderMeta(item) {
+    paint(html`<${KindIcon} item=${item} /><${Chips} item=${item} /><${Sync} item=${item} saving=${pending.has(item.id)} />`, detailMeta);
+  }
+
   function renderDetail(item) {
     if (item.timezone) setTimeZone(item.timezone);
-    get("artifact-drawer-title").textContent = item.title;
-    get("artifact-filename").textContent = [item.filename, fileSize(item.size)]
-      .filter(Boolean).join(" · ");
-    get("artifact-detail-meta").replaceChildren(fileIcon(item), ...chips(item), syncLabel(item));
-    const actions = get("artifact-actions");
-    actions.replaceChildren();
-    detailStatus.textContent = item.sync_message || "";
-    if (item.download_available || Object.hasOwn(item, "content")) actions.append(fileLink(item));
-    if (item.box_url) actions.append(fileLink(item, true));
-    if (item.box_connected && !pending.has(item.id) && (item.sync === "error" || item.sync === "local")) {
-      const label = item.sync === "error" ? "Retry sync" : "Save to Box";
-      actions.append(control(label, () => retry(item)));
-    }
-    const deletion = control("Move to Trash", () => {
+    const toggleConfirm = () => {
       confirming = !confirming;
       renderDetail(item);
-      if (confirming) get("artifact-confirm-delete").focus();
-    }, "artifact-control artifact-danger");
-    deletion.setAttribute("aria-expanded", String(confirming));
-    actions.append(deletion);
-    detailBody.replaceChildren();
-    if (confirming) {
-      const confirm = element("div", "artifact-delete");
-      confirm.append(element("p", "", item.box_url
-        ? "Move this artifact to Hearth Trash? The file stays in Box. Restore it from Timeline."
-        : "Move this artifact to Hearth Trash? Restore it from Timeline."));
-      const yes = control("Move to Hearth Trash",
-        () => mutate("delete", item, { revision: item.revision }), "artifact-control artifact-danger");
-      yes.id = "artifact-confirm-delete";
-      const controls = element("div", "action-row");
-      controls.append(control("Cancel", () => {
-        confirming = false;
-        renderDetail(item);
-        get("artifact-actions").lastElementChild.focus();
-      }), yes);
-      confirm.append(controls);
-      detailBody.append(confirm);
-    }
-    if (item.thread_id) {
-      const source = element("p", "artifact-detail-source");
-      source.append(element("span", "", "From "), threadLink(item));
-      detailBody.append(source);
-    }
-    const paper = element("section", "artifact-paper");
-    paper.append(element("h3", "artifact-section-label", "Preview"), preview(item));
-    if (fileTypes[item.format] && item.source === "Hearth") {
-      paper.append(element("p", "artifact-edit-hint meta", "Ask Hearth to edit this file and save a new version."));
-    }
-    detailBody.append(paper);
-    const versions = element("section", "artifact-versions");
-    versions.append(element("h3", "", item.version_source === "hearth" ? "Hearth version history" : "Version history"));
-    if (item.versions?.length) {
-      const list = element("ol");
-      for (const version of item.versions) {
-        const row = element("li");
-        row.append(element("strong", "", version.number ? `Version ${version.number}` : "Box version"));
-        if (version.current) row.append(badge("Current", "is-box"));
-        if (version.at) row.append(clock(version.at));
-        list.append(row);
-      }
-      versions.append(list);
-    } else if (!item.warnings?.length) {
-      versions.append(element("p", "meta", item.version_source === "hearth"
-        ? "Hearth has no saved versions for this file." : "Box will show the available version history."));
-    }
-    for (const warning of item.warnings || []) versions.append(element("p", "meta", warning));
-    detailBody.append(versions);
+      (confirming ? get("artifact-confirm-delete") : actions.lastElementChild).focus();
+    };
+    const visitThread = (event) => {
+      event.preventDefault();
+      if (drawer.open) drawer.close();
+      openThread(item.thread_id, item.message_id);
+    };
+    get("artifact-drawer-title").textContent = item.title;
+    get("artifact-filename").textContent = [item.filename, fileSize(item.size)].filter(Boolean).join(" · ");
+    detailStatus.textContent = item.sync_message || "";
+    renderMeta(item);
+    paint(html`
+      ${(item.download_available || Object.hasOwn(item, "content")) && html`<${FileLink} item=${item} />`}
+      ${item.box_url && html`<${FileLink} item=${item} box />`}
+      ${item.box_connected && !pending.has(item.id) && ["error", "local"].includes(item.sync) && html`
+        <button type="button" class="artifact-control" onClick=${() => retry(item)}>${item.sync === "error" ? "Retry sync" : "Save to Box"}</button>`}
+      <button type="button" class="artifact-control artifact-danger" aria-expanded=${String(confirming)}
+        onClick=${toggleConfirm}>Move to Trash</button>
+    `, actions);
+    paint(html`
+      ${confirming && html`<div class="artifact-delete">
+        <p>${item.box_url
+          ? "Move this artifact to Hearth Trash? The file stays in Box. Restore it from Timeline."
+          : "Move this artifact to Hearth Trash? Restore it from Timeline."}</p>
+        <div class="action-row">
+          <button type="button" class="artifact-control" onClick=${toggleConfirm}>Cancel</button>
+          <button type="button" class="artifact-control artifact-danger" id="artifact-confirm-delete"
+            onClick=${() => mutate("delete", item, { revision: item.revision })}>Move to Hearth Trash</button>
+        </div>
+      </div>`}
+      ${item.thread_id && html`<p class="artifact-detail-source"><span>From </span><a class="artifact-thread" href="#chat"
+        onClick=${visitThread}><${Icon} name="external" size=${14} />${" "}${item.thread_title || "Source chat"}</a></p>`}
+      <${Paper} item=${item} editHint=${!!fileTypes[item.format] && item.source === "Hearth"} />
+      <${VersionHistory} item=${item} />
+    `, detailBody);
   }
 
   async function open(id, trigger, { kind, version_number: version } = {}) {
@@ -630,11 +428,9 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     selected = id;
     confirming = false;
     get("artifact-drawer-title").textContent = row?.title || "Artifact";
-    get("artifact-detail-meta").replaceChildren();
-    get("artifact-actions").replaceChildren();
+    clearDrawer();
     get("artifact-filename").textContent = "";
     showLoading(detailStatus, "Loading artifact…");
-    detailBody.replaceChildren();
     try {
       const item = await api(`/api/artifacts/detail?id=${encodeURIComponent(id)}`);
       if (detailRequest !== token || !drawer.open) return;
@@ -685,10 +481,8 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     selected = item.id;
     get("artifact-drawer-title").textContent = item.filename;
     get("artifact-filename").textContent = fileSize(item.size);
-    get("artifact-detail-meta").replaceChildren(fileIcon(item), badge(item.format.toUpperCase()));
-    const actions = get("artifact-actions");
-    actions.replaceChildren();
-    detailBody.replaceChildren();
+    clearDrawer();
+    paint(html`<${KindIcon} item=${item} /><${Badge} text=${item.format.toUpperCase()} />`, detailMeta);
     showLoading(detailStatus, "Loading attachment…");
     try {
       const attachment = await api(uploadURL(item, "/detail"));
@@ -697,9 +491,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
         if (detailRequest === token) detailStatus.textContent = "Attachment saved to Box.";
       }));
       detailStatus.textContent = attachment.warnings?.join(" ") || "";
-      const paper = element("section", "artifact-paper");
-      paper.append(element("h3", "artifact-section-label", "Preview"), preview(attachment));
-      detailBody.append(paper);
+      paint(html`<${Paper} item=${attachment} />`, detailBody);
     } catch (error) {
       if (detailRequest === token && drawer.open) detailStatus.textContent = error.message;
     }
@@ -738,9 +530,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     opener = trigger;
     get("artifact-drawer-title").textContent = name ? "Browser screenshot" : "Live browser";
     get("artifact-filename").textContent = domain;
-    get("artifact-detail-meta").replaceChildren();
-    const actions = get("artifact-actions");
-    actions.replaceChildren();
+    clearDrawer();
     detailStatus.textContent = mock ? "Mock browser preview" : "";
     if (name || mock) {
       const src = name ? `/api/browse/screenshots/${name}`
@@ -781,7 +571,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     const inDrawer = selected === item.id && drawer.open;
     if (inDrawer) detailStatus.textContent = operation === "delete" ? "Deleting…" : "Saving…";
     if (inDrawer) {
-      get("artifact-detail-meta").querySelector(".artifact-sync")?.replaceWith(syncLabel(item));
+      renderMeta(item);
       for (const button of drawer.querySelectorAll("button:not(#artifact-close)")) button.disabled = true;
     }
     render();
@@ -800,7 +590,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
     } catch (error) {
       if (inDrawer && drawer.open && selected === item.id) {
         pending.delete(item.id);
-        get("artifact-detail-meta").querySelector(".artifact-sync")?.replaceWith(syncLabel(item));
+        renderMeta(item);
         detailStatus.textContent = error.message;
       } else showNotice(error.message);
     } finally {
@@ -892,7 +682,7 @@ export function createArtifacts({ api, openThread, showNotice, refreshChat, onFi
       .find((button) => button.dataset.artifactId === selected && button.getClientRects().length);
     const target = opener?.isConnected ? opener : replacement || (get("artifacts-view").hidden ? get("message") : search);
     selected = detailRequest = liveBrowse = undefined;
-    detailBody.replaceChildren();
+    clearDrawer();
     opener = undefined;
     if (!get("page-dialog").open) target?.focus();
   });
