@@ -15,7 +15,7 @@ import { createChatSearch } from "./search.js";
 import { createAttachments } from "../attachments.js";
 import { icon, iconButton } from "../icons.js";
 import { setTimeZone, timeFormatter } from "../time.js";
-import { skillChip } from "../skills.js";
+import { skillChip } from "../skills/workspace.js";
 import { createWorkersCard } from "../workers.js";
 import { conversationView, newConversation, reconcile } from "../chat-state.js";
 import { createSSEParser } from "../sse.js";

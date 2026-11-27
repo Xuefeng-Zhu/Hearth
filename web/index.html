@@ -167,19 +167,7 @@
         <div id="inbox-content" class="list-search-results"></div>
       </section>
       <section class="view panel" id="timeline-view" aria-labelledby="view-title" hidden></section>
-      <section class="view panel" id="skills-view" aria-labelledby="view-title" hidden>
-        <div class="section-intro split-heading">
-          <div>
-            <h2>Reusable playbooks</h2>
-            <p>Use a playbook in chat or create one for a routine of your own.</p>
-          </div>
-          <button type="button" class="settings-button primary-setting" id="skill-new"><span data-icon="plus" data-icon-size="17"></span> New skill</button>
-        </div>
-        <div id="skills-search" class="list-search"></div>
-        <p class="meta" id="skills-status" role="status"></p>
-        <div id="skills-search-empty" class="list-search-empty" hidden></div>
-        <div id="skill-list" class="skill-list list-search-results" aria-label="Playbooks"></div>
-      </section>
+      <section class="view panel" id="skills-view" aria-labelledby="view-title" hidden></section>
       <section class="view panel" id="settings-view" aria-labelledby="view-title" hidden>
         <div class="settings-sections" id="settings-sections"></div>
       </section>
@@ -271,48 +259,7 @@
   </dialog>
   <dialog class="artifact-drawer file-question-dialog" id="file-question-dialog" aria-labelledby="file-question-title">
   </dialog>
-  <dialog id="skill-editor" class="skill-editor" aria-labelledby="skill-title">
-    <form id="skill-form">
-      <header class="skill-editor-header split-heading">
-        <div>
-          <h2 id="skill-title">Skill</h2>
-          <p class="meta" id="skill-description"></p>
-        </div>
-        <button type="button" class="skill-button" id="skill-close" aria-label="Close skill editor" autofocus><span data-icon="x" data-icon-size="20"></span></button>
-      </header>
-      <div class="skill-editor-body">
-        <div class="skill-editor-toolbar">
-          <div class="skill-mode" role="group" aria-label="Editor mode">
-            <button type="button" class="skill-button" id="skill-source-mode" aria-pressed="true">Markdown</button>
-            <button type="button" class="skill-button" id="skill-preview-mode" aria-pressed="false">Preview</button>
-          </div>
-          <label id="skill-history" hidden>Version history <select id="skill-versions"></select></label>
-        </div>
-        <div id="skill-source">
-          <label class="visually-hidden" for="skill-markdown">Skill Markdown</label>
-          <textarea id="skill-markdown" spellcheck="false" maxlength="12000" rows="12" aria-describedby="skill-markdown-help"></textarea>
-          <p id="skill-markdown-help" class="meta">Include name, description, when_to_use, and tools in the YAML front matter.</p>
-        </div>
-        <div id="skill-preview" class="skill-preview" role="region" aria-label="Markdown preview" tabindex="0" hidden></div>
-      </div>
-      <footer class="skill-editor-footer">
-        <p class="meta" id="skill-feedback" role="status"></p>
-        <div class="skill-delete-confirm" id="skill-delete-confirm" hidden>
-          <p>Delete this skill? You can restore it from Timeline.</p>
-          <div class="action-row">
-            <button type="button" class="skill-button" id="skill-delete-cancel">Cancel</button>
-            <button type="button" class="skill-button skill-danger" id="skill-delete-confirm-button">Delete skill</button>
-          </div>
-        </div>
-        <div class="skill-editor-actions">
-          <button type="button" class="skill-button skill-danger" id="skill-delete"><span data-icon="trash" data-icon-size="17"></span> Delete</button>
-          <button type="button" class="skill-button" id="skill-duplicate"><span data-icon="copy" data-icon-size="17"></span> Duplicate to edit</button>
-          <button type="button" class="skill-button" id="skill-try"><span data-icon="message" data-icon-size="17"></span> Try it</button>
-          <button type="submit" class="skill-button skill-primary" id="skill-save">Save skill</button>
-        </div>
-      </footer>
-    </form>
-  </dialog>
+  <dialog id="skill-editor" class="skill-editor" aria-labelledby="skill-title"></dialog>
   <dialog id="goal-dialog" class="card automation-dialog" aria-labelledby="goal-dialog-title"></dialog>
   <dialog id="automation-dialog" class="card automation-dialog" aria-labelledby="automation-dialog-title"></dialog>
 </body>

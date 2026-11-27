@@ -1,12 +1,12 @@
-import { markdown } from "./artifacts/format.js";
-import { appendHighlighted } from "./dom.js";
-import { icon } from "./icons.js";
-import { listSearchExcerpt, listSearchPath } from "./list-search.js";
-import { showLoading } from "./motion.js";
-import { timeFormatter } from "./time.js";
+import { render } from "preact";
+import { html } from "../chat/view.js";
+import { node as element } from "../dom.js";
+import { icon } from "../icons.js";
+import { listSearchPath } from "../list-search.js";
+import { showLoading } from "../motion.js";
+import { SkillEditor, SkillList, SkillsView } from "./view.js";
 
 const get = (id) => document.getElementById(id);
-const date = timeFormatter({ dateStyle: "medium", timeStyle: "short" });
 const template = `---
 name: ""
 description: ""
@@ -17,13 +17,6 @@ tools: []
 1. Describe the first step.
 `;
 
-function element(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
 export function skillChip(skill, label = "Using skill") {
   const chip = element(skill.id ? "a" : "span", "skill-chip");
   if (skill.id) chip.href = `#skills/${encodeURIComponent(skill.id)}`;
@@ -31,22 +24,26 @@ export function skillChip(skill, label = "Using skill") {
   return chip;
 }
 
+export function mountSkills(get) {
+  render(html`<${SkillsView} />`, get("skills-view"));
+  render(html`<${SkillEditor} />`, get("skill-editor"));
+}
+
 export function createSkills({ api, openChat, onLinkedClose, search }) {
   const library = get("skill-list");
   const status = get("skills-status");
   const editor = get("skill-editor");
   const form = get("skill-form");
-  const title = get("skill-title");
   const source = get("skill-markdown");
-  const preview = get("skill-preview");
   const history = get("skill-versions");
   const feedback = get("skill-feedback");
-  const confirm = get("skill-delete-confirm");
   const close = get("skill-close");
   let current;
   let draft;
   let viewing;
   let mode;
+  let previewText;
+  let confirming = false;
   let pending = false;
   let listRequest = 0;
   let opener;
@@ -55,46 +52,28 @@ export function createSkills({ api, openChat, onLinkedClose, search }) {
   const detail = (id, version) => api("/api/skills/detail?" + new URLSearchParams({ id, ...(version ? { version } : {}) }));
   const cardButton = (id) => [...library.querySelectorAll("[data-skill]")].find((button) => button.dataset.skill === id);
 
+  function paintEditor() {
+    render(html`<${SkillEditor} skill=${current} ...${{ mode, previewText, viewing, pending, confirming }} />`, editor);
+  }
+
   function toggle(next) {
     mode = next;
-    const showing = mode === "preview";
-    get("skill-source").hidden = showing;
-    preview.hidden = !showing;
-    get("skill-source-mode").setAttribute("aria-pressed", String(!showing));
-    get("skill-preview-mode").setAttribute("aria-pressed", String(showing));
-    if (showing) {
-      const body = source.value.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "").trim();
-      preview.replaceChildren(body ? markdown(body) : element("p", "meta", "Add instructions to preview the playbook."));
-    }
+    if (mode === "preview") previewText = source.value.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "").trim();
+    paintEditor();
   }
 
   function setVersion(version, content) {
     viewing = version;
-    history.value = viewing || "";
-    const historical = !!viewing && viewing !== current?.revision;
     source.value = content;
-    source.readOnly = !!current?.builtin || historical;
-    source.setAttribute("aria-readonly", String(source.readOnly));
-    get("skill-save").hidden = source.readOnly;
-    get("skill-delete").hidden = !current || source.readOnly;
-    get("skill-try").hidden = !current || historical;
-    confirm.hidden = true;
+    confirming = false;
     toggle(mode);
+    history.value = viewing || "";
   }
 
   function display(skill, nextMode) {
     current = skill;
     draft = skill?.markdown || template;
     mode = nextMode || (skill?.builtin ? "preview" : "source");
-    title.textContent = skill?.name || "New skill";
-    get("skill-description").textContent = skill?.builtin ? "Built-in playbook · Duplicate it to make changes."
-      : skill?.description || "Write a Markdown playbook Hearth can load in chat.";
-    get("skill-duplicate").hidden = !skill?.builtin;
-    get("skill-history").hidden = !skill?.versions.length;
-    history.replaceChildren(...(skill?.versions || []).map((version) => {
-      const label = `Version ${version.number} · ${version.id === skill.revision ? "Current" : date.format(new Date(version.at))}`;
-      return new Option(label, version.id);
-    }));
     setVersion(skill?.revision, draft);
   }
 
@@ -102,14 +81,14 @@ export function createSkills({ api, openChat, onLinkedClose, search }) {
     if (pending) return;
     pending = true;
     target.textContent = "";
-    form.setAttribute("aria-busy", "true");
+    paintEditor();
     try {
       await action();
     } catch (error) {
       target.textContent = error.message;
     } finally {
       pending = false;
-      form.removeAttribute("aria-busy");
+      paintEditor();
     }
   }
 
@@ -125,38 +104,12 @@ export function createSkills({ api, openChat, onLinkedClose, search }) {
     }
   }
 
-  function card(skill) {
-    const matches = skill.search_matches;
-    const article = element("article", "skill-card");
-    const mark = element("span", "skill-mark");
-    mark.append(icon("skill", 21));
-    const text = element("div", "skill-card-body");
-    const heading = element("h3");
-    const link = element("button", "skill-card-link");
-    link.append(appendHighlighted(element("span"), matches?.name, skill.name));
-    link.type = "button";
-    link.dataset.skill = skill.id;
-    link.setAttribute("aria-haspopup", "dialog");
-    link.addEventListener("click", () => perform(async () => {
-      const loaded = await detail(skill.id);
-      if (link.checkVisibility()) open(loaded, link);
-    }, status));
-    heading.append(link);
-    const stats = element("div", "skill-stats");
-    const lastUsed = element("span", "", "Never used");
-    if (skill.last_used) {
-      const last = element("time", "", date.format(new Date(skill.last_used)));
-      last.dateTime = skill.last_used;
-      lastUsed.replaceChildren("Last used ", last);
-    }
-    stats.append(lastUsed, element("span", "", `${skill.use_count} ${skill.use_count === 1 ? "use" : "uses"}`));
-    if (skill.builtin) stats.prepend(element("span", "skill-badge", "Built-in"));
-    text.append(heading, appendHighlighted(element("p"), matches?.description, skill.description));
-    const excerpt = listSearchExcerpt(matches);
-    if (excerpt) text.append(excerpt);
-    text.append(stats);
-    article.append(mark, text);
-    return article;
+  function openCard(id, trigger) {
+    const sequence = listRequest;
+    return perform(async () => {
+      const loaded = await detail(id);
+      if (sequence === listRequest && trigger.checkVisibility()) open(loaded, trigger);
+    }, status);
   }
 
   async function load() {
@@ -166,7 +119,7 @@ export function createSkills({ api, openChat, onLinkedClose, search }) {
     try {
       const { skills } = await api(listSearchPath("/api/skills", query));
       if (request !== listRequest || query !== search.query) return;
-      library.replaceChildren(...skills.map(card));
+      render(html`<${SkillList} skills=${skills} open=${openCard} />`, library);
       search.count(skills.length);
       status.textContent = skills.length || query ? "" : "No skills yet.";
     } catch (error) {
@@ -253,11 +206,13 @@ export function createSkills({ api, openChat, onLinkedClose, search }) {
     feedback.textContent = "Copy created.";
   }));
   get("skill-delete").addEventListener("click", () => {
-    confirm.hidden = false;
+    confirming = true;
+    paintEditor();
     get("skill-delete-cancel").focus();
   });
   get("skill-delete-cancel").addEventListener("click", () => {
-    confirm.hidden = true;
+    confirming = false;
+    paintEditor();
     get("skill-delete").focus();
   });
   get("skill-delete-confirm-button").addEventListener("click", () => perform(async () => {

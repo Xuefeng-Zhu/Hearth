@@ -17,7 +17,7 @@ import { mountHome } from "./home/view.js";
 import { createProactivity } from "./proactivity.js";
 import { createAutomation } from "./automation/workspace.js";
 import { mountTasks } from "./automation/view.js";
-import { createSkills } from "./skills.js";
+import { createSkills, mountSkills } from "./skills/workspace.js";
 import { createWorkersCard } from "./workers.js";
 import { createMemory } from "./memory/workspace.js";
 import { memoryLabel } from "./memory/view.js";
@@ -39,6 +39,7 @@ mountTasks(byId);
 mountReminders(byId);
 mountHome(byId);
 mountTimeline(byId);
+mountSkills(byId);
 mountIcons();
 setupSearchableSelects();
 
